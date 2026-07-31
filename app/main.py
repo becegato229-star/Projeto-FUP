@@ -126,6 +126,21 @@ def cancelar_pedido(
 # ---------------------------------------------------------------------
 # FUP (acompanhamento diário manual)
 # ---------------------------------------------------------------------
+def _recalcular_motivo_espelhado(numero_pedido: str, session: Session):
+    """Depois de editar/apagar um FUP, atualiza o motivo mais recente
+    espelhado no pedido (usado nas colunas/filtros da tela principal)."""
+    ultimo = session.exec(
+        select(FupRegistro)
+        .where(FupRegistro.numero_pedido == numero_pedido)
+        .order_by(FupRegistro.data_referencia.desc(), FupRegistro.id.desc())
+    ).first()
+    pedido = session.get(Pedido, numero_pedido)
+    if pedido:
+        pedido.motivo_atraso_fup = ultimo.motivo_atraso if ultimo else None
+        session.add(pedido)
+        session.commit()
+
+
 @app.get("/api/fup/motivos")
 def motivos_padrao():
     return MOTIVOS_ATRASO_PADRAO
@@ -154,8 +169,37 @@ def criar_fup(dados: FupRegistroCreate, session: Session = Depends(get_session))
     return fup
 
 
+@app.put("/api/fup/{fup_id}")
+def editar_fup(fup_id: int, dados: FupRegistroCreate, session: Session = Depends(get_session)):
+    fup = session.get(FupRegistro, fup_id)
+    if not fup:
+        raise HTTPException(404, "Registro de FUP não encontrado")
+    fup.data_referencia = dados.data_referencia
+    fup.previsao_atraso = dados.previsao_atraso
+    fup.motivo_atraso = dados.motivo_atraso
+    fup.observacao = dados.observacao
+    session.add(fup)
+    session.commit()
+    session.refresh(fup)
+    _recalcular_motivo_espelhado(fup.numero_pedido, session)
+    return fup
+
+
+@app.delete("/api/fup/{fup_id}")
+def apagar_fup(fup_id: int, session: Session = Depends(get_session)):
+    fup = session.get(FupRegistro, fup_id)
+    if not fup:
+        raise HTTPException(404, "Registro de FUP não encontrado")
+    numero_pedido = fup.numero_pedido
+    session.delete(fup)
+    session.commit()
+    _recalcular_motivo_espelhado(numero_pedido, session)
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------------
-# Exportação para Excel
+# Exportação para Excel — exporta exatamente o que está filtrado na tela,
+# com colunas de FUP dinâmicas (FUP 1, FUP 2, ...) quando houver histórico
 # ---------------------------------------------------------------------
 @app.get("/api/exportar")
 def exportar_excel(
@@ -173,8 +217,38 @@ def exportar_excel(
         aba=aba, tipo_entrega=tipo_entrega, status=status, apenas_atrasados=apenas_atrasados,
         data_de=data_de, data_ate=data_ate, cliente=cliente, busca=busca, session=session,
     )  # type: ignore
-    rows = [p.dict() for p in pedidos]
-    df = pd.DataFrame(rows)
+
+    # busca todos os FUPs dos pedidos filtrados de uma vez, ordenados por data (mais antigo primeiro)
+    numeros = [p.numero_pedido for p in pedidos]
+    fups_todos = session.exec(
+        select(FupRegistro)
+        .where(FupRegistro.numero_pedido.in_(numeros))
+        .order_by(FupRegistro.data_referencia.asc(), FupRegistro.id.asc())
+    ).all() if numeros else []
+
+    fups_por_pedido: dict = {}
+    for f in fups_todos:
+        fups_por_pedido.setdefault(f.numero_pedido, []).append(f)
+
+    max_fups = max((len(v) for v in fups_por_pedido.values()), default=0)
+
+    linhas = []
+    for p in pedidos:
+        linha = {
+            "Número do Pedido": p.numero_pedido,
+            "Cliente": p.nome_cliente,
+            "Data de Entrega Original": p.data_entrega_prevista.strftime("%d/%m/%Y") if p.data_entrega_prevista else "",
+            "OE": p.numero_oe,
+            "Status": p.status,
+            "Tipo": p.tipo_entrega,
+        }
+        fups_desse_pedido = fups_por_pedido.get(p.numero_pedido, [])
+        for i in range(max_fups):
+            coluna = f"FUP {i+1}"
+            linha[coluna] = fups_desse_pedido[i].motivo_atraso if i < len(fups_desse_pedido) else ""
+        linhas.append(linha)
+
+    df = pd.DataFrame(linhas)
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Pedidos")
