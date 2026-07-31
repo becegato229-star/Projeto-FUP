@@ -188,50 +188,30 @@ def exportar_excel(
 
 
 # ---------------------------------------------------------------------
-# Dashboard de monitoramento (gráficos)
+# Dashboard — momento atual (foto de agora, sem filtro)
 # ---------------------------------------------------------------------
-@app.get("/api/dashboard")
-def dashboard(session: Session = Depends(get_session)):
+@app.get("/api/dashboard/atual")
+def dashboard_atual(session: Session = Depends(get_session)):
     pedidos = session.exec(select(Pedido)).all()
-    fups = session.exec(select(FupRegistro)).all()
 
-    # Distribuição de status
     status_count: dict = {}
     for p in pedidos:
         status_count[p.status or "Indefinido"] = status_count.get(p.status or "Indefinido", 0) + 1
 
-    # Atraso por tipo de entrega
     atraso_por_tipo: dict = {}
     for p in pedidos:
         if p.atraso_producao or p.atraso_entrega:
             k = p.tipo_entrega or "Desconhecido"
             atraso_por_tipo[k] = atraso_por_tipo.get(k, 0) + 1
 
-    # Motivos de atraso mais frequentes (via FUP)
-    motivos_count: dict = {}
-    for f in fups:
-        if f.motivo_atraso:
-            motivos_count[f.motivo_atraso] = motivos_count.get(f.motivo_atraso, 0) + 1
-    motivos_ordenados = sorted(motivos_count.items(), key=lambda x: x[1], reverse=True)
-
-    # Atraso de produção vs entrega (contagem)
     atraso_producao_n = sum(1 for p in pedidos if p.atraso_producao)
     atraso_entrega_n = sum(1 for p in pedidos if p.atraso_entrega)
 
-    # Média de dias de atraso
     dias_prod = [p.dias_atraso_producao for p in pedidos if p.atraso_producao]
     dias_ent = [p.dias_atraso_entrega for p in pedidos if p.atraso_entrega]
     media_atraso_producao = round(sum(dias_prod) / len(dias_prod), 1) if dias_prod else 0
     media_atraso_entrega = round(sum(dias_ent) / len(dias_ent), 1) if dias_ent else 0
 
-    # Evolução de FUPs registrados por data (últimos 30 dias com registro)
-    fup_por_data: dict = {}
-    for f in fups:
-        k = f.data_referencia.isoformat()
-        fup_por_data[k] = fup_por_data.get(k, 0) + 1
-    fup_timeline = sorted(fup_por_data.items())[-30:]
-
-    # Top clientes com mais atraso
     atraso_por_cliente: dict = {}
     for p in pedidos:
         if p.atraso_producao or p.atraso_entrega:
@@ -242,14 +222,45 @@ def dashboard(session: Session = Depends(get_session)):
     return {
         "status_count": status_count,
         "atraso_por_tipo": atraso_por_tipo,
-        "motivos_atraso": motivos_ordenados,
         "atraso_producao_n": atraso_producao_n,
         "atraso_entrega_n": atraso_entrega_n,
         "media_atraso_producao": media_atraso_producao,
         "media_atraso_entrega": media_atraso_entrega,
-        "fup_timeline": fup_timeline,
         "top_clientes_atraso": top_clientes,
         "total_pedidos": len(pedidos),
+    }
+
+
+# ---------------------------------------------------------------------
+# Dashboard — histórico permanente (nunca perde dado, aceita filtro de data)
+# ---------------------------------------------------------------------
+@app.get("/api/dashboard/historico")
+def dashboard_historico(
+    data_de: Optional[date] = None,
+    data_ate: Optional[date] = None,
+    session: Session = Depends(get_session),
+):
+    fups = session.exec(select(FupRegistro)).all()
+    if data_de:
+        fups = [f for f in fups if f.data_referencia >= data_de]
+    if data_ate:
+        fups = [f for f in fups if f.data_referencia <= data_ate]
+
+    motivos_count: dict = {}
+    for f in fups:
+        if f.motivo_atraso:
+            motivos_count[f.motivo_atraso] = motivos_count.get(f.motivo_atraso, 0) + 1
+    motivos_ordenados = sorted(motivos_count.items(), key=lambda x: x[1], reverse=True)
+
+    fup_por_data: dict = {}
+    for f in fups:
+        k = f.data_referencia.isoformat()
+        fup_por_data[k] = fup_por_data.get(k, 0) + 1
+    fup_timeline = sorted(fup_por_data.items())
+
+    return {
+        "motivos_atraso": motivos_ordenados,
+        "fup_timeline": fup_timeline,
         "total_fups": len(fups),
     }
 
