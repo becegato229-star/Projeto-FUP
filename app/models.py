@@ -29,6 +29,7 @@ class Pedido(SQLModel, table=True):
     cancelado: bool = False
     motivo_cancelamento: Optional[str] = None
     data_cancelamento: Optional[date] = None
+    nova_data_entrega: Optional[date] = None    # data renegociada manualmente (substitui a prevista no cálculo de atraso)
 
     # --- Calculado automaticamente ---
     status: Optional[str] = None                # Bloqueado / Aprovado / Faturado / Encerrado / Cancelado
