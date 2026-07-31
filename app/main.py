@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
-from .database import init_db, get_session
+from .database import init_db, get_session, engine
 from .models import Pedido, FupRegistro, FupRegistroCreate, MOTIVOS_ATRASO_PADRAO
 from .importer import importar_planilha, recalcular_status_e_atrasos
 
@@ -18,6 +18,12 @@ app = FastAPI(title="FlowLog (self-hosted)")
 @app.on_event("startup")
 def on_startup():
     init_db()
+    with Session(engine) as session:
+        pedidos_com_fup = session.exec(
+            select(FupRegistro.numero_pedido).distinct()
+        ).all()
+        for numero in pedidos_com_fup:
+            _recalcular_motivo_espelhado(numero, session)
 
 
 # ---------------------------------------------------------------------
@@ -126,6 +132,14 @@ def cancelar_pedido(
 # ---------------------------------------------------------------------
 # FUP (acompanhamento diário manual)
 # ---------------------------------------------------------------------
+def _texto_motivo_exibicao(motivo: Optional[str], observacao: Optional[str]) -> Optional[str]:
+    """Quando o motivo é 'Outro' e existe observação, mostra a observação
+    no lugar do texto genérico 'Outro' (na tela e na exportação)."""
+    if motivo == "Outro" and observacao:
+        return observacao
+    return motivo
+
+
 def _recalcular_motivo_espelhado(numero_pedido: str, session: Session):
     """Depois de editar/apagar um FUP, atualiza o motivo mais recente
     espelhado no pedido (usado nas colunas/filtros da tela principal)."""
@@ -136,7 +150,7 @@ def _recalcular_motivo_espelhado(numero_pedido: str, session: Session):
     ).first()
     pedido = session.get(Pedido, numero_pedido)
     if pedido:
-        pedido.motivo_atraso_fup = ultimo.motivo_atraso if ultimo else None
+        pedido.motivo_atraso_fup = _texto_motivo_exibicao(ultimo.motivo_atraso, ultimo.observacao) if ultimo else None
         session.add(pedido)
         session.commit()
 
@@ -156,6 +170,8 @@ def listar_fups(session: Session = Depends(get_session)):
 def criar_fup(dados: FupRegistroCreate, session: Session = Depends(get_session)):
     if not session.get(Pedido, dados.numero_pedido):
         raise HTTPException(404, "Pedido não encontrado")
+    if dados.motivo_atraso == "Outro" and not (dados.observacao and dados.observacao.strip()):
+        raise HTTPException(400, "Observação é obrigatória quando o motivo é 'Outro'")
     fup = FupRegistro(**dados.dict())
     session.add(fup)
     session.commit()
@@ -163,7 +179,7 @@ def criar_fup(dados: FupRegistroCreate, session: Session = Depends(get_session))
 
     # espelha o motivo mais recente no pedido, para facilitar filtro/exibição
     pedido = session.get(Pedido, fup.numero_pedido)
-    pedido.motivo_atraso_fup = fup.motivo_atraso
+    pedido.motivo_atraso_fup = _texto_motivo_exibicao(fup.motivo_atraso, fup.observacao)
     session.add(pedido)
     session.commit()
     return fup
@@ -174,6 +190,8 @@ def editar_fup(fup_id: int, dados: FupRegistroCreate, session: Session = Depends
     fup = session.get(FupRegistro, fup_id)
     if not fup:
         raise HTTPException(404, "Registro de FUP não encontrado")
+    if dados.motivo_atraso == "Outro" and not (dados.observacao and dados.observacao.strip()):
+        raise HTTPException(400, "Observação é obrigatória quando o motivo é 'Outro'")
     fup.data_referencia = dados.data_referencia
     fup.previsao_atraso = dados.previsao_atraso
     fup.motivo_atraso = dados.motivo_atraso
@@ -245,7 +263,7 @@ def exportar_excel(
         fups_desse_pedido = fups_por_pedido.get(p.numero_pedido, [])
         for i in range(max_fups):
             coluna = f"FUP {i+1}"
-            linha[coluna] = fups_desse_pedido[i].motivo_atraso if i < len(fups_desse_pedido) else ""
+            linha[coluna] = _texto_motivo_exibicao(fups_desse_pedido[i].motivo_atraso, fups_desse_pedido[i].observacao) if i < len(fups_desse_pedido) else ""
         linhas.append(linha)
 
     df = pd.DataFrame(linhas)
