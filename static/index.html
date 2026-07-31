@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FlowLog — Acompanhamento de Pedidos</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <style>
   :root{
     --bg: #14181c;
@@ -34,6 +35,7 @@
     display:flex; align-items:center; gap:10px;
   }
   header h1 .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block;}
+  .header-right{display:flex; align-items:center; gap:10px;}
   .upload-group{display:flex; gap:8px;}
   .upload-btn{
     position:relative; overflow:hidden; padding:8px 14px; border-radius:6px;
@@ -42,6 +44,13 @@
   }
   .upload-btn:hover{border-color:var(--accent); color:var(--text);}
   .upload-btn input{position:absolute; inset:0; opacity:0; cursor:pointer;}
+  .icon-btn{
+    width:34px; height:34px; border-radius:6px; border:1px solid var(--border);
+    background:var(--panel-2); color:var(--text-dim); cursor:pointer;
+    display:flex; align-items:center; justify-content:center; transition:.15s;
+  }
+  .icon-btn:hover{border-color:var(--accent); color:var(--accent);}
+  .icon-btn.active{border-color:var(--accent); color:var(--accent); background:#2a1f14;}
 
   nav.tabs{
     display:flex; gap:2px; padding:0 24px; background:var(--panel);
@@ -55,7 +64,7 @@
   nav.tabs button.active{color:var(--text); border-bottom-color:var(--accent);}
 
   .toolbar{
-    display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+    display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;
     padding:14px 24px; border-bottom:1px solid var(--border);
   }
   .toolbar input, .toolbar select{
@@ -65,6 +74,8 @@
   .toolbar label{font-size:11.5px; color:var(--text-dim); display:flex; flex-direction:column; gap:4px;}
   .chk{flex-direction:row !important; align-items:center; gap:6px !important;}
   .spacer{flex:1;}
+  #f_busca{width:220px;}
+  #f_status{min-height:34px;}
   button.primary{
     background:var(--accent); border:none; color:#1a1200; font-weight:700;
     padding:9px 16px; border-radius:6px; cursor:pointer; font-size:12.5px;
@@ -74,6 +85,12 @@
     padding:9px 14px; border-radius:6px; cursor:pointer; font-size:12.5px;
   }
   button.ghost:hover{color:var(--text); border-color:var(--text-dim);}
+  button.small-action{
+    background:transparent; border:1px solid var(--border); color:var(--text-dim);
+    padding:4px 9px; border-radius:5px; cursor:pointer; font-size:11px;
+  }
+  button.small-action:hover{border-color:var(--danger); color:var(--danger);}
+  button.small-action.fup:hover{border-color:var(--accent); color:var(--accent);}
 
   main{padding:0 24px 40px;}
   .stats{display:flex; gap:14px; padding:16px 0; flex-wrap:wrap;}
@@ -105,25 +122,61 @@
   .empty{padding:60px 0; text-align:center; color:var(--text-dim);}
   .empty b{color:var(--text);}
 
-  #fupForm{display:none; gap:10px; padding:14px 0; flex-wrap:wrap; align-items:flex-end;}
-  #fupForm.show{display:flex;}
+  #fupForm{display:flex; gap:10px; padding:14px 0; flex-wrap:wrap; align-items:flex-end;}
+  .section-title{font-size:13px; font-weight:700; color:var(--text-dim); margin:22px 0 6px; text-transform:uppercase; letter-spacing:.03em;}
+
   #toast{
     position:fixed; bottom:20px; right:20px; background:var(--panel-2); border:1px solid var(--border);
-    padding:12px 18px; border-radius:8px; font-size:13px; display:none; max-width:340px;
+    padding:12px 18px; border-radius:8px; font-size:13px; display:none; max-width:340px; z-index:50;
   }
+
+  .overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.6); display:none;
+    align-items:center; justify-content:center; z-index:100;
+  }
+  .overlay.show{display:flex;}
+  .modal{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:22px; width:360px;
+  }
+  .modal h3{margin:0 0 14px; font-size:15px;}
+  .modal label{display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--text-dim); margin-bottom:12px;}
+  .modal input{background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;}
+  .modal .actions{display:flex; justify-content:flex-end; gap:8px; margin-top:8px;}
+
+  /* Monitoramento */
+  #monitoramento{display:none;}
+  #monitoramento.show{display:block;}
+  #appMain{display:block;}
+  #appMain.hide{display:none;}
+  .charts-grid{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:16px;}
+  .chart-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px;
+  }
+  .chart-card h4{margin:0 0 10px; font-size:12.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.03em;}
+  .chart-card canvas{max-height:260px;}
+  @media (max-width: 900px){ .charts-grid{grid-template-columns:1fr;} }
 </style>
 </head>
 <body>
 
 <header>
   <h1><span class="dot"></span> FlowLog</h1>
-  <div class="upload-group">
-    <label class="upload-btn">📄 Follow up de vendas<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
-    <label class="upload-btn">🚚 OE<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
-    <label class="upload-btn">📦 Pedidos Mubec<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
+  <div class="header-right">
+    <div class="upload-group">
+      <label class="upload-btn">📄 Follow up de vendas<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
+      <label class="upload-btn">🚚 OE<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
+      <label class="upload-btn">📦 Pedidos Mubec<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
+    </div>
+    <button class="icon-btn" id="btnMonitor" title="Monitoramento" onclick="toggleMonitoramento()">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/>
+      </svg>
+    </button>
   </div>
 </header>
 
+<div id="appMain">
 <nav class="tabs">
   <button class="active" data-tab="todos" onclick="setTab('todos', this)">Todos</button>
   <button data-tab="antes_faturar" onclick="setTab('antes_faturar', this)">Antes de faturar</button>
@@ -132,9 +185,16 @@
 </nav>
 
 <div class="toolbar">
-  <label>Data de<input type="date" id="f_data_de" onchange="load()"></label>
-  <label>Data até<input type="date" id="f_data_ate" onchange="load()"></label>
-  <label>Cliente<input type="text" id="f_cliente" placeholder="nome do cliente" oninput="debouncedLoad()"></label>
+  <label>Busca (pedido, OE, NF, cliente)<input type="text" id="f_busca" placeholder="ex: 20233, cliente..." oninput="debouncedLoad()"></label>
+  <label>Status
+    <select id="f_status" multiple size="1" onchange="load()" onmousedown="expandSelect(this)" onblur="collapseSelect(this)">
+      <option value="Bloqueado">Bloqueado</option>
+      <option value="Aprovado">Aprovado</option>
+      <option value="Faturado">Faturado</option>
+      <option value="Encerrado">Encerrado</option>
+      <option value="Cancelado">Cancelado</option>
+    </select>
+  </label>
   <label>Tipo de entrega
     <select id="f_tipo" onchange="load()">
       <option value="">Todos</option>
@@ -143,8 +203,11 @@
       <option value="Transportadora">Transportadora</option>
     </select>
   </label>
+  <label>Data de<input type="date" id="f_data_de" onchange="load()"></label>
+  <label>Data até<input type="date" id="f_data_ate" onchange="load()"></label>
   <label class="chk"><input type="checkbox" id="f_atrasado" onchange="load()"> Só atrasados</label>
   <div class="spacer"></div>
+  <button class="ghost" onclick="limparFiltros()">✕ Limpar filtros</button>
   <button class="ghost" onclick="load()">↻ Atualizar</button>
   <button class="primary" onclick="exportar()">⬇ Exportar Excel</button>
 </div>
@@ -163,29 +226,79 @@
     <button class="primary" onclick="salvarFup()">Registrar FUP</button>
   </div>
 
+  <div id="fupPendentesWrap" style="display:none">
+    <div class="section-title">Pedidos que precisam de acompanhamento (atrasados)</div>
+    <table>
+      <thead><tr><th>Pedido</th><th>Cliente</th><th>Status</th><th>Atraso</th><th></th></tr></thead>
+      <tbody id="tbodyFupPendentes"></tbody>
+    </table>
+    <div class="section-title">Histórico de FUPs registrados</div>
+  </div>
+
   <table id="tabela">
     <thead><tr id="thead"></tr></thead>
     <tbody id="tbody"></tbody>
   </table>
-  <div class="empty" id="empty" style="display:none">Nenhum pedido encontrado com esses filtros.<br><b>Importe as planilhas</b> pelos botões no topo para começar.</div>
+  <div class="empty" id="empty" style="display:none"></div>
 </main>
+</div>
+
+<div id="monitoramento">
+  <main>
+    <div class="stats" id="monitorStats"></div>
+    <div class="charts-grid">
+      <div class="chart-card"><h4>Status dos pedidos</h4><canvas id="chartStatus"></canvas></div>
+      <div class="chart-card"><h4>Atraso por tipo de entrega</h4><canvas id="chartTipoEntrega"></canvas></div>
+      <div class="chart-card"><h4>Motivos de atraso mais frequentes (FUP)</h4><canvas id="chartMotivos"></canvas></div>
+      <div class="chart-card"><h4>Clientes com mais pedidos atrasados</h4><canvas id="chartClientes"></canvas></div>
+      <div class="chart-card" style="grid-column:1/-1"><h4>Registros de FUP ao longo do tempo</h4><canvas id="chartTimeline"></canvas></div>
+    </div>
+  </main>
+</div>
+
+<div class="overlay" id="cancelOverlay">
+  <div class="modal">
+    <h3>Cancelar pedido <span id="cancelPedidoNum"></span></h3>
+    <label>Motivo do cancelamento<input type="text" id="cancel_motivo" placeholder="ex: solicitação do cliente"></label>
+    <label>Data do cancelamento<input type="date" id="cancel_data"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharCancelModal()">Voltar</button>
+      <button class="primary" onclick="confirmarCancelamento()">Confirmar cancelamento</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast"></div>
 
 <script>
 let currentTab = 'todos';
 let debounceTimer;
+let charts = {};
 
 function debouncedLoad(){
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(load, 350);
 }
 
+function expandSelect(sel){ sel.size = 5; }
+function collapseSelect(sel){ sel.size = 1; }
+
 function setTab(tab, btn){
   currentTab = tab;
   document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  document.getElementById('fupForm').classList.toggle('show', tab === 'fup');
+  document.getElementById('fupForm').style.display = (tab === 'fup') ? 'flex' : 'none';
+  document.getElementById('fupPendentesWrap').style.display = (tab === 'fup') ? 'block' : 'none';
+  load();
+}
+
+function limparFiltros(){
+  document.getElementById('f_busca').value = '';
+  document.getElementById('f_status').selectedIndex = -1;
+  document.getElementById('f_tipo').value = '';
+  document.getElementById('f_data_de').value = '';
+  document.getElementById('f_data_ate').value = '';
+  document.getElementById('f_atrasado').checked = false;
   load();
 }
 
@@ -217,15 +330,17 @@ async function uploadFile(input){
 function buildParams(){
   const params = new URLSearchParams();
   params.set('aba', currentTab === 'fup' ? 'todos' : currentTab);
+  const busca = document.getElementById('f_busca').value;
+  const statusSel = Array.from(document.getElementById('f_status').selectedOptions).map(o => o.value);
+  const tipo = document.getElementById('f_tipo').value;
   const de = document.getElementById('f_data_de').value;
   const ate = document.getElementById('f_data_ate').value;
-  const cliente = document.getElementById('f_cliente').value;
-  const tipo = document.getElementById('f_tipo').value;
   const atrasado = document.getElementById('f_atrasado').checked;
+  if(busca) params.set('busca', busca);
+  if(statusSel.length) params.set('status', statusSel.join(','));
+  if(tipo) params.set('tipo_entrega', tipo);
   if(de) params.set('data_de', de);
   if(ate) params.set('data_ate', ate);
-  if(cliente) params.set('cliente', cliente);
-  if(tipo) params.set('tipo_entrega', tipo);
   if(atrasado) params.set('apenas_atrasados', 'true');
   return params;
 }
@@ -260,9 +375,10 @@ function fmtDate(d){ return d ? d.split('-').reverse().join('/') : '—'; }
 function renderTabelaPedidos(pedidos){
   document.getElementById('thead').innerHTML = `
     <th>Pedido</th><th>Cliente</th><th>Emissão</th><th>Entrega prevista</th>
-    <th>Tipo</th><th>Status</th><th>Atraso</th><th>NF</th><th>Motivo (FUP)</th>
+    <th>Tipo</th><th>Status</th><th>Atraso</th><th>OE</th><th>NF</th><th>Motivo (FUP)</th><th></th>
   `;
   document.getElementById('empty').style.display = pedidos.length ? 'none' : 'block';
+  document.getElementById('empty').innerHTML = 'Nenhum pedido encontrado com esses filtros.<br><b>Importe as planilhas</b> pelos botões no topo para começar (ou ajuste/limpe os filtros).';
   document.getElementById('tbody').innerHTML = pedidos.map(p => `
     <tr>
       <td style="font-family:var(--mono)">${p.numero_pedido}</td>
@@ -274,22 +390,40 @@ function renderTabelaPedidos(pedidos){
       <td>${p.atraso_producao ? `<span class="atraso-tag">${p.dias_atraso_producao}d produção</span>` : ''}
           ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}
           ${(!p.atraso_producao && !p.atraso_entrega) ? '—' : ''}</td>
+      <td>${p.numero_oe || '—'}</td>
       <td>${p.nf || '—'}</td>
       <td>${p.motivo_atraso_fup || '—'}</td>
+      <td>${p.status !== 'Cancelado' ? `<button class="small-action" onclick="abrirCancelModal('${p.numero_pedido}')">Cancelar</button>` : ''}</td>
     </tr>
   `).join('');
 }
 
 async function loadFupTab(){
+  // pedidos pendentes de acompanhamento (atrasados)
+  const resPend = await fetch('/api/pedidos?aba=todos&apenas_atrasados=true');
+  const pendentes = await resPend.json();
+  document.getElementById('tbodyFupPendentes').innerHTML = pendentes.length ? pendentes.map(p => `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
+      <td>${p.atraso_producao ? `<span class="atraso-tag">${p.dias_atraso_producao}d produção</span>` : ''}
+          ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}</td>
+      <td><button class="small-action fup" onclick="preencherFup('${p.numero_pedido}')">Registrar FUP</button></td>
+    </tr>
+  `).join('') : `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido atrasado no momento 🎉</td></tr>`;
+
   const res = await fetch('/api/fup');
   const fups = await res.json();
   document.getElementById('stats').innerHTML = `
     <div class="stat"><div class="n">${fups.length}</div><div class="l">Registros de FUP</div></div>
+    <div class="stat atraso"><div class="n">${pendentes.length}</div><div class="l">Pedidos precisando de acompanhamento</div></div>
   `;
   document.getElementById('thead').innerHTML = `
     <th>Pedido</th><th>Data</th><th>Previsão de atraso</th><th>Motivo</th><th>Observação</th>
   `;
   document.getElementById('empty').style.display = fups.length ? 'none' : 'block';
+  document.getElementById('empty').innerHTML = 'Nenhum FUP registrado ainda. Use a tabela acima ou o formulário para registrar o primeiro.';
   document.getElementById('tbody').innerHTML = fups.map(f => `
     <tr>
       <td style="font-family:var(--mono)">${f.numero_pedido}</td>
@@ -299,6 +433,12 @@ async function loadFupTab(){
       <td>${f.observacao || '—'}</td>
     </tr>
   `).join('');
+}
+
+function preencherFup(numeroPedido){
+  document.getElementById('fup_pedido').value = numeroPedido;
+  document.getElementById('fup_pedido').scrollIntoView({behavior:'smooth', block:'center'});
+  document.getElementById('fup_pedido').focus();
 }
 
 async function carregarMotivos(){
@@ -332,12 +472,118 @@ async function salvarFup(){
   }
 }
 
+// ---------------- Cancelamento ----------------
+let pedidoParaCancelar = null;
+
+function abrirCancelModal(numeroPedido){
+  pedidoParaCancelar = numeroPedido;
+  document.getElementById('cancelPedidoNum').textContent = '#' + numeroPedido;
+  document.getElementById('cancel_motivo').value = '';
+  document.getElementById('cancel_data').value = new Date().toISOString().slice(0,10);
+  document.getElementById('cancelOverlay').classList.add('show');
+}
+function fecharCancelModal(){
+  document.getElementById('cancelOverlay').classList.remove('show');
+  pedidoParaCancelar = null;
+}
+async function confirmarCancelamento(){
+  const motivo = document.getElementById('cancel_motivo').value.trim();
+  const data_cancelamento = document.getElementById('cancel_data').value;
+  if(!motivo){ toast('Informe o motivo do cancelamento', true); return; }
+  try{
+    const params = new URLSearchParams({motivo, data_cancelamento});
+    const res = await fetch(`/api/pedidos/${pedidoParaCancelar}/cancelar?` + params.toString(), {method:'POST'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao cancelar');
+    toast('Pedido cancelado');
+    fecharCancelModal();
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+// ---------------- Exportar ----------------
 function exportar(){
   const params = buildParams();
   window.location = '/api/exportar?' + params.toString();
 }
 
+// ---------------- Monitoramento ----------------
+let monitorLoaded = false;
+function toggleMonitoramento(){
+  const showing = document.getElementById('monitoramento').classList.toggle('show');
+  document.getElementById('appMain').classList.toggle('hide', showing);
+  document.getElementById('btnMonitor').classList.toggle('active', showing);
+  if(showing) loadMonitoramento();
+}
+
+const palette = ['#ff7a1a','#5bb8e8','#3ecf8e','#ffb020','#ff5252','#b48cff','#4dd0e1','#f06292'];
+
+function destroyChart(id){ if(charts[id]) { charts[id].destroy(); charts[id] = null; } }
+
+async function loadMonitoramento(){
+  const res = await fetch('/api/dashboard');
+  const d = await res.json();
+
+  document.getElementById('monitorStats').innerHTML = `
+    <div class="stat"><div class="n">${d.total_pedidos}</div><div class="l">Total de pedidos</div></div>
+    <div class="stat atraso"><div class="n">${d.atraso_producao_n}</div><div class="l">Atraso de produção</div></div>
+    <div class="stat atraso"><div class="n">${d.atraso_entrega_n}</div><div class="l">Atraso de entrega</div></div>
+    <div class="stat"><div class="n">${d.media_atraso_producao}d</div><div class="l">Média dias atraso produção</div></div>
+    <div class="stat"><div class="n">${d.media_atraso_entrega}d</div><div class="l">Média dias atraso entrega</div></div>
+    <div class="stat"><div class="n">${d.total_fups}</div><div class="l">Registros de FUP</div></div>
+  `;
+
+  const opts = {responsive:true, plugins:{legend:{labels:{color:'#e7ebee'}}}, scales:{
+    x:{ticks:{color:'#8b969f'}, grid:{color:'#2e363e'}},
+    y:{ticks:{color:'#8b969f'}, grid:{color:'#2e363e'}}
+  }};
+
+  destroyChart('status');
+  charts.status = new Chart(document.getElementById('chartStatus'), {
+    type:'bar',
+    data:{labels:Object.keys(d.status_count), datasets:[{data:Object.values(d.status_count), backgroundColor:palette}]},
+    options:{...opts, plugins:{legend:{display:false}}}
+  });
+
+  destroyChart('tipo');
+  charts.tipo = new Chart(document.getElementById('chartTipoEntrega'), {
+    type:'doughnut',
+    data:{labels:Object.keys(d.atraso_por_tipo), datasets:[{data:Object.values(d.atraso_por_tipo), backgroundColor:palette}]},
+    options:{responsive:true, plugins:{legend:{labels:{color:'#e7ebee'}}}}
+  });
+
+  const motivosLabels = d.motivos_atraso.map(x => x[0]);
+  const motivosValues = d.motivos_atraso.map(x => x[1]);
+  destroyChart('motivos');
+  charts.motivos = new Chart(document.getElementById('chartMotivos'), {
+    type:'bar',
+    data:{labels:motivosLabels, datasets:[{data:motivosValues, backgroundColor:'#ff7a1a'}]},
+    options:{...opts, indexAxis:'y', plugins:{legend:{display:false}}}
+  });
+
+  const clientesLabels = d.top_clientes_atraso.map(x => x[0].length > 22 ? x[0].slice(0,22)+'…' : x[0]);
+  const clientesValues = d.top_clientes_atraso.map(x => x[1]);
+  destroyChart('clientes');
+  charts.clientes = new Chart(document.getElementById('chartClientes'), {
+    type:'bar',
+    data:{labels:clientesLabels, datasets:[{data:clientesValues, backgroundColor:'#5bb8e8'}]},
+    options:{...opts, indexAxis:'y', plugins:{legend:{display:false}}}
+  });
+
+  const timelineLabels = d.fup_timeline.map(x => fmtDate(x[0]));
+  const timelineValues = d.fup_timeline.map(x => x[1]);
+  destroyChart('timeline');
+  charts.timeline = new Chart(document.getElementById('chartTimeline'), {
+    type:'line',
+    data:{labels:timelineLabels, datasets:[{data:timelineValues, borderColor:'#3ecf8e', backgroundColor:'#3ecf8e33', fill:true, tension:.3}]},
+    options:{...opts, plugins:{legend:{display:false}}}
+  });
+}
+
 document.getElementById('fup_data').value = new Date().toISOString().slice(0,10);
+document.getElementById('fupPendentesWrap').style.display = 'none';
 carregarMotivos();
 load();
 </script>
