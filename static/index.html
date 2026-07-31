@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowLog — Acompanhamento de Pedidos</title>
+<style>
+  :root{
+    --bg: #14181c;
+    --panel: #1c2126;
+    --panel-2: #232a31;
+    --border: #2e363e;
+    --text: #e7ebee;
+    --text-dim: #8b969f;
+    --accent: #ff7a1a;
+    --ok: #3ecf8e;
+    --warn: #ffb020;
+    --danger: #ff5252;
+    --mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size:14px;
+  }
+  header{
+    padding:18px 24px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--panel);
+  }
+  header h1{
+    font-size:17px; margin:0; letter-spacing:0.02em; font-weight:700;
+    display:flex; align-items:center; gap:10px;
+  }
+  header h1 .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block;}
+  .upload-group{display:flex; gap:8px;}
+  .upload-btn{
+    position:relative; overflow:hidden; padding:8px 14px; border-radius:6px;
+    border:1px solid var(--border); background:var(--panel-2); color:var(--text-dim);
+    font-size:12.5px; cursor:pointer; transition:.15s;
+  }
+  .upload-btn:hover{border-color:var(--accent); color:var(--text);}
+  .upload-btn input{position:absolute; inset:0; opacity:0; cursor:pointer;}
+
+  nav.tabs{
+    display:flex; gap:2px; padding:0 24px; background:var(--panel);
+    border-bottom:1px solid var(--border);
+  }
+  nav.tabs button{
+    background:transparent; border:none; color:var(--text-dim);
+    padding:12px 18px; font-size:13px; cursor:pointer; border-bottom:2px solid transparent;
+    font-weight:600;
+  }
+  nav.tabs button.active{color:var(--text); border-bottom-color:var(--accent);}
+
+  .toolbar{
+    display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+    padding:14px 24px; border-bottom:1px solid var(--border);
+  }
+  .toolbar input, .toolbar select{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:7px 10px; border-radius:6px; font-size:12.5px;
+  }
+  .toolbar label{font-size:11.5px; color:var(--text-dim); display:flex; flex-direction:column; gap:4px;}
+  .chk{flex-direction:row !important; align-items:center; gap:6px !important;}
+  .spacer{flex:1;}
+  button.primary{
+    background:var(--accent); border:none; color:#1a1200; font-weight:700;
+    padding:9px 16px; border-radius:6px; cursor:pointer; font-size:12.5px;
+  }
+  button.ghost{
+    background:transparent; border:1px solid var(--border); color:var(--text-dim);
+    padding:9px 14px; border-radius:6px; cursor:pointer; font-size:12.5px;
+  }
+  button.ghost:hover{color:var(--text); border-color:var(--text-dim);}
+
+  main{padding:0 24px 40px;}
+  .stats{display:flex; gap:14px; padding:16px 0; flex-wrap:wrap;}
+  .stat{
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:12px 18px; min-width:140px;
+  }
+  .stat .n{font-family:var(--mono); font-size:22px; font-weight:700;}
+  .stat .l{font-size:11px; color:var(--text-dim); margin-top:2px;}
+  .stat.atraso .n{color:var(--danger);}
+
+  table{width:100%; border-collapse:collapse; margin-top:6px;}
+  thead th{
+    text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--text-dim); padding:10px 12px; border-bottom:1px solid var(--border);
+    position:sticky; top:0; background:var(--bg);
+  }
+  tbody td{padding:10px 12px; border-bottom:1px solid #20262c; font-size:13px;}
+  tbody tr:hover{background:var(--panel);}
+  .badge{
+    display:inline-block; padding:3px 8px; border-radius:5px; font-size:11px; font-weight:700;
+  }
+  .badge.Bloqueado{background:#3a2b1c; color:var(--warn);}
+  .badge.Aprovado{background:#1c2e3a; color:#5bb8e8;}
+  .badge.Faturado{background:#2e2a1c; color:var(--warn);}
+  .badge.Encerrado{background:#1c3a2a; color:var(--ok);}
+  .badge.Cancelado{background:#3a1c1c; color:var(--danger);}
+  .atraso-tag{color:var(--danger); font-weight:700; font-size:11.5px;}
+  .empty{padding:60px 0; text-align:center; color:var(--text-dim);}
+  .empty b{color:var(--text);}
+
+  #fupForm{display:none; gap:10px; padding:14px 0; flex-wrap:wrap; align-items:flex-end;}
+  #fupForm.show{display:flex;}
+  #toast{
+    position:fixed; bottom:20px; right:20px; background:var(--panel-2); border:1px solid var(--border);
+    padding:12px 18px; border-radius:8px; font-size:13px; display:none; max-width:340px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="dot"></span> FlowLog</h1>
+  <div class="upload-group">
+    <label class="upload-btn">📄 Follow up de vendas<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
+    <label class="upload-btn">🚚 OE<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
+    <label class="upload-btn">📦 Pedidos Mubec<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="active" data-tab="todos" onclick="setTab('todos', this)">Todos</button>
+  <button data-tab="antes_faturar" onclick="setTab('antes_faturar', this)">Antes de faturar</button>
+  <button data-tab="depois_faturar" onclick="setTab('depois_faturar', this)">Depois de faturar</button>
+  <button data-tab="fup" onclick="setTab('fup', this)">FUP</button>
+</nav>
+
+<div class="toolbar">
+  <label>Data de<input type="date" id="f_data_de" onchange="load()"></label>
+  <label>Data até<input type="date" id="f_data_ate" onchange="load()"></label>
+  <label>Cliente<input type="text" id="f_cliente" placeholder="nome do cliente" oninput="debouncedLoad()"></label>
+  <label>Tipo de entrega
+    <select id="f_tipo" onchange="load()">
+      <option value="">Todos</option>
+      <option value="Entrega">Entrega</option>
+      <option value="Retira">Retira</option>
+      <option value="Transportadora">Transportadora</option>
+    </select>
+  </label>
+  <label class="chk"><input type="checkbox" id="f_atrasado" onchange="load()"> Só atrasados</label>
+  <div class="spacer"></div>
+  <button class="ghost" onclick="load()">↻ Atualizar</button>
+  <button class="primary" onclick="exportar()">⬇ Exportar Excel</button>
+</div>
+
+<main>
+  <div class="stats" id="stats"></div>
+
+  <div id="fupForm">
+    <label>Nº do pedido<input type="text" id="fup_pedido" placeholder="ex: 20233"></label>
+    <label>Data<input type="date" id="fup_data"></label>
+    <label class="chk"><input type="checkbox" id="fup_previsao"> Previsão de atraso</label>
+    <label>Motivo
+      <select id="fup_motivo"></select>
+    </label>
+    <label>Observação<input type="text" id="fup_obs" style="width:220px"></label>
+    <button class="primary" onclick="salvarFup()">Registrar FUP</button>
+  </div>
+
+  <table id="tabela">
+    <thead><tr id="thead"></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div class="empty" id="empty" style="display:none">Nenhum pedido encontrado com esses filtros.<br><b>Importe as planilhas</b> pelos botões no topo para começar.</div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+let currentTab = 'todos';
+let debounceTimer;
+
+function debouncedLoad(){
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(load, 350);
+}
+
+function setTab(tab, btn){
+  currentTab = tab;
+  document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('fupForm').classList.toggle('show', tab === 'fup');
+  load();
+}
+
+function toast(msg, isError=false){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  t.style.borderColor = isError ? 'var(--danger)' : 'var(--border)';
+  setTimeout(() => t.style.display = 'none', 4000);
+}
+
+async function uploadFile(input){
+  const file = input.files[0];
+  if(!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try{
+    const res = await fetch('/api/importar', {method:'POST', body: formData});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao importar');
+    toast(`Importado: ${data.tipo_detectado} (${data.registros_processados} registros)`);
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+  input.value = '';
+}
+
+function buildParams(){
+  const params = new URLSearchParams();
+  params.set('aba', currentTab === 'fup' ? 'todos' : currentTab);
+  const de = document.getElementById('f_data_de').value;
+  const ate = document.getElementById('f_data_ate').value;
+  const cliente = document.getElementById('f_cliente').value;
+  const tipo = document.getElementById('f_tipo').value;
+  const atrasado = document.getElementById('f_atrasado').checked;
+  if(de) params.set('data_de', de);
+  if(ate) params.set('data_ate', ate);
+  if(cliente) params.set('cliente', cliente);
+  if(tipo) params.set('tipo_entrega', tipo);
+  if(atrasado) params.set('apenas_atrasados', 'true');
+  return params;
+}
+
+async function load(){
+  if(currentTab === 'fup'){
+    await loadFupTab();
+    return;
+  }
+  const params = buildParams();
+  const res = await fetch('/api/pedidos?' + params.toString());
+  const pedidos = await res.json();
+  renderStats(pedidos);
+  renderTabelaPedidos(pedidos);
+}
+
+function renderStats(pedidos){
+  const total = pedidos.length;
+  const atrasoProd = pedidos.filter(p => p.atraso_producao).length;
+  const atrasoEnt = pedidos.filter(p => p.atraso_entrega).length;
+  const encerrados = pedidos.filter(p => p.status === 'Encerrado').length;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="n">${total}</div><div class="l">Pedidos no filtro</div></div>
+    <div class="stat atraso"><div class="n">${atrasoProd}</div><div class="l">Atraso de produção</div></div>
+    <div class="stat atraso"><div class="n">${atrasoEnt}</div><div class="l">Atraso de entrega</div></div>
+    <div class="stat"><div class="n">${encerrados}</div><div class="l">Encerrados</div></div>
+  `;
+}
+
+function fmtDate(d){ return d ? d.split('-').reverse().join('/') : '—'; }
+
+function renderTabelaPedidos(pedidos){
+  document.getElementById('thead').innerHTML = `
+    <th>Pedido</th><th>Cliente</th><th>Emissão</th><th>Entrega prevista</th>
+    <th>Tipo</th><th>Status</th><th>Atraso</th><th>NF</th><th>Motivo (FUP)</th>
+  `;
+  document.getElementById('empty').style.display = pedidos.length ? 'none' : 'block';
+  document.getElementById('tbody').innerHTML = pedidos.map(p => `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td>${fmtDate(p.data_emissao)}</td>
+      <td>${fmtDate(p.data_entrega_prevista)}</td>
+      <td>${p.tipo_entrega || '—'}</td>
+      <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
+      <td>${p.atraso_producao ? `<span class="atraso-tag">${p.dias_atraso_producao}d produção</span>` : ''}
+          ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}
+          ${(!p.atraso_producao && !p.atraso_entrega) ? '—' : ''}</td>
+      <td>${p.nf || '—'}</td>
+      <td>${p.motivo_atraso_fup || '—'}</td>
+    </tr>
+  `).join('');
+}
+
+async function loadFupTab(){
+  const res = await fetch('/api/fup');
+  const fups = await res.json();
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="n">${fups.length}</div><div class="l">Registros de FUP</div></div>
+  `;
+  document.getElementById('thead').innerHTML = `
+    <th>Pedido</th><th>Data</th><th>Previsão de atraso</th><th>Motivo</th><th>Observação</th>
+  `;
+  document.getElementById('empty').style.display = fups.length ? 'none' : 'block';
+  document.getElementById('tbody').innerHTML = fups.map(f => `
+    <tr>
+      <td style="font-family:var(--mono)">${f.numero_pedido}</td>
+      <td>${fmtDate(f.data_referencia)}</td>
+      <td>${f.previsao_atraso ? '<span class="atraso-tag">Sim</span>' : 'Não'}</td>
+      <td>${f.motivo_atraso || '—'}</td>
+      <td>${f.observacao || '—'}</td>
+    </tr>
+  `).join('');
+}
+
+async function carregarMotivos(){
+  const res = await fetch('/api/fup/motivos');
+  const motivos = await res.json();
+  document.getElementById('fup_motivo').innerHTML =
+    motivos.map(m => `<option value="${m}">${m}</option>`).join('');
+}
+
+async function salvarFup(){
+  const body = {
+    numero_pedido: document.getElementById('fup_pedido').value.trim(),
+    data_referencia: document.getElementById('fup_data').value || new Date().toISOString().slice(0,10),
+    previsao_atraso: document.getElementById('fup_previsao').checked,
+    motivo_atraso: document.getElementById('fup_motivo').value,
+    observacao: document.getElementById('fup_obs').value,
+  };
+  if(!body.numero_pedido){ toast('Informe o número do pedido', true); return; }
+  try{
+    const res = await fetch('/api/fup', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('FUP registrado com sucesso');
+    document.getElementById('fup_pedido').value = '';
+    document.getElementById('fup_obs').value = '';
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+function exportar(){
+  const params = buildParams();
+  window.location = '/api/exportar?' + params.toString();
+}
+
+document.getElementById('fup_data').value = new Date().toISOString().slice(0,10);
+carregarMotivos();
+load();
+</script>
+
+</body>
+</html>
