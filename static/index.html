@@ -265,7 +265,7 @@
   </div>
 
   <div id="fupPendentesWrap" style="display:none">
-    <div class="section-title">Pedidos que precisam de acompanhamento (atrasados)</div>
+    <div class="section-title">Pedidos (use os filtros de status/tipo/atraso no topo para refinar)</div>
     <table>
       <thead><tr><th>Pedido</th><th>Cliente</th><th>Entrega prevista</th><th>Status</th><th>Atraso</th><th></th></tr></thead>
       <tbody id="tbodyFupPendentes"></tbody>
@@ -305,6 +305,22 @@
       <div class="chart-card"><h4>Registros de FUP ao longo do tempo</h4><canvas id="chartTimeline"></canvas></div>
     </div>
   </main>
+</div>
+
+<div class="overlay" id="editarFupOverlay">
+  <div class="modal">
+    <h3>Editar FUP — pedido <span id="editarFupPedidoNum"></span></h3>
+    <label>Data<input type="date" id="editar_fup_data"></label>
+    <label style="flex-direction:row; align-items:center; gap:8px;"><input type="checkbox" id="editar_fup_previsao" style="width:auto"> Previsão de atraso</label>
+    <label>Motivo
+      <select id="editar_fup_motivo" style="background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;"></select>
+    </label>
+    <label>Observação<input type="text" id="editar_fup_obs"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarFup()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoFup()">Salvar alterações</button>
+    </div>
+  </div>
 </div>
 
 <div class="overlay" id="historicoOverlay">
@@ -492,9 +508,8 @@ function renderTabelaPedidos(pedidos){
 }
 
 async function loadFupTab(){
-  // pedidos pendentes de acompanhamento (atrasados), respeitando os filtros aplicados
+  // lista de pedidos respeitando os filtros aplicados no topo (inclusive a pílula "Atrasados", se marcada)
   const params = buildParams();
-  params.set('apenas_atrasados', 'true'); // essa lista é sempre de atrasados, por definição
   const resPend = await fetch('/api/pedidos?' + params.toString());
   const pendentes = await resPend.json();
   document.getElementById('tbodyFupPendentes').innerHTML = pendentes.length ? pendentes.map(p => `
@@ -504,37 +519,36 @@ async function loadFupTab(){
       <td>${fmtDate(p.data_entrega_prevista)}</td>
       <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
       <td>${p.atraso_producao ? `<span class="atraso-tag">${p.dias_atraso_producao}d produção</span>` : ''}
-          ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}</td>
+          ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}
+          ${(!p.atraso_producao && !p.atraso_entrega) ? '—' : ''}</td>
       <td>
         <button class="small-action fup" onclick="preencherFup('${p.numero_pedido}')">Registrar FUP</button>
         <button class="small-action fup" onclick="abrirHistoricoFup('${p.numero_pedido}')" title="Ver histórico completo de FUP">📋</button>
       </td>
     </tr>
-  `).join('') : `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido atrasado no momento 🎉</td></tr>`;
+  `).join('') : `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido encontrado com esses filtros.</td></tr>`;
 
   const res = await fetch('/api/fup');
   let fups = await res.json();
 
-  // aplica os mesmos filtros (status/tipo/busca/datas) ao histórico de FUPs,
-  // cruzando com a lista de pedidos que batem no filtro atual (sem forçar atrasados)
-  const paramsHistorico = buildParams();
-  const resPedidosFiltrados = await fetch('/api/pedidos?' + paramsHistorico.toString());
-  const pedidosFiltrados = await resPedidosFiltrados.json();
-  const pedidosValidos = new Set(pedidosFiltrados.map(p => p.numero_pedido));
-  const algumFiltroAtivo = [...paramsHistorico.keys()].some(k => k !== 'aba');
+  // aplica os mesmos filtros (status/tipo/busca/datas/atraso) ao histórico de FUPs,
+  // cruzando com a lista de pedidos que batem no filtro atual
+  const pedidosValidos = new Set(pendentes.map(p => p.numero_pedido));
+  const algumFiltroAtivo = [...params.keys()].some(k => k !== 'aba');
   if(algumFiltroAtivo){
     fups = fups.filter(f => pedidosValidos.has(f.numero_pedido));
   }
 
   document.getElementById('stats').innerHTML = `
     <div class="stat"><div class="n">${fups.length}</div><div class="l">Registros de FUP</div></div>
-    <div class="stat atraso"><div class="n">${pendentes.length}</div><div class="l">Pedidos precisando de acompanhamento</div></div>
+    <div class="stat"><div class="n">${pendentes.length}</div><div class="l">Pedidos no filtro atual</div></div>
   `;
   document.getElementById('thead').innerHTML = `
-    <th>Pedido</th><th>Data</th><th>Previsão de atraso</th><th>Motivo</th><th>Observação</th>
+    <th>Pedido</th><th>Data</th><th>Previsão de atraso</th><th>Motivo</th><th>Observação</th><th></th>
   `;
   document.getElementById('empty').style.display = fups.length ? 'none' : 'block';
   document.getElementById('empty').innerHTML = 'Nenhum FUP registrado ainda. Use a tabela acima ou o formulário para registrar o primeiro.';
+  window.fupsCache = fups;
   document.getElementById('tbody').innerHTML = fups.map(f => `
     <tr>
       <td style="font-family:var(--mono)">${f.numero_pedido}</td>
@@ -542,6 +556,10 @@ async function loadFupTab(){
       <td>${f.previsao_atraso ? '<span class="atraso-tag">Sim</span>' : 'Não'}</td>
       <td>${f.motivo_atraso || '—'}</td>
       <td>${f.observacao || '—'}</td>
+      <td style="white-space:nowrap">
+        <button class="small-action fup" onclick="abrirEditarFup(${f.id})">✎ Editar</button>
+        <button class="small-action" onclick="confirmarApagarFup(${f.id})">🗑</button>
+      </td>
     </tr>
   `).join('');
 }
@@ -580,6 +598,68 @@ async function abrirHistoricoFup(numeroPedido){
 }
 function fecharHistoricoModal(){
   document.getElementById('historicoOverlay').classList.remove('show');
+}
+
+// ---------------- Editar / apagar FUP ----------------
+let fupEmEdicaoId = null;
+
+async function abrirEditarFup(id){
+  const f = (window.fupsCache || []).find(x => x.id === id);
+  if(!f){ toast('Registro não encontrado', true); return; }
+  fupEmEdicaoId = id;
+  document.getElementById('editarFupPedidoNum').textContent = '#' + f.numero_pedido;
+  document.getElementById('editar_fup_data').value = f.data_referencia;
+  document.getElementById('editar_fup_previsao').checked = f.previsao_atraso;
+  document.getElementById('editar_fup_obs').value = f.observacao || '';
+
+  if(!document.getElementById('editar_fup_motivo').options.length){
+    const res = await fetch('/api/fup/motivos');
+    const motivos = await res.json();
+    document.getElementById('editar_fup_motivo').innerHTML = motivos.map(m => `<option value="${m}">${m}</option>`).join('');
+  }
+  document.getElementById('editar_fup_motivo').value = f.motivo_atraso || '';
+
+  document.getElementById('editarFupOverlay').classList.add('show');
+}
+function fecharEditarFup(){
+  document.getElementById('editarFupOverlay').classList.remove('show');
+  fupEmEdicaoId = null;
+}
+async function salvarEdicaoFup(){
+  const f = (window.fupsCache || []).find(x => x.id === fupEmEdicaoId);
+  if(!f) return;
+  const body = {
+    numero_pedido: f.numero_pedido,
+    data_referencia: document.getElementById('editar_fup_data').value,
+    previsao_atraso: document.getElementById('editar_fup_previsao').checked,
+    motivo_atraso: document.getElementById('editar_fup_motivo').value,
+    observacao: document.getElementById('editar_fup_obs').value,
+  };
+  try{
+    const res = await fetch(`/api/fup/${fupEmEdicaoId}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('FUP atualizado');
+    fecharEditarFup();
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+async function confirmarApagarFup(id){
+  if(!confirm('Tem certeza que deseja apagar este registro de FUP? Essa ação não pode ser desfeita.')) return;
+  try{
+    const res = await fetch(`/api/fup/${id}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('FUP apagado');
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
 }
 
 async function carregarMotivos(){
