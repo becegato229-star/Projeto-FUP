@@ -51,6 +51,17 @@ class FupRegistro(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class FupRegistroCreate(SQLModel):
+    """Schema de entrada da API — separado do modelo de tabela para evitar
+    um bug do SQLModel/FastAPI onde datas recebidas via JSON não são
+    convertidas corretamente de string para date antes do INSERT."""
+    numero_pedido: str
+    data_referencia: date = Field(default_factory=date.today)
+    previsao_atraso: bool = False
+    motivo_atraso: Optional[str] = None
+    observacao: Optional[str] = None
+
+
 # Lista pré-definida de motivos de atraso (usuário pode digitar texto livre também)
 MOTIVOS_ATRASO_PADRAO = [
     "Falta de matéria-prima",
