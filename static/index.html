@@ -196,8 +196,7 @@
     </select>
   </label>
   <label>Tipo de entrega
-    <select id="f_tipo" onchange="load()">
-      <option value="">Todos</option>
+    <select id="f_tipo" multiple size="1" onchange="load()" onmousedown="expandSelect(this)" onblur="collapseSelect(this)">
       <option value="Entrega">Entrega</option>
       <option value="Retira">Retira</option>
       <option value="Transportadora">Transportadora</option>
@@ -256,6 +255,16 @@
   </main>
 </div>
 
+<div class="overlay" id="historicoOverlay">
+  <div class="modal" style="width:480px; max-height:80vh; overflow-y:auto;">
+    <h3>Histórico de FUP — pedido <span id="historicoPedidoNum"></span></h3>
+    <div id="historicoLista" style="display:flex; flex-direction:column; gap:10px;"></div>
+    <div class="actions">
+      <button class="ghost" onclick="fecharHistoricoModal()">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="cancelOverlay">
   <div class="modal">
     <h3>Cancelar pedido <span id="cancelPedidoNum"></span></h3>
@@ -294,8 +303,8 @@ function setTab(tab, btn){
 
 function limparFiltros(){
   document.getElementById('f_busca').value = '';
-  document.getElementById('f_status').selectedIndex = -1;
-  document.getElementById('f_tipo').value = '';
+  Array.from(document.getElementById('f_status').options).forEach(o => o.selected = false);
+  Array.from(document.getElementById('f_tipo').options).forEach(o => o.selected = false);
   document.getElementById('f_data_de').value = '';
   document.getElementById('f_data_ate').value = '';
   document.getElementById('f_atrasado').checked = false;
@@ -332,13 +341,13 @@ function buildParams(){
   params.set('aba', currentTab === 'fup' ? 'todos' : currentTab);
   const busca = document.getElementById('f_busca').value;
   const statusSel = Array.from(document.getElementById('f_status').selectedOptions).map(o => o.value);
-  const tipo = document.getElementById('f_tipo').value;
+  const tipoSel = Array.from(document.getElementById('f_tipo').selectedOptions).map(o => o.value);
   const de = document.getElementById('f_data_de').value;
   const ate = document.getElementById('f_data_ate').value;
   const atrasado = document.getElementById('f_atrasado').checked;
   if(busca) params.set('busca', busca);
   if(statusSel.length) params.set('status', statusSel.join(','));
-  if(tipo) params.set('tipo_entrega', tipo);
+  if(tipoSel.length) params.set('tipo_entrega', tipoSel.join(','));
   if(de) params.set('data_de', de);
   if(ate) params.set('data_ate', ate);
   if(atrasado) params.set('apenas_atrasados', 'true');
@@ -392,15 +401,19 @@ function renderTabelaPedidos(pedidos){
           ${(!p.atraso_producao && !p.atraso_entrega) ? '—' : ''}</td>
       <td>${p.numero_oe || '—'}</td>
       <td>${p.nf || '—'}</td>
-      <td>${p.motivo_atraso_fup || '—'}</td>
+      <td>${p.motivo_atraso_fup || '—'}
+          <button class="small-action fup" style="margin-left:6px" onclick="abrirHistoricoFup('${p.numero_pedido}')" title="Ver histórico completo de FUP">📋</button>
+      </td>
       <td>${p.status !== 'Cancelado' ? `<button class="small-action" onclick="abrirCancelModal('${p.numero_pedido}')">Cancelar</button>` : ''}</td>
     </tr>
   `).join('');
 }
 
 async function loadFupTab(){
-  // pedidos pendentes de acompanhamento (atrasados)
-  const resPend = await fetch('/api/pedidos?aba=todos&apenas_atrasados=true');
+  // pedidos pendentes de acompanhamento (atrasados), respeitando os filtros aplicados
+  const params = buildParams();
+  params.set('apenas_atrasados', 'true'); // essa lista é sempre de atrasados, por definição
+  const resPend = await fetch('/api/pedidos?' + params.toString());
   const pendentes = await resPend.json();
   document.getElementById('tbodyFupPendentes').innerHTML = pendentes.length ? pendentes.map(p => `
     <tr>
@@ -409,12 +422,27 @@ async function loadFupTab(){
       <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
       <td>${p.atraso_producao ? `<span class="atraso-tag">${p.dias_atraso_producao}d produção</span>` : ''}
           ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}</td>
-      <td><button class="small-action fup" onclick="preencherFup('${p.numero_pedido}')">Registrar FUP</button></td>
+      <td>
+        <button class="small-action fup" onclick="preencherFup('${p.numero_pedido}')">Registrar FUP</button>
+        <button class="small-action fup" onclick="abrirHistoricoFup('${p.numero_pedido}')" title="Ver histórico completo de FUP">📋</button>
+      </td>
     </tr>
   `).join('') : `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido atrasado no momento 🎉</td></tr>`;
 
   const res = await fetch('/api/fup');
-  const fups = await res.json();
+  let fups = await res.json();
+
+  // aplica os mesmos filtros (status/tipo/busca/datas) ao histórico de FUPs,
+  // cruzando com a lista de pedidos que batem no filtro atual (sem forçar atrasados)
+  const paramsHistorico = buildParams();
+  const resPedidosFiltrados = await fetch('/api/pedidos?' + paramsHistorico.toString());
+  const pedidosFiltrados = await resPedidosFiltrados.json();
+  const pedidosValidos = new Set(pedidosFiltrados.map(p => p.numero_pedido));
+  const algumFiltroAtivo = [...paramsHistorico.keys()].some(k => k !== 'aba');
+  if(algumFiltroAtivo){
+    fups = fups.filter(f => pedidosValidos.has(f.numero_pedido));
+  }
+
   document.getElementById('stats').innerHTML = `
     <div class="stat"><div class="n">${fups.length}</div><div class="l">Registros de FUP</div></div>
     <div class="stat atraso"><div class="n">${pendentes.length}</div><div class="l">Pedidos precisando de acompanhamento</div></div>
@@ -439,6 +467,36 @@ function preencherFup(numeroPedido){
   document.getElementById('fup_pedido').value = numeroPedido;
   document.getElementById('fup_pedido').scrollIntoView({behavior:'smooth', block:'center'});
   document.getElementById('fup_pedido').focus();
+}
+
+async function abrirHistoricoFup(numeroPedido){
+  document.getElementById('historicoPedidoNum').textContent = '#' + numeroPedido;
+  document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Carregando…</div>';
+  document.getElementById('historicoOverlay').classList.add('show');
+  try{
+    const res = await fetch(`/api/pedidos/${numeroPedido}`);
+    if(!res.ok) throw new Error('Pedido não encontrado');
+    const data = await res.json();
+    if(!data.fups.length){
+      document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Nenhum FUP registrado ainda para este pedido.</div>';
+      return;
+    }
+    document.getElementById('historicoLista').innerHTML = data.fups.map(f => `
+      <div style="border:1px solid var(--border); border-radius:8px; padding:10px 12px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-dim); margin-bottom:4px;">
+          <span>${fmtDate(f.data_referencia)}</span>
+          ${f.previsao_atraso ? '<span class="atraso-tag">Previsão de atraso</span>' : ''}
+        </div>
+        <div style="font-weight:700; margin-bottom:2px;">${f.motivo_atraso || 'Sem motivo informado'}</div>
+        ${f.observacao ? `<div style="font-size:12.5px; color:var(--text-dim);">${f.observacao}</div>` : ''}
+      </div>
+    `).join('');
+  }catch(e){
+    document.getElementById('historicoLista').innerHTML = `<div style="color:var(--danger)">Erro: ${e.message}</div>`;
+  }
+}
+function fecharHistoricoModal(){
+  document.getElementById('historicoOverlay').classList.remove('show');
 }
 
 async function carregarMotivos(){
