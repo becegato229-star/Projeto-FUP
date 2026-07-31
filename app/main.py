@@ -130,6 +130,25 @@ def cancelar_pedido(
 
 
 # ---------------------------------------------------------------------
+# Nova data de entrega (renegociação manual do prazo)
+# ---------------------------------------------------------------------
+@app.post("/api/pedidos/{numero_pedido}/nova-data-entrega")
+def definir_nova_data_entrega(
+    numero_pedido: str,
+    nova_data: Optional[date] = None,  # omitir ou vazio limpa a renegociação, voltando ao prazo original
+    session: Session = Depends(get_session),
+):
+    pedido = session.get(Pedido, numero_pedido)
+    if not pedido:
+        raise HTTPException(404, "Pedido não encontrado")
+    pedido.nova_data_entrega = nova_data
+    session.add(pedido)
+    session.commit()
+    recalcular_status_e_atrasos(session)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------
 # FUP (acompanhamento diário manual)
 # ---------------------------------------------------------------------
 def _texto_motivo_exibicao(motivo: Optional[str], observacao: Optional[str]) -> Optional[str]:
@@ -256,6 +275,8 @@ def exportar_excel(
             "Número do Pedido": p.numero_pedido,
             "Cliente": p.nome_cliente,
             "Data de Entrega Original": p.data_entrega_prevista.strftime("%d/%m/%Y") if p.data_entrega_prevista else "",
+            "Nova Data de Entrega": p.nova_data_entrega.strftime("%d/%m/%Y") if p.nova_data_entrega else "",
+            "Data Efetiva de Entrega": p.data_entrega_real.strftime("%d/%m/%Y") if p.data_entrega_real else "",
             "OE": p.numero_oe,
             "Status": p.status,
             "Tipo": p.tipo_entrega,
