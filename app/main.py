@@ -43,14 +43,19 @@ async def importar(file: UploadFile = File(...), session: Session = Depends(get_
 def listar_pedidos(
     aba: str = Query("todos", description="todos | antes_faturar | depois_faturar"),
     tipo_entrega: Optional[str] = None,
+    status: Optional[str] = Query(None, description="Bloqueado,Aprovado,Faturado,Encerrado,Cancelado (separados por vírgula)"),
     apenas_atrasados: bool = False,
     data_de: Optional[date] = None,
     data_ate: Optional[date] = None,
     cliente: Optional[str] = None,
+    busca: Optional[str] = Query(None, description="busca livre por pedido, OE, NF ou cliente"),
     session: Session = Depends(get_session),
 ):
     query = select(Pedido)
     pedidos = session.exec(query).all()
+
+    status_list = [s.strip() for s in status.split(",")] if status else None
+    busca_norm = busca.strip().lower() if busca else None
 
     def bate_filtros(p: Pedido) -> bool:
         if aba == "antes_faturar" and p.status not in ("Bloqueado", "Aprovado"):
@@ -58,6 +63,8 @@ def listar_pedidos(
         if aba == "depois_faturar" and p.status not in ("Faturado", "Encerrado"):
             return False
         if tipo_entrega and p.tipo_entrega != tipo_entrega:
+            return False
+        if status_list and p.status not in status_list:
             return False
         if apenas_atrasados and not (p.atraso_producao or p.atraso_entrega):
             return False
@@ -67,6 +74,12 @@ def listar_pedidos(
             return False
         if cliente and (not p.nome_cliente or cliente.lower() not in p.nome_cliente.lower()):
             return False
+        if busca_norm:
+            campos = [
+                p.numero_pedido, p.numero_oe, p.nf, p.nome_cliente, p.cod_cliente,
+            ]
+            if not any(c and busca_norm in str(c).lower() for c in campos):
+                return False
         return True
 
     resultado = [p for p in pedidos if bate_filtros(p)]
@@ -145,9 +158,19 @@ def criar_fup(fup: FupRegistro, session: Session = Depends(get_session)):
 @app.get("/api/exportar")
 def exportar_excel(
     aba: str = Query("todos"),
+    tipo_entrega: Optional[str] = None,
+    status: Optional[str] = None,
+    apenas_atrasados: bool = False,
+    data_de: Optional[date] = None,
+    data_ate: Optional[date] = None,
+    cliente: Optional[str] = None,
+    busca: Optional[str] = None,
     session: Session = Depends(get_session),
 ):
-    pedidos = listar_pedidos(aba=aba, session=session)  # type: ignore
+    pedidos = listar_pedidos(
+        aba=aba, tipo_entrega=tipo_entrega, status=status, apenas_atrasados=apenas_atrasados,
+        data_de=data_de, data_ate=data_ate, cliente=cliente, busca=busca, session=session,
+    )  # type: ignore
     rows = [p.dict() for p in pedidos]
     df = pd.DataFrame(rows)
     buffer = io.BytesIO()
@@ -163,6 +186,73 @@ def exportar_excel(
 
 
 # ---------------------------------------------------------------------
+# Dashboard de monitoramento (gráficos)
+# ---------------------------------------------------------------------
+@app.get("/api/dashboard")
+def dashboard(session: Session = Depends(get_session)):
+    pedidos = session.exec(select(Pedido)).all()
+    fups = session.exec(select(FupRegistro)).all()
+
+    # Distribuição de status
+    status_count: dict = {}
+    for p in pedidos:
+        status_count[p.status or "Indefinido"] = status_count.get(p.status or "Indefinido", 0) + 1
+
+    # Atraso por tipo de entrega
+    atraso_por_tipo: dict = {}
+    for p in pedidos:
+        if p.atraso_producao or p.atraso_entrega:
+            k = p.tipo_entrega or "Desconhecido"
+            atraso_por_tipo[k] = atraso_por_tipo.get(k, 0) + 1
+
+    # Motivos de atraso mais frequentes (via FUP)
+    motivos_count: dict = {}
+    for f in fups:
+        if f.motivo_atraso:
+            motivos_count[f.motivo_atraso] = motivos_count.get(f.motivo_atraso, 0) + 1
+    motivos_ordenados = sorted(motivos_count.items(), key=lambda x: x[1], reverse=True)
+
+    # Atraso de produção vs entrega (contagem)
+    atraso_producao_n = sum(1 for p in pedidos if p.atraso_producao)
+    atraso_entrega_n = sum(1 for p in pedidos if p.atraso_entrega)
+
+    # Média de dias de atraso
+    dias_prod = [p.dias_atraso_producao for p in pedidos if p.atraso_producao]
+    dias_ent = [p.dias_atraso_entrega for p in pedidos if p.atraso_entrega]
+    media_atraso_producao = round(sum(dias_prod) / len(dias_prod), 1) if dias_prod else 0
+    media_atraso_entrega = round(sum(dias_ent) / len(dias_ent), 1) if dias_ent else 0
+
+    # Evolução de FUPs registrados por data (últimos 30 dias com registro)
+    fup_por_data: dict = {}
+    for f in fups:
+        k = f.data_referencia.isoformat()
+        fup_por_data[k] = fup_por_data.get(k, 0) + 1
+    fup_timeline = sorted(fup_por_data.items())[-30:]
+
+    # Top clientes com mais atraso
+    atraso_por_cliente: dict = {}
+    for p in pedidos:
+        if p.atraso_producao or p.atraso_entrega:
+            k = p.nome_cliente or "Desconhecido"
+            atraso_por_cliente[k] = atraso_por_cliente.get(k, 0) + 1
+    top_clientes = sorted(atraso_por_cliente.items(), key=lambda x: x[1], reverse=True)[:8]
+
+    return {
+        "status_count": status_count,
+        "atraso_por_tipo": atraso_por_tipo,
+        "motivos_atraso": motivos_ordenados,
+        "atraso_producao_n": atraso_producao_n,
+        "atraso_entrega_n": atraso_entrega_n,
+        "media_atraso_producao": media_atraso_producao,
+        "media_atraso_entrega": media_atraso_entrega,
+        "fup_timeline": fup_timeline,
+        "top_clientes_atraso": top_clientes,
+        "total_pedidos": len(pedidos),
+        "total_fups": len(fups),
+    }
+
+
+# ---------------------------------------------------------------------
 # Frontend estático
 # ---------------------------------------------------------------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -171,3 +261,4 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 def index():
     return FileResponse("static/index.html")
+
