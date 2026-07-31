@@ -177,6 +177,16 @@
   }
   .chart-card h4{margin:0 0 10px; font-size:12.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.03em;}
   .chart-card canvas{max-height:260px;}
+  .hist-divider{
+    display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px;
+    margin-top:40px; padding-top:20px; border-top:2px solid var(--border);
+  }
+  .hist-filters{display:flex; gap:10px; align-items:flex-end;}
+  .hist-filters label{font-size:11.5px; color:var(--text-dim); display:flex; flex-direction:column; gap:4px;}
+  .hist-filters input{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:7px 10px; border-radius:6px; font-size:12.5px;
+  }
   @media (max-width: 900px){ .charts-grid{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -273,13 +283,26 @@
 
 <div id="monitoramento">
   <main>
-    <div class="stats" id="monitorStats"></div>
+    <div class="section-title" style="margin-top:16px">📍 Momento atual</div>
+    <div class="stats" id="monitorStatsAtual"></div>
     <div class="charts-grid">
       <div class="chart-card"><h4>Status dos pedidos</h4><canvas id="chartStatus"></canvas></div>
       <div class="chart-card"><h4>Atraso por tipo de entrega</h4><canvas id="chartTipoEntrega"></canvas></div>
+      <div class="chart-card" style="grid-column:1/-1"><h4>Clientes com mais pedidos atrasados</h4><canvas id="chartClientes"></canvas></div>
+    </div>
+
+    <div class="hist-divider">
+      <div class="section-title" style="margin:0">📊 Histórico permanente (nunca perde dado)</div>
+      <div class="hist-filters">
+        <label>Data de<input type="date" id="hist_data_de" onchange="loadHistorico()"></label>
+        <label>Data até<input type="date" id="hist_data_ate" onchange="loadHistorico()"></label>
+        <button class="ghost" onclick="document.getElementById('hist_data_de').value='';document.getElementById('hist_data_ate').value='';loadHistorico();">✕ Limpar período</button>
+      </div>
+    </div>
+    <div class="stats" id="monitorStatsHistorico"></div>
+    <div class="charts-grid">
       <div class="chart-card"><h4>Motivos de atraso mais frequentes (FUP)</h4><canvas id="chartMotivos"></canvas></div>
-      <div class="chart-card"><h4>Clientes com mais pedidos atrasados</h4><canvas id="chartClientes"></canvas></div>
-      <div class="chart-card" style="grid-column:1/-1"><h4>Registros de FUP ao longo do tempo</h4><canvas id="chartTimeline"></canvas></div>
+      <div class="chart-card"><h4>Registros de FUP ao longo do tempo</h4><canvas id="chartTimeline"></canvas></div>
     </div>
   </main>
 </div>
@@ -628,41 +651,38 @@ function exportar(){
 }
 
 // ---------------- Monitoramento ----------------
-let monitorLoaded = false;
 function toggleMonitoramento(){
   const showing = document.getElementById('monitoramento').classList.toggle('show');
   document.getElementById('appMain').classList.toggle('hide', showing);
   document.getElementById('btnMonitor').classList.toggle('active', showing);
-  if(showing) loadMonitoramento();
+  if(showing){ loadAtual(); loadHistorico(); }
 }
 
 const palette = ['#ff7a1a','#5bb8e8','#3ecf8e','#ffb020','#ff5252','#b48cff','#4dd0e1','#f06292'];
+const chartOpts = {responsive:true, plugins:{legend:{labels:{color:'#e7ebee'}}}, scales:{
+  x:{ticks:{color:'#8b969f'}, grid:{color:'#2e363e'}},
+  y:{ticks:{color:'#8b969f'}, grid:{color:'#2e363e'}}
+}};
 
 function destroyChart(id){ if(charts[id]) { charts[id].destroy(); charts[id] = null; } }
 
-async function loadMonitoramento(){
-  const res = await fetch('/api/dashboard');
+async function loadAtual(){
+  const res = await fetch('/api/dashboard/atual');
   const d = await res.json();
 
-  document.getElementById('monitorStats').innerHTML = `
+  document.getElementById('monitorStatsAtual').innerHTML = `
     <div class="stat"><div class="n">${d.total_pedidos}</div><div class="l">Total de pedidos</div></div>
     <div class="stat atraso"><div class="n">${d.atraso_producao_n}</div><div class="l">Atraso de produção</div></div>
     <div class="stat atraso"><div class="n">${d.atraso_entrega_n}</div><div class="l">Atraso de entrega</div></div>
     <div class="stat"><div class="n">${d.media_atraso_producao}d</div><div class="l">Média dias atraso produção</div></div>
     <div class="stat"><div class="n">${d.media_atraso_entrega}d</div><div class="l">Média dias atraso entrega</div></div>
-    <div class="stat"><div class="n">${d.total_fups}</div><div class="l">Registros de FUP</div></div>
   `;
-
-  const opts = {responsive:true, plugins:{legend:{labels:{color:'#e7ebee'}}}, scales:{
-    x:{ticks:{color:'#8b969f'}, grid:{color:'#2e363e'}},
-    y:{ticks:{color:'#8b969f'}, grid:{color:'#2e363e'}}
-  }};
 
   destroyChart('status');
   charts.status = new Chart(document.getElementById('chartStatus'), {
     type:'bar',
     data:{labels:Object.keys(d.status_count), datasets:[{data:Object.values(d.status_count), backgroundColor:palette}]},
-    options:{...opts, plugins:{legend:{display:false}}}
+    options:{...chartOpts, plugins:{legend:{display:false}}}
   });
 
   destroyChart('tipo');
@@ -672,22 +692,37 @@ async function loadMonitoramento(){
     options:{responsive:true, plugins:{legend:{labels:{color:'#e7ebee'}}}}
   });
 
+  const clientesLabels = d.top_clientes_atraso.map(x => x[0].length > 30 ? x[0].slice(0,30)+'…' : x[0]);
+  const clientesValues = d.top_clientes_atraso.map(x => x[1]);
+  destroyChart('clientes');
+  charts.clientes = new Chart(document.getElementById('chartClientes'), {
+    type:'bar',
+    data:{labels:clientesLabels, datasets:[{data:clientesValues, backgroundColor:'#5bb8e8'}]},
+    options:{...chartOpts, indexAxis:'y', plugins:{legend:{display:false}}}
+  });
+}
+
+async function loadHistorico(){
+  const params = new URLSearchParams();
+  const de = document.getElementById('hist_data_de').value;
+  const ate = document.getElementById('hist_data_ate').value;
+  if(de) params.set('data_de', de);
+  if(ate) params.set('data_ate', ate);
+
+  const res = await fetch('/api/dashboard/historico?' + params.toString());
+  const d = await res.json();
+
+  document.getElementById('monitorStatsHistorico').innerHTML = `
+    <div class="stat"><div class="n">${d.total_fups}</div><div class="l">Registros de FUP no período</div></div>
+  `;
+
   const motivosLabels = d.motivos_atraso.map(x => x[0]);
   const motivosValues = d.motivos_atraso.map(x => x[1]);
   destroyChart('motivos');
   charts.motivos = new Chart(document.getElementById('chartMotivos'), {
     type:'bar',
     data:{labels:motivosLabels, datasets:[{data:motivosValues, backgroundColor:'#ff7a1a'}]},
-    options:{...opts, indexAxis:'y', plugins:{legend:{display:false}}}
-  });
-
-  const clientesLabels = d.top_clientes_atraso.map(x => x[0].length > 22 ? x[0].slice(0,22)+'…' : x[0]);
-  const clientesValues = d.top_clientes_atraso.map(x => x[1]);
-  destroyChart('clientes');
-  charts.clientes = new Chart(document.getElementById('chartClientes'), {
-    type:'bar',
-    data:{labels:clientesLabels, datasets:[{data:clientesValues, backgroundColor:'#5bb8e8'}]},
-    options:{...opts, indexAxis:'y', plugins:{legend:{display:false}}}
+    options:{...chartOpts, indexAxis:'y', plugins:{legend:{display:false}}}
   });
 
   const timelineLabels = d.fup_timeline.map(x => fmtDate(x[0]));
@@ -696,7 +731,7 @@ async function loadMonitoramento(){
   charts.timeline = new Chart(document.getElementById('chartTimeline'), {
     type:'line',
     data:{labels:timelineLabels, datasets:[{data:timelineValues, borderColor:'#3ecf8e', backgroundColor:'#3ecf8e33', fill:true, tension:.3}]},
-    options:{...opts, plugins:{legend:{display:false}}}
+    options:{...chartOpts, plugins:{legend:{display:false}}}
   });
 }
 
