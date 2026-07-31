@@ -215,7 +215,8 @@ def recalcular_status_e_atrasos(session: Session) -> None:
         else:
             p.status = p.situacao_erp or "Indefinido"
 
-        # --- Atraso de produção: ainda não faturado e data prevista já passou ---
+        # --- Atraso de produção: ainda não faturado e a data prevista original já passou ---
+        # (a "nova data de entrega" é só informativa; não altera se o pedido conta como atrasado)
         p.atraso_producao = False
         p.dias_atraso_producao = 0
         if p.status in ("Bloqueado", "Aprovado") and p.data_entrega_prevista:
