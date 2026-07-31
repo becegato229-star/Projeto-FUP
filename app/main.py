@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
 from .database import init_db, get_session
-from .models import Pedido, FupRegistro, MOTIVOS_ATRASO_PADRAO
+from .models import Pedido, FupRegistro, FupRegistroCreate, MOTIVOS_ATRASO_PADRAO
 from .importer import importar_planilha, recalcular_status_e_atrasos
 
 app = FastAPI(title="FlowLog (self-hosted)")
@@ -42,7 +42,7 @@ async def importar(file: UploadFile = File(...), session: Session = Depends(get_
 @app.get("/api/pedidos")
 def listar_pedidos(
     aba: str = Query("todos", description="todos | antes_faturar | depois_faturar"),
-    tipo_entrega: Optional[str] = None,
+    tipo_entrega: Optional[str] = Query(None, description="Entrega,Retira,Transportadora (separados por vírgula)"),
     status: Optional[str] = Query(None, description="Bloqueado,Aprovado,Faturado,Encerrado,Cancelado (separados por vírgula)"),
     apenas_atrasados: bool = False,
     data_de: Optional[date] = None,
@@ -55,6 +55,7 @@ def listar_pedidos(
     pedidos = session.exec(query).all()
 
     status_list = [s.strip() for s in status.split(",")] if status else None
+    tipo_list = [t.strip() for t in tipo_entrega.split(",")] if tipo_entrega else None
     busca_norm = busca.strip().lower() if busca else None
 
     def bate_filtros(p: Pedido) -> bool:
@@ -62,7 +63,7 @@ def listar_pedidos(
             return False
         if aba == "depois_faturar" and p.status not in ("Faturado", "Encerrado"):
             return False
-        if tipo_entrega and p.tipo_entrega != tipo_entrega:
+        if tipo_list and p.tipo_entrega not in tipo_list:
             return False
         if status_list and p.status not in status_list:
             return False
@@ -137,9 +138,10 @@ def listar_fups(session: Session = Depends(get_session)):
 
 
 @app.post("/api/fup")
-def criar_fup(fup: FupRegistro, session: Session = Depends(get_session)):
-    if not session.get(Pedido, fup.numero_pedido):
+def criar_fup(dados: FupRegistroCreate, session: Session = Depends(get_session)):
+    if not session.get(Pedido, dados.numero_pedido):
         raise HTTPException(404, "Pedido não encontrado")
+    fup = FupRegistro(**dados.dict())
     session.add(fup)
     session.commit()
     session.refresh(fup)
@@ -261,4 +263,3 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 def index():
     return FileResponse("static/index.html")
-
