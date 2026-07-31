@@ -63,19 +63,41 @@
   }
   nav.tabs button.active{color:var(--text); border-bottom-color:var(--accent);}
 
-  .toolbar{
+  .toolbar-top{
     display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;
-    padding:14px 24px; border-bottom:1px solid var(--border);
+    padding:14px 24px 10px;
   }
-  .toolbar input, .toolbar select{
+  .toolbar-top label{font-size:11.5px; color:var(--text-dim); display:flex; flex-direction:column; gap:4px;}
+  .toolbar-top input[type="date"]{
     background:var(--panel-2); border:1px solid var(--border); color:var(--text);
     padding:7px 10px; border-radius:6px; font-size:12.5px;
   }
-  .toolbar label{font-size:11.5px; color:var(--text-dim); display:flex; flex-direction:column; gap:4px;}
-  .chk{flex-direction:row !important; align-items:center; gap:6px !important;}
+  .search-wrap{
+    position:relative; flex:1; min-width:220px; max-width:420px;
+    display:flex; align-items:center;
+  }
+  .search-wrap svg{position:absolute; left:11px; color:var(--text-dim); pointer-events:none;}
+  .search-wrap input{
+    width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:9px 12px 9px 34px; border-radius:8px; font-size:13px;
+  }
+  .search-wrap input:focus{outline:none; border-color:var(--accent);}
+
+  .pill-rows{
+    display:flex; flex-direction:column; gap:8px;
+    padding:2px 24px 14px; border-bottom:1px solid var(--border);
+  }
+  .pill-row{display:flex; flex-wrap:wrap; gap:8px;}
+  .pill{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text-dim);
+    padding:7px 14px; border-radius:20px; font-size:12.5px; font-weight:600;
+    cursor:pointer; transition:.12s; white-space:nowrap;
+  }
+  .pill:hover{border-color:var(--text-dim); color:var(--text);}
+  .pill.active{background:var(--text); color:#14181c; border-color:var(--text);}
+  .pill.active.all{background:var(--accent); border-color:var(--accent); color:#1a1200;}
+  .pill.danger.active{background:var(--danger); border-color:var(--danger); color:#fff;}
   .spacer{flex:1;}
-  #f_busca{width:220px;}
-  #f_status{min-height:34px;}
   button.primary{
     background:var(--accent); border:none; color:#1a1200; font-weight:700;
     padding:9px 16px; border-radius:6px; cursor:pointer; font-size:12.5px;
@@ -184,31 +206,38 @@
   <button data-tab="fup" onclick="setTab('fup', this)">FUP</button>
 </nav>
 
-<div class="toolbar">
-  <label>Busca (pedido, OE, NF, cliente)<input type="text" id="f_busca" placeholder="ex: 20233, cliente..." oninput="debouncedLoad()"></label>
-  <label>Status
-    <select id="f_status" multiple size="1" onchange="load()" onmousedown="expandSelect(this)" onblur="collapseSelect(this)">
-      <option value="Bloqueado">Bloqueado</option>
-      <option value="Aprovado">Aprovado</option>
-      <option value="Faturado">Faturado</option>
-      <option value="Encerrado">Encerrado</option>
-      <option value="Cancelado">Cancelado</option>
-    </select>
-  </label>
-  <label>Tipo de entrega
-    <select id="f_tipo" multiple size="1" onchange="load()" onmousedown="expandSelect(this)" onblur="collapseSelect(this)">
-      <option value="Entrega">Entrega</option>
-      <option value="Retira">Retira</option>
-      <option value="Transportadora">Transportadora</option>
-    </select>
-  </label>
+<div class="toolbar-top">
+  <div class="search-wrap">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input type="text" id="f_busca" placeholder="Buscar por cliente, pedido, OE ou NF..." oninput="debouncedLoad()">
+  </div>
   <label>Data de<input type="date" id="f_data_de" onchange="load()"></label>
   <label>Data até<input type="date" id="f_data_ate" onchange="load()"></label>
-  <label class="chk"><input type="checkbox" id="f_atrasado" onchange="load()"> Só atrasados</label>
   <div class="spacer"></div>
   <button class="ghost" onclick="limparFiltros()">✕ Limpar filtros</button>
   <button class="ghost" onclick="load()">↻ Atualizar</button>
   <button class="primary" onclick="exportar()">⬇ Exportar Excel</button>
+</div>
+
+<div class="pill-rows">
+  <div class="pill-row" id="pills_tipo" data-group="tipo">
+    <button class="pill all active" data-value="">Todos os tipos</button>
+    <button class="pill" data-value="Entrega">🚚 Entrega</button>
+    <button class="pill" data-value="Retira">🏬 Retira</button>
+    <button class="pill" data-value="Transportadora">📦 Transportadora</button>
+  </div>
+  <div class="pill-row" id="pills_atraso" data-group="atraso">
+    <button class="pill all active" data-value="">Todos</button>
+    <button class="pill" data-value="atrasado">⚠ Atrasados</button>
+  </div>
+  <div class="pill-row" id="pills_status" data-group="status">
+    <button class="pill all active" data-value="">Todos os status</button>
+    <button class="pill" data-value="Bloqueado">Bloqueado</button>
+    <button class="pill" data-value="Aprovado">Aprovado</button>
+    <button class="pill" data-value="Faturado">Faturado</button>
+    <button class="pill" data-value="Encerrado">Encerrado</button>
+    <button class="pill danger" data-value="Cancelado">Cancelado</button>
+  </div>
 </div>
 
 <main>
@@ -289,8 +318,38 @@ function debouncedLoad(){
   debounceTimer = setTimeout(load, 350);
 }
 
-function expandSelect(sel){ sel.size = 5; }
-function collapseSelect(sel){ sel.size = 1; }
+function expandSelect(sel){ /* mantido por compatibilidade, não usado mais */ }
+function collapseSelect(sel){ /* mantido por compatibilidade, não usado mais */ }
+
+// ---------------- Pílulas de filtro ----------------
+function setupPillGroup(rowId){
+  const row = document.getElementById(rowId);
+  row.querySelectorAll('.pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const isAll = btn.classList.contains('all');
+      if(isAll){
+        row.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }else{
+        btn.classList.toggle('active');
+        const algumAtivo = Array.from(row.querySelectorAll('.pill:not(.all)')).some(b => b.classList.contains('active'));
+        row.querySelector('.pill.all').classList.toggle('active', !algumAtivo);
+        if(algumAtivo) row.querySelector('.pill.all').classList.remove('active');
+      }
+      load();
+    });
+  });
+}
+['pills_tipo','pills_atraso','pills_status'].forEach(setupPillGroup);
+
+function pillValues(rowId){
+  return Array.from(document.querySelectorAll(`#${rowId} .pill.active:not(.all)`)).map(b => b.dataset.value);
+}
+function resetPillGroup(rowId){
+  const row = document.getElementById(rowId);
+  row.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
+  row.querySelector('.pill.all').classList.add('active');
+}
 
 function setTab(tab, btn){
   currentTab = tab;
@@ -303,11 +362,11 @@ function setTab(tab, btn){
 
 function limparFiltros(){
   document.getElementById('f_busca').value = '';
-  Array.from(document.getElementById('f_status').options).forEach(o => o.selected = false);
-  Array.from(document.getElementById('f_tipo').options).forEach(o => o.selected = false);
+  resetPillGroup('pills_tipo');
+  resetPillGroup('pills_atraso');
+  resetPillGroup('pills_status');
   document.getElementById('f_data_de').value = '';
   document.getElementById('f_data_ate').value = '';
-  document.getElementById('f_atrasado').checked = false;
   load();
 }
 
@@ -340,11 +399,11 @@ function buildParams(){
   const params = new URLSearchParams();
   params.set('aba', currentTab === 'fup' ? 'todos' : currentTab);
   const busca = document.getElementById('f_busca').value;
-  const statusSel = Array.from(document.getElementById('f_status').selectedOptions).map(o => o.value);
-  const tipoSel = Array.from(document.getElementById('f_tipo').selectedOptions).map(o => o.value);
+  const statusSel = pillValues('pills_status');
+  const tipoSel = pillValues('pills_tipo');
+  const atrasado = pillValues('pills_atraso').includes('atrasado');
   const de = document.getElementById('f_data_de').value;
   const ate = document.getElementById('f_data_ate').value;
-  const atrasado = document.getElementById('f_atrasado').checked;
   if(busca) params.set('busca', busca);
   if(statusSel.length) params.set('status', statusSel.join(','));
   if(tipoSel.length) params.set('tipo_entrega', tipoSel.join(','));
