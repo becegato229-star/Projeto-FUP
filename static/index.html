@@ -307,6 +307,18 @@
   </main>
 </div>
 
+<div class="overlay" id="novaDataOverlay">
+  <div class="modal">
+    <h3>Nova data de entrega — pedido <span id="novaDataPedidoNum"></span></h3>
+    <label>Nova data (renegociada com o cliente)<input type="date" id="nova_data_input"></label>
+    <div style="font-size:11.5px; color:var(--text-dim); margin:-6px 0 14px;">Deixe em branco e salve para remover a renegociação e voltar a usar a data original.</div>
+    <div class="actions">
+      <button class="ghost" onclick="fecharNovaDataModal()">Cancelar</button>
+      <button class="primary" onclick="salvarNovaData()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="editarFupOverlay">
   <div class="modal">
     <h3>Editar FUP — pedido <span id="editarFupPedidoNum"></span></h3>
@@ -485,7 +497,7 @@ function textoMotivo(motivo, observacao){
 
 function renderTabelaPedidos(pedidos){
   document.getElementById('thead').innerHTML = `
-    <th>Pedido</th><th>Cliente</th><th>Emissão</th><th>Entrega prevista</th>
+    <th>Pedido</th><th>Cliente</th><th>Emissão</th><th>Entrega original</th><th>Nova data</th><th>Entrega efetiva</th>
     <th>Tipo</th><th>Status</th><th>Atraso</th><th>OE</th><th>NF</th><th>Motivo (FUP)</th><th></th>
   `;
   document.getElementById('empty').style.display = pedidos.length ? 'none' : 'block';
@@ -496,6 +508,10 @@ function renderTabelaPedidos(pedidos){
       <td>${p.nome_cliente || '—'}</td>
       <td>${fmtDate(p.data_emissao)}</td>
       <td>${fmtDate(p.data_entrega_prevista)}</td>
+      <td>${p.nova_data_entrega ? fmtDate(p.nova_data_entrega) : '—'}
+          <button class="small-action fup" style="margin-left:4px" onclick="abrirNovaDataModal('${p.numero_pedido}', '${p.nova_data_entrega || ''}')" title="Definir/editar nova data de entrega">✎</button>
+      </td>
+      <td>${p.data_entrega_real ? fmtDate(p.data_entrega_real) : '—'}</td>
       <td>${p.tipo_entrega || '—'}</td>
       <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
       <td>${p.atraso_producao ? `<span class="atraso-tag">${p.dias_atraso_producao}d produção</span>` : ''}
@@ -693,6 +709,34 @@ async function salvarFup(){
     toast('FUP registrado com sucesso');
     document.getElementById('fup_pedido').value = '';
     document.getElementById('fup_obs').value = '';
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+// ---------------- Nova data de entrega ----------------
+let pedidoParaNovaData = null;
+function abrirNovaDataModal(numeroPedido, dataAtual){
+  pedidoParaNovaData = numeroPedido;
+  document.getElementById('novaDataPedidoNum').textContent = '#' + numeroPedido;
+  document.getElementById('nova_data_input').value = dataAtual || '';
+  document.getElementById('novaDataOverlay').classList.add('show');
+}
+function fecharNovaDataModal(){
+  document.getElementById('novaDataOverlay').classList.remove('show');
+  pedidoParaNovaData = null;
+}
+async function salvarNovaData(){
+  const novaData = document.getElementById('nova_data_input').value;
+  try{
+    const params = new URLSearchParams();
+    if(novaData) params.set('nova_data', novaData);
+    const res = await fetch(`/api/pedidos/${pedidoParaNovaData}/nova-data-entrega?` + params.toString(), {method:'POST'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast(novaData ? 'Nova data de entrega registrada' : 'Renegociação removida, voltando à data original');
+    fecharNovaDataModal();
     load();
   }catch(e){
     toast('Erro: ' + e.message, true);
