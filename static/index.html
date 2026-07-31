@@ -478,6 +478,10 @@ function renderStats(pedidos){
 }
 
 function fmtDate(d){ return d ? d.split('-').reverse().join('/') : '—'; }
+function textoMotivo(motivo, observacao){
+  if(motivo === 'Outro' && observacao) return observacao;
+  return motivo;
+}
 
 function renderTabelaPedidos(pedidos){
   document.getElementById('thead').innerHTML = `
@@ -554,7 +558,7 @@ async function loadFupTab(){
       <td style="font-family:var(--mono)">${f.numero_pedido}</td>
       <td>${fmtDate(f.data_referencia)}</td>
       <td>${f.previsao_atraso ? '<span class="atraso-tag">Sim</span>' : 'Não'}</td>
-      <td>${f.motivo_atraso || '—'}</td>
+      <td>${textoMotivo(f.motivo_atraso, f.observacao) || '—'}</td>
       <td>${f.observacao || '—'}</td>
       <td style="white-space:nowrap">
         <button class="small-action fup" onclick="abrirEditarFup(${f.id})">✎ Editar</button>
@@ -588,8 +592,8 @@ async function abrirHistoricoFup(numeroPedido){
           <span>${fmtDate(f.data_referencia)}</span>
           ${f.previsao_atraso ? '<span class="atraso-tag">Previsão de atraso</span>' : ''}
         </div>
-        <div style="font-weight:700; margin-bottom:2px;">${f.motivo_atraso || 'Sem motivo informado'}</div>
-        ${f.observacao ? `<div style="font-size:12.5px; color:var(--text-dim);">${f.observacao}</div>` : ''}
+        <div style="font-weight:700; margin-bottom:2px;">${textoMotivo(f.motivo_atraso, f.observacao) || 'Sem motivo informado'}</div>
+        ${(f.observacao && f.motivo_atraso !== 'Outro') ? `<div style="font-size:12.5px; color:var(--text-dim);">${f.observacao}</div>` : ''}
       </div>
     `).join('');
   }catch(e){
@@ -635,6 +639,7 @@ async function salvarEdicaoFup(){
     motivo_atraso: document.getElementById('editar_fup_motivo').value,
     observacao: document.getElementById('editar_fup_obs').value,
   };
+  if(body.motivo_atraso === 'Outro' && !body.observacao.trim()){ toast('Observação é obrigatória quando o motivo é "Outro"', true); return; }
   try{
     const res = await fetch(`/api/fup/${fupEmEdicaoId}`, {
       method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
@@ -678,6 +683,7 @@ async function salvarFup(){
     observacao: document.getElementById('fup_obs').value,
   };
   if(!body.numero_pedido){ toast('Informe o número do pedido', true); return; }
+  if(body.motivo_atraso === 'Outro' && !body.observacao.trim()){ toast('Observação é obrigatória quando o motivo é "Outro"', true); return; }
   try{
     const res = await fetch('/api/fup', {
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
