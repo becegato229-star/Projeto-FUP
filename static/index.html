@@ -125,12 +125,24 @@
   .stat.atraso .n{color:var(--danger);}
 
   table{width:100%; border-collapse:collapse; margin-top:6px;}
+  .table-scroll{
+    max-height: calc(100vh - 340px);
+    min-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    position: relative;
+  }
   thead th{
     text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
     color:var(--text-dim); padding:10px 12px; border-bottom:1px solid var(--border);
-    position:sticky; top:0; background:var(--bg);
+    position:sticky; top:0; background:var(--bg); z-index:1;
   }
-  tbody td{padding:10px 12px; border-bottom:1px solid #20262c; font-size:13px;}
+  tbody tr{ height:44px; }
+  tbody td{
+    padding:10px 12px; border-bottom:1px solid #20262c; font-size:13px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px;
+  }
   tbody tr:hover{background:var(--panel);}
   .badge{
     display:inline-block; padding:3px 8px; border-radius:5px; font-size:11px; font-weight:700;
@@ -266,17 +278,21 @@
 
   <div id="fupPendentesWrap" style="display:none">
     <div class="section-title">Pedidos (use os filtros de status/tipo/atraso no topo para refinar)</div>
-    <table>
-      <thead><tr><th>Pedido</th><th>Cliente</th><th>Entrega prevista</th><th>Status</th><th>Atraso</th><th></th></tr></thead>
-      <tbody id="tbodyFupPendentes"></tbody>
-    </table>
+    <div class="table-scroll" id="scrollFupPendentes" style="max-height:320px;">
+      <table>
+        <thead><tr><th>Pedido</th><th>Cliente</th><th>Entrega prevista</th><th>Status</th><th>Atraso</th><th></th></tr></thead>
+        <tbody id="tbodyFupPendentes"></tbody>
+      </table>
+    </div>
     <div class="section-title">Histórico de FUPs registrados</div>
   </div>
 
-  <table id="tabela">
-    <thead><tr id="thead"></tr></thead>
-    <tbody id="tbody"></tbody>
-  </table>
+  <div class="table-scroll" id="scrollTabela">
+    <table id="tabela">
+      <thead><tr id="thead"></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
   <div class="empty" id="empty" style="display:none"></div>
 </main>
 </div>
@@ -361,6 +377,48 @@
 
 <script>
 let currentTab = 'todos';
+
+// ---------------- Virtualização de tabela (renderiza só as linhas visíveis) ----------------
+class VirtualTable {
+  constructor(scrollElId, tbodyElId, rowHeight = 44, buffer = 10){
+    this.scrollEl = document.getElementById(scrollElId);
+    this.tbodyEl = document.getElementById(tbodyElId);
+    this.rowHeight = rowHeight;
+    this.buffer = buffer;
+    this.items = [];
+    this.renderRow = () => '';
+    this.colspan = 12;
+    this._onScroll = () => { window.requestAnimationFrame(() => this._paint()); };
+    this.scrollEl.addEventListener('scroll', this._onScroll);
+  }
+  setData(items, renderRow, colspan){
+    this.items = items;
+    this.renderRow = renderRow;
+    if(colspan) this.colspan = colspan;
+    this.scrollEl.scrollTop = 0;
+    this._paint();
+  }
+  _paint(){
+    const total = this.items.length;
+    const viewportHeight = this.scrollEl.clientHeight || 400;
+    const scrollTop = this.scrollEl.scrollTop;
+    let start = Math.floor(scrollTop / this.rowHeight) - this.buffer;
+    start = Math.max(0, start);
+    const visibleCount = Math.ceil(viewportHeight / this.rowHeight) + this.buffer * 2;
+    const end = Math.min(total, start + visibleCount);
+    const topSpacer = start * this.rowHeight;
+    const bottomSpacer = (total - end) * this.rowHeight;
+    let html = '';
+    if(topSpacer > 0) html += `<tr style="height:${topSpacer}px;"><td colspan="${this.colspan}" style="padding:0;border:none;"></td></tr>`;
+    for(let i = start; i < end; i++){
+      html += this.renderRow(this.items[i], i);
+    }
+    if(bottomSpacer > 0) html += `<tr style="height:${bottomSpacer}px;"><td colspan="${this.colspan}" style="padding:0;border:none;"></td></tr>`;
+    this.tbodyEl.innerHTML = html;
+  }
+}
+const vtPedidos = new VirtualTable('scrollTabela', 'tbody', 44, 10);
+const vtFupPendentes = new VirtualTable('scrollFupPendentes', 'tbodyFupPendentes', 44, 10);
 let debounceTimer;
 let charts = {};
 
@@ -495,14 +553,8 @@ function textoMotivo(motivo, observacao){
   return motivo;
 }
 
-function renderTabelaPedidos(pedidos){
-  document.getElementById('thead').innerHTML = `
-    <th>Pedido</th><th>Cliente</th><th>Emissão</th><th>Entrega original</th><th>Nova data</th><th>Entrega efetiva</th>
-    <th>Tipo</th><th>Status</th><th>Atraso</th><th>OE</th><th>NF</th><th>Motivo (FUP)</th><th></th>
-  `;
-  document.getElementById('empty').style.display = pedidos.length ? 'none' : 'block';
-  document.getElementById('empty').innerHTML = 'Nenhum pedido encontrado com esses filtros.<br><b>Importe as planilhas</b> pelos botões no topo para começar (ou ajuste/limpe os filtros).';
-  document.getElementById('tbody').innerHTML = pedidos.map(p => `
+function linhaPedido(p){
+  return `
     <tr>
       <td style="font-family:var(--mono)">${p.numero_pedido}</td>
       <td>${p.nome_cliente || '—'}</td>
@@ -524,15 +576,21 @@ function renderTabelaPedidos(pedidos){
       </td>
       <td>${p.status !== 'Cancelado' ? `<button class="small-action" onclick="abrirCancelModal('${p.numero_pedido}')">Cancelar</button>` : ''}</td>
     </tr>
-  `).join('');
+  `;
 }
 
-async function loadFupTab(){
-  // lista de pedidos respeitando os filtros aplicados no topo (inclusive a pílula "Atrasados", se marcada)
-  const params = buildParams();
-  const resPend = await fetch('/api/pedidos?' + params.toString());
-  const pendentes = await resPend.json();
-  document.getElementById('tbodyFupPendentes').innerHTML = pendentes.length ? pendentes.map(p => `
+function renderTabelaPedidos(pedidos){
+  document.getElementById('thead').innerHTML = `
+    <th>Pedido</th><th>Cliente</th><th>Emissão</th><th>Entrega original</th><th>Nova data</th><th>Entrega efetiva</th>
+    <th>Tipo</th><th>Status</th><th>Atraso</th><th>OE</th><th>NF</th><th>Motivo (FUP)</th><th></th>
+  `;
+  document.getElementById('empty').style.display = pedidos.length ? 'none' : 'block';
+  document.getElementById('empty').innerHTML = 'Nenhum pedido encontrado com esses filtros.<br><b>Importe as planilhas</b> pelos botões no topo para começar (ou ajuste/limpe os filtros).';
+  vtPedidos.setData(pedidos, linhaPedido, 13);
+}
+
+function linhaFupPendente(p){
+  return `
     <tr>
       <td style="font-family:var(--mono)">${p.numero_pedido}</td>
       <td>${p.nome_cliente || '—'}</td>
@@ -546,7 +604,33 @@ async function loadFupTab(){
         <button class="small-action fup" onclick="abrirHistoricoFup('${p.numero_pedido}')" title="Ver histórico completo de FUP">📋</button>
       </td>
     </tr>
-  `).join('') : `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido encontrado com esses filtros.</td></tr>`;
+  `;
+}
+function linhaFupHistorico(f){
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${f.numero_pedido}</td>
+      <td>${fmtDate(f.data_referencia)}</td>
+      <td>${f.previsao_atraso ? '<span class="atraso-tag">Sim</span>' : 'Não'}</td>
+      <td>${textoMotivo(f.motivo_atraso, f.observacao) || '—'}</td>
+      <td>${f.observacao || '—'}</td>
+      <td style="white-space:nowrap">
+        <button class="small-action fup" onclick="abrirEditarFup(${f.id})">✎ Editar</button>
+        <button class="small-action" onclick="confirmarApagarFup(${f.id})">🗑</button>
+      </td>
+    </tr>
+  `;
+}
+
+async function loadFupTab(){
+  // lista de pedidos respeitando os filtros aplicados no topo (inclusive a pílula "Atrasados", se marcada)
+  const params = buildParams();
+  const resPend = await fetch('/api/pedidos?' + params.toString());
+  const pendentes = await resPend.json();
+  vtFupPendentes.setData(pendentes, linhaFupPendente, 6);
+  if(!pendentes.length){
+    document.getElementById('tbodyFupPendentes').innerHTML = `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido encontrado com esses filtros.</td></tr>`;
+  }
 
   const res = await fetch('/api/fup');
   let fups = await res.json();
@@ -569,19 +653,7 @@ async function loadFupTab(){
   document.getElementById('empty').style.display = fups.length ? 'none' : 'block';
   document.getElementById('empty').innerHTML = 'Nenhum FUP registrado ainda. Use a tabela acima ou o formulário para registrar o primeiro.';
   window.fupsCache = fups;
-  document.getElementById('tbody').innerHTML = fups.map(f => `
-    <tr>
-      <td style="font-family:var(--mono)">${f.numero_pedido}</td>
-      <td>${fmtDate(f.data_referencia)}</td>
-      <td>${f.previsao_atraso ? '<span class="atraso-tag">Sim</span>' : 'Não'}</td>
-      <td>${textoMotivo(f.motivo_atraso, f.observacao) || '—'}</td>
-      <td>${f.observacao || '—'}</td>
-      <td style="white-space:nowrap">
-        <button class="small-action fup" onclick="abrirEditarFup(${f.id})">✎ Editar</button>
-        <button class="small-action" onclick="confirmarApagarFup(${f.id})">🗑</button>
-      </td>
-    </tr>
-  `).join('');
+  vtPedidos.setData(fups, linhaFupHistorico, 6);
 }
 
 function preencherFup(numeroPedido){
