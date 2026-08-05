@@ -1,4 +1,5 @@
 import io
+import time
 from datetime import date
 from typing import Optional
 
@@ -19,6 +20,10 @@ app = FastAPI(title="FlowLog (self-hosted)")
 def on_startup():
     init_db()
     with Session(engine) as session:
+        # recalcula status/atraso de todos os pedidos com a lógica mais recente
+        # (sem isso, correções de cálculo só apareceriam na próxima importação)
+        recalcular_status_e_atrasos(session)
+
         pedidos_com_fup = session.exec(
             select(FupRegistro.numero_pedido).distinct()
         ).all()
@@ -45,6 +50,20 @@ async def importar(file: UploadFile = File(...), session: Session = Depends(get_
 # ---------------------------------------------------------------------
 # Listagem de pedidos com filtros
 # ---------------------------------------------------------------------
+_ultimo_recalculo_ts = 0.0
+_RECALCULO_INTERVALO_SEGUNDOS = 60  # evita recalcular a cada requisição; no máximo 1x/minuto
+
+
+def _recalcular_se_necessario(session: Session):
+    """Garante que o atraso reflita o dia de hoje, mesmo sem reimportar
+    planilhas — mas sem recalcular a cada request (throttle de 60s)."""
+    global _ultimo_recalculo_ts
+    agora = time.time()
+    if agora - _ultimo_recalculo_ts > _RECALCULO_INTERVALO_SEGUNDOS:
+        recalcular_status_e_atrasos(session)
+        _ultimo_recalculo_ts = agora
+
+
 @app.get("/api/pedidos")
 def listar_pedidos(
     aba: str = Query("todos", description="todos | antes_faturar | depois_faturar"),
@@ -57,6 +76,7 @@ def listar_pedidos(
     busca: Optional[str] = Query(None, description="busca livre por pedido, OE, NF ou cliente"),
     session: Session = Depends(get_session),
 ):
+    _recalcular_se_necessario(session)
     query = select(Pedido)
     pedidos = session.exec(query).all()
 
@@ -305,6 +325,7 @@ def exportar_excel(
 # ---------------------------------------------------------------------
 @app.get("/api/dashboard/atual")
 def dashboard_atual(session: Session = Depends(get_session)):
+    _recalcular_se_necessario(session)
     pedidos = session.exec(select(Pedido)).all()
 
     status_count: dict = {}
