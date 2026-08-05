@@ -547,6 +547,9 @@ function renderStats(pedidos){
   `;
 }
 
+function textoAtraso(dias, sufixo){
+  return dias > 0 ? `${dias}d ${sufixo}` : `Atrasado hoje (${sufixo})`;
+}
 function fmtDate(d){ return d ? d.split('-').reverse().join('/') : '—'; }
 function textoMotivo(motivo, observacao){
   if(motivo === 'Outro' && observacao) return observacao;
@@ -566,7 +569,7 @@ function linhaPedido(p){
       <td>${p.data_entrega_real ? fmtDate(p.data_entrega_real) : '—'}</td>
       <td>${p.tipo_entrega || '—'}</td>
       <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
-      <td>${p.atraso_producao ? `<span class="atraso-tag">${p.dias_atraso_producao}d produção</span>` : ''}
+      <td>${p.atraso_producao ? `<span class="atraso-tag">${textoAtraso(p.dias_atraso_producao, 'produção')}</span>` : ''}
           ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}
           ${(!p.atraso_producao && !p.atraso_entrega) ? '—' : ''}</td>
       <td>${p.numero_oe || '—'}</td>
@@ -596,7 +599,7 @@ function linhaFupPendente(p){
       <td>${p.nome_cliente || '—'}</td>
       <td>${fmtDate(p.data_entrega_prevista)}</td>
       <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
-      <td>${p.atraso_producao ? `<span class="atraso-tag">${p.dias_atraso_producao}d produção</span>` : ''}
+      <td>${p.atraso_producao ? `<span class="atraso-tag">${textoAtraso(p.dias_atraso_producao, 'produção')}</span>` : ''}
           ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}
           ${(!p.atraso_producao && !p.atraso_entrega) ? '—' : ''}</td>
       <td>
