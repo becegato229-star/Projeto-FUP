@@ -34,9 +34,9 @@ class Pedido(SQLModel, table=True):
     # --- Calculado automaticamente ---
     status: Optional[str] = None                # Bloqueado / Aprovado / Faturado / Encerrado / Cancelado
     atraso_producao: bool = False
-    atraso_entrega: bool = False
     dias_atraso_producao: int = 0
-    dias_atraso_entrega: int = 0
+    aviso_entrega: bool = False                  # faturado, sem canhoto, além do prazo esperado pro tipo de entrega
+    dias_uteis_desde_faturamento: int = 0
     motivo_atraso_fup: Optional[str] = None      # último motivo de atraso lançado no FUP (espelhado p/ facilitar filtro)
 
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -61,6 +61,27 @@ class FupRegistroCreate(SQLModel):
     previsao_atraso: bool = False
     motivo_atraso: Optional[str] = None
     observacao: Optional[str] = None
+
+
+class AvisoRegistro(SQLModel, table=True):
+    """Investigação de um Aviso (pedido faturado, sem canhoto, além do prazo
+    esperado). Separado do FUP porque é um contexto de negócio diferente:
+    FUP é sobre atraso de produção, Aviso é sobre atraso de coleta/entrega
+    pós-faturamento."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    numero_pedido: str = Field(index=True, foreign_key="pedido.numero_pedido")
+    data_registro: date = Field(default_factory=date.today)
+    motivo: str                                  # texto livre, ex: "liguei pra transportadora, falou X"
+    proxima_data_limite: Optional[date] = None    # "soneca": se passar sem canhoto, volta pra lista de Avisos
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AvisoRegistroCreate(SQLModel):
+    """Schema de entrada — mesmo motivo do FupRegistroCreate (bug de data)."""
+    numero_pedido: str
+    data_registro: date = Field(default_factory=date.today)
+    motivo: str
+    proxima_data_limite: Optional[date] = None
 
 
 # Lista pré-definida de motivos de atraso (usuário pode digitar texto livre também)
