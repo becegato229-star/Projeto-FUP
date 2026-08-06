@@ -200,6 +200,60 @@
     padding:7px 10px; border-radius:6px; font-size:12.5px;
   }
   @media (max-width: 900px){ .charts-grid{grid-template-columns:1fr;} }
+
+  /* ============================================================
+     ADAPTAÇÃO MOBILE (formato retrato / 9:16) — só aplica abaixo
+     de 640px de largura. Acima disso, o desktop fica intocado.
+  ============================================================ */
+  .mobile-only{ display:none; }
+  .filtros-toggle{
+    width:100%; text-align:left; background:var(--panel-2); border:1px solid var(--border);
+    color:var(--text); padding:12px 16px; font-size:13px; font-weight:700; cursor:pointer;
+  }
+
+  @media (max-width: 640px){
+    .mobile-only{ display:block; }
+    .hide-mobile{ display:none !important; }
+
+    .filtros-panel{ display:none; }
+    .filtros-panel.mobile-open{ display:block; }
+
+    .toolbar-top{ flex-direction:column; align-items:stretch; padding:12px 14px; }
+    .search-wrap{ max-width:none; }
+    .toolbar-top label{ width:100%; }
+    .toolbar-top input[type="date"]{ width:100%; }
+    .pill-rows{ padding:2px 14px 14px; }
+
+    header{ padding:12px 14px; flex-wrap:wrap; gap:10px; }
+    header h1{ font-size:15px; }
+    .upload-group{ flex-wrap:wrap; gap:6px; }
+    .upload-btn{ padding:7px 10px; font-size:11.5px; flex:1; text-align:center; min-width:0; }
+
+    nav.tabs{ padding:0 10px; overflow-x:auto; }
+    nav.tabs button{ padding:10px 12px; font-size:12px; white-space:nowrap; }
+
+    main{ padding:0 10px 30px; }
+    .stats{ gap:8px; }
+    .stat{ min-width:calc(50% - 4px); padding:10px 12px; }
+    .stat .n{ font-size:18px; }
+
+    /* Tabela: some com colunas secundárias, mostra só o essencial.
+       Toca na linha pra ver o resto num painel de detalhes. */
+    .table-scroll{ max-height: calc(100vh - 260px); }
+    .col-secondary{ display:none !important; }
+    tbody td{ max-width:120px; font-size:12.5px; padding:10px 8px; }
+    .chevron-cell{ text-align:center; color:var(--text-dim); font-size:16px; }
+    tbody tr{ cursor:pointer; }
+  }
+
+  /* Painel de detalhes do pedido (mobile) */
+  .detalhe-linha{
+    display:flex; justify-content:space-between; gap:12px; padding:9px 0;
+    border-bottom:1px solid #20262c; font-size:13px;
+  }
+  .detalhe-linha span{ color:var(--text-dim); }
+  .detalhe-linha b{ text-align:right; }
+  .detalhe-acoes{ display:flex; flex-direction:column; gap:8px; margin-top:16px; }
 </style>
 </head>
 <body>
@@ -228,6 +282,11 @@
   <button data-tab="fup" onclick="setTab('fup', this)">FUP</button>
 </nav>
 
+<button class="mobile-only filtros-toggle" onclick="toggleFiltrosMobile()">
+  🔍 Filtros e busca <span id="filtrosToggleIcon">▾</span>
+</button>
+
+<div class="filtros-panel" id="filtrosPanel">
 <div class="toolbar-top">
   <div class="search-wrap">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
@@ -238,7 +297,7 @@
   <div class="spacer"></div>
   <button class="ghost" onclick="limparFiltros()">✕ Limpar filtros</button>
   <button class="ghost" onclick="load()">↻ Atualizar</button>
-  <button class="primary" onclick="exportar()">⬇ Exportar Excel</button>
+  <button class="primary hide-mobile" onclick="exportar()">⬇ Exportar Excel</button>
 </div>
 
 <div class="pill-rows">
@@ -261,6 +320,8 @@
     <button class="pill danger" data-value="Cancelado">Cancelado</button>
   </div>
 </div>
+</div>
+<!-- fim do filtros-panel -->
 
 <main>
   <div class="stats" id="stats"></div>
@@ -280,7 +341,7 @@
     <div class="section-title">Pedidos (use os filtros de status/tipo/atraso no topo para refinar)</div>
     <div class="table-scroll" id="scrollFupPendentes" style="max-height:320px;">
       <table>
-        <thead><tr><th>Pedido</th><th>Cliente</th><th>Entrega prevista</th><th>Status</th><th>Atraso</th><th></th></tr></thead>
+        <thead><tr><th>Pedido</th><th>Cliente</th><th class="col-secondary">Entrega prevista</th><th>Status</th><th>Atraso</th><th></th></tr></thead>
         <tbody id="tbodyFupPendentes"></tbody>
       </table>
     </div>
@@ -321,6 +382,19 @@
       <div class="chart-card"><h4>Registros de FUP ao longo do tempo</h4><canvas id="chartTimeline"></canvas></div>
     </div>
   </main>
+</div>
+
+<div class="overlay" id="detalheMobileOverlay">
+  <div class="modal" style="width:min(420px, 92vw); max-height:85vh; overflow-y:auto;">
+    <h3>Pedido <span id="detalheMobilePedidoNum"></span></h3>
+    <div id="detalheMobileConteudo"></div>
+    <div class="detalhe-acoes">
+      <button class="ghost" onclick="detalheMobileHistorico()">📋 Ver histórico de FUP</button>
+      <button class="ghost" onclick="detalheMobileNovaData()">✎ Nova data de entrega</button>
+      <button class="ghost" id="btnDetalheCancelar" onclick="detalheMobileCancelar()" style="border-color:var(--danger); color:var(--danger);">Cancelar pedido</button>
+      <button class="primary" onclick="fecharDetalheMobile()">Fechar</button>
+    </div>
+  </div>
 </div>
 
 <div class="overlay" id="novaDataOverlay">
@@ -547,6 +621,13 @@ function renderStats(pedidos){
   `;
 }
 
+function botaoCancelamento(p){
+  if(p.status === 'Cancelado'){
+    const label = p.motivo_cancelamento ? '✎ Motivo' : '+ Motivo';
+    return `<button class="small-action" onclick="abrirCancelModal('${p.numero_pedido}')" title="Registrar/editar motivo e data do cancelamento">${label}</button>`;
+  }
+  return `<button class="small-action" onclick="abrirCancelModal('${p.numero_pedido}')">Cancelar</button>`;
+}
 function textoAtraso(dias, sufixo){
   return dias > 0 ? `${dias}d ${sufixo}` : `Atrasado hoje (${sufixo})`;
 }
@@ -557,35 +638,41 @@ function textoMotivo(motivo, observacao){
 }
 
 function linhaPedido(p){
+  const mobile = window.innerWidth <= 640;
+  const celulaAcao = mobile
+    ? `<td class="chevron-cell">›</td>`
+    : `<td class="col-secondary">${botaoCancelamento(p)}</td>`;
   return `
-    <tr>
+    <tr onclick="abrirDetalhePedidoMobile('${p.numero_pedido}')">
       <td style="font-family:var(--mono)">${p.numero_pedido}</td>
       <td>${p.nome_cliente || '—'}</td>
-      <td>${fmtDate(p.data_emissao)}</td>
-      <td>${fmtDate(p.data_entrega_prevista)}</td>
-      <td>${p.nova_data_entrega ? fmtDate(p.nova_data_entrega) : '—'}
-          <button class="small-action fup" style="margin-left:4px" onclick="abrirNovaDataModal('${p.numero_pedido}', '${p.nova_data_entrega || ''}')" title="Definir/editar nova data de entrega">✎</button>
+      <td class="col-secondary">${fmtDate(p.data_emissao)}</td>
+      <td class="col-secondary">${fmtDate(p.data_entrega_prevista)}</td>
+      <td class="col-secondary">${p.nova_data_entrega ? fmtDate(p.nova_data_entrega) : '—'}
+          <button class="small-action fup" style="margin-left:4px" onclick="event.stopPropagation(); abrirNovaDataModal('${p.numero_pedido}', '${p.nova_data_entrega || ''}')" title="Definir/editar nova data de entrega">✎</button>
       </td>
-      <td>${p.data_entrega_real ? fmtDate(p.data_entrega_real) : '—'}</td>
-      <td>${p.tipo_entrega || '—'}</td>
+      <td class="col-secondary">${p.data_entrega_real ? fmtDate(p.data_entrega_real) : '—'}</td>
+      <td class="col-secondary">${p.tipo_entrega || '—'}</td>
       <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
       <td>${p.atraso_producao ? `<span class="atraso-tag">${textoAtraso(p.dias_atraso_producao, 'produção')}</span>` : ''}
           ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}
           ${(!p.atraso_producao && !p.atraso_entrega) ? '—' : ''}</td>
-      <td>${p.numero_oe || '—'}</td>
-      <td>${p.nf || '—'}</td>
-      <td>${p.motivo_atraso_fup || '—'}
-          <button class="small-action fup" style="margin-left:6px" onclick="abrirHistoricoFup('${p.numero_pedido}')" title="Ver histórico completo de FUP">📋</button>
+      <td class="col-secondary">${p.numero_oe || '—'}</td>
+      <td class="col-secondary">${p.nf || '—'}</td>
+      <td class="col-secondary">${p.motivo_atraso_fup || '—'}
+          <button class="small-action fup" style="margin-left:6px" onclick="event.stopPropagation(); abrirHistoricoFup('${p.numero_pedido}')" title="Ver histórico completo de FUP">📋</button>
       </td>
-      <td>${p.status !== 'Cancelado' ? `<button class="small-action" onclick="abrirCancelModal('${p.numero_pedido}')">Cancelar</button>` : ''}</td>
+      ${celulaAcao}
     </tr>
   `;
 }
 
 function renderTabelaPedidos(pedidos){
   document.getElementById('thead').innerHTML = `
-    <th>Pedido</th><th>Cliente</th><th>Emissão</th><th>Entrega original</th><th>Nova data</th><th>Entrega efetiva</th>
-    <th>Tipo</th><th>Status</th><th>Atraso</th><th>OE</th><th>NF</th><th>Motivo (FUP)</th><th></th>
+    <th>Pedido</th><th>Cliente</th><th class="col-secondary">Emissão</th><th class="col-secondary">Entrega original</th>
+    <th class="col-secondary">Nova data</th><th class="col-secondary">Entrega efetiva</th>
+    <th class="col-secondary">Tipo</th><th>Status</th><th>Atraso</th>
+    <th class="col-secondary">OE</th><th class="col-secondary">NF</th><th class="col-secondary">Motivo (FUP)</th><th></th>
   `;
   document.getElementById('empty').style.display = pedidos.length ? 'none' : 'block';
   document.getElementById('empty').innerHTML = 'Nenhum pedido encontrado com esses filtros.<br><b>Importe as planilhas</b> pelos botões no topo para começar (ou ajuste/limpe os filtros).';
@@ -597,7 +684,7 @@ function linhaFupPendente(p){
     <tr>
       <td style="font-family:var(--mono)">${p.numero_pedido}</td>
       <td>${p.nome_cliente || '—'}</td>
-      <td>${fmtDate(p.data_entrega_prevista)}</td>
+      <td class="col-secondary">${fmtDate(p.data_entrega_prevista)}</td>
       <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
       <td>${p.atraso_producao ? `<span class="atraso-tag">${textoAtraso(p.dias_atraso_producao, 'produção')}</span>` : ''}
           ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}
@@ -614,9 +701,9 @@ function linhaFupHistorico(f){
     <tr>
       <td style="font-family:var(--mono)">${f.numero_pedido}</td>
       <td>${fmtDate(f.data_referencia)}</td>
-      <td>${f.previsao_atraso ? '<span class="atraso-tag">Sim</span>' : 'Não'}</td>
+      <td class="col-secondary">${f.previsao_atraso ? '<span class="atraso-tag">Sim</span>' : 'Não'}</td>
       <td>${textoMotivo(f.motivo_atraso, f.observacao) || '—'}</td>
-      <td>${f.observacao || '—'}</td>
+      <td class="col-secondary">${f.observacao || '—'}</td>
       <td style="white-space:nowrap">
         <button class="small-action fup" onclick="abrirEditarFup(${f.id})">✎ Editar</button>
         <button class="small-action" onclick="confirmarApagarFup(${f.id})">🗑</button>
@@ -651,7 +738,7 @@ async function loadFupTab(){
     <div class="stat"><div class="n">${pendentes.length}</div><div class="l">Pedidos no filtro atual</div></div>
   `;
   document.getElementById('thead').innerHTML = `
-    <th>Pedido</th><th>Data</th><th>Previsão de atraso</th><th>Motivo</th><th>Observação</th><th></th>
+    <th>Pedido</th><th>Data</th><th class="col-secondary">Previsão de atraso</th><th>Motivo</th><th class="col-secondary">Observação</th><th></th>
   `;
   document.getElementById('empty').style.display = fups.length ? 'none' : 'block';
   document.getElementById('empty').innerHTML = 'Nenhum FUP registrado ainda. Use a tabela acima ou o formulário para registrar o primeiro.';
@@ -790,6 +877,57 @@ async function salvarFup(){
   }
 }
 
+// ---------------- Painel de detalhes (mobile) ----------------
+function abrirDetalhePedidoMobile(numeroPedido){
+  if(window.innerWidth > 640) return; // essa tela só existe no celular; no desktop as colunas já mostram tudo
+  const p = (vtPedidos.items || []).find(x => x.numero_pedido === numeroPedido);
+  if(!p) return;
+  window._detalheMobilePedido = numeroPedido;
+  document.getElementById('detalheMobilePedidoNum').textContent = '#' + p.numero_pedido;
+  document.getElementById('detalheMobileConteudo').innerHTML = `
+    <div class="detalhe-linha"><span>Cliente</span><b>${p.nome_cliente || '—'}</b></div>
+    <div class="detalhe-linha"><span>Emissão</span><b>${fmtDate(p.data_emissao)}</b></div>
+    <div class="detalhe-linha"><span>Entrega original</span><b>${fmtDate(p.data_entrega_prevista)}</b></div>
+    <div class="detalhe-linha"><span>Nova data</span><b>${p.nova_data_entrega ? fmtDate(p.nova_data_entrega) : '—'}</b></div>
+    <div class="detalhe-linha"><span>Entrega efetiva</span><b>${p.data_entrega_real ? fmtDate(p.data_entrega_real) : '—'}</b></div>
+    <div class="detalhe-linha"><span>Tipo</span><b>${p.tipo_entrega || '—'}</b></div>
+    <div class="detalhe-linha"><span>OE</span><b>${p.numero_oe || '—'}</b></div>
+    <div class="detalhe-linha"><span>NF</span><b>${p.nf || '—'}</b></div>
+    <div class="detalhe-linha"><span>Motivo (FUP)</span><b>${p.motivo_atraso_fup || '—'}</b></div>
+    ${p.status === 'Cancelado' ? `<div class="detalhe-linha"><span>Motivo do cancelamento</span><b>${p.motivo_cancelamento || '—'}</b></div>
+    <div class="detalhe-linha"><span>Data do cancelamento</span><b>${p.data_cancelamento ? fmtDate(p.data_cancelamento) : '—'}</b></div>` : ''}
+  `;
+  const btnCancelar = document.getElementById('btnDetalheCancelar');
+  btnCancelar.textContent = p.status === 'Cancelado' ? (p.motivo_cancelamento ? '✎ Editar motivo do cancelamento' : '+ Registrar motivo do cancelamento') : 'Cancelar pedido';
+  document.getElementById('detalheMobileOverlay').classList.add('show');
+}
+function fecharDetalheMobile(){
+  document.getElementById('detalheMobileOverlay').classList.remove('show');
+}
+function detalheMobileNovaData(){
+  const numero = window._detalheMobilePedido;
+  const p = (vtPedidos.items || []).find(x => x.numero_pedido === numero);
+  fecharDetalheMobile();
+  abrirNovaDataModal(numero, (p && p.nova_data_entrega) || '');
+}
+function detalheMobileCancelar(){
+  const numero = window._detalheMobilePedido;
+  fecharDetalheMobile();
+  abrirCancelModal(numero);
+}
+function detalheMobileHistorico(){
+  const numero = window._detalheMobilePedido;
+  fecharDetalheMobile();
+  abrirHistoricoFup(numero);
+}
+
+// ---------------- Painel de filtros colapsável (mobile) ----------------
+function toggleFiltrosMobile(){
+  const panel = document.getElementById('filtrosPanel');
+  const aberto = panel.classList.toggle('mobile-open');
+  document.getElementById('filtrosToggleIcon').textContent = aberto ? '▴' : '▾';
+}
+
 // ---------------- Nova data de entrega ----------------
 let pedidoParaNovaData = null;
 function abrirNovaDataModal(numeroPedido, dataAtual){
@@ -823,9 +961,10 @@ let pedidoParaCancelar = null;
 
 function abrirCancelModal(numeroPedido){
   pedidoParaCancelar = numeroPedido;
+  const p = (vtPedidos.items || []).find(x => x.numero_pedido === numeroPedido);
   document.getElementById('cancelPedidoNum').textContent = '#' + numeroPedido;
-  document.getElementById('cancel_motivo').value = '';
-  document.getElementById('cancel_data').value = new Date().toISOString().slice(0,10);
+  document.getElementById('cancel_motivo').value = (p && p.motivo_cancelamento) || '';
+  document.getElementById('cancel_data').value = (p && p.data_cancelamento) || new Date().toISOString().slice(0,10);
   document.getElementById('cancelOverlay').classList.add('show');
 }
 function fecharCancelModal(){
