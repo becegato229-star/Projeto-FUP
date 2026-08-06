@@ -277,8 +277,7 @@
 <div id="appMain">
 <nav class="tabs">
   <button class="active" data-tab="todos" onclick="setTab('todos', this)">Todos</button>
-  <button data-tab="antes_faturar" onclick="setTab('antes_faturar', this)">Antes de faturar</button>
-  <button data-tab="depois_faturar" onclick="setTab('depois_faturar', this)">Depois de faturar</button>
+  <button data-tab="avisos" onclick="setTab('avisos', this)">⚠ Avisos</button>
   <button data-tab="fup" onclick="setTab('fup', this)">FUP</button>
 </nav>
 
@@ -348,6 +347,32 @@
     <div class="section-title">Histórico de FUPs registrados</div>
   </div>
 
+  <div id="avisosWrap" style="display:none">
+    <div id="avisosForm" style="display:flex; gap:10px; padding:14px 0; flex-wrap:wrap; align-items:flex-end;">
+      <label>Nº do pedido<input type="text" id="aviso_pedido" placeholder="ex: 20233"></label>
+      <label>Data<input type="date" id="aviso_data"></label>
+      <label>Motivo (texto livre)<input type="text" id="aviso_motivo" placeholder="ex: liguei pra transportadora, falou que..." style="width:280px"></label>
+      <label>Próxima verificação (opcional)<input type="date" id="aviso_proxima_data"></label>
+      <button class="primary" onclick="salvarAviso()">Registrar aviso</button>
+    </div>
+
+    <div class="section-title">⚠ Avisos (precisam de atenção)</div>
+    <div class="table-scroll" id="scrollAvisos" style="max-height:320px;">
+      <table>
+        <thead><tr><th>Pedido</th><th>Cliente</th><th>Tipo</th><th>Dias s/ canhoto</th><th class="col-secondary">NF</th><th></th></tr></thead>
+        <tbody id="tbodyAvisos"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">✓ Tratados (em acompanhamento)</div>
+    <div class="table-scroll" id="scrollAvisosTratados" style="max-height:320px;">
+      <table>
+        <thead><tr><th>Pedido</th><th>Cliente</th><th>Dias s/ canhoto</th><th>Último motivo</th><th class="col-secondary">Próxima verificação</th><th></th></tr></thead>
+        <tbody id="tbodyAvisosTratados"></tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="table-scroll" id="scrollTabela">
     <table id="tabela">
       <thead><tr id="thead"></tr></thead>
@@ -364,7 +389,7 @@
     <div class="stats" id="monitorStatsAtual"></div>
     <div class="charts-grid">
       <div class="chart-card"><h4>Status dos pedidos</h4><canvas id="chartStatus"></canvas></div>
-      <div class="chart-card"><h4>Atraso por tipo de entrega</h4><canvas id="chartTipoEntrega"></canvas></div>
+      <div class="chart-card"><h4>Avisos por tipo de entrega</h4><canvas id="chartTipoEntrega"></canvas></div>
       <div class="chart-card" style="grid-column:1/-1"><h4>Clientes com mais pedidos atrasados</h4><canvas id="chartClientes"></canvas></div>
     </div>
 
@@ -421,6 +446,19 @@
     <div class="actions">
       <button class="ghost" onclick="fecharEditarFup()">Cancelar</button>
       <button class="primary" onclick="salvarEdicaoFup()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editarAvisoOverlay">
+  <div class="modal">
+    <h3>Editar aviso — pedido <span id="editarAvisoPedidoNum"></span></h3>
+    <label>Data<input type="date" id="editar_aviso_data"></label>
+    <label>Motivo<input type="text" id="editar_aviso_motivo" placeholder="ex: liguei pra transportadora, falou que..."></label>
+    <label>Próxima verificação (opcional)<input type="date" id="editar_aviso_proxima_data"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarAviso()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoAviso()">Salvar alterações</button>
     </div>
   </div>
 </div>
@@ -493,6 +531,8 @@ class VirtualTable {
 }
 const vtPedidos = new VirtualTable('scrollTabela', 'tbody', 44, 10);
 const vtFupPendentes = new VirtualTable('scrollFupPendentes', 'tbodyFupPendentes', 44, 10);
+const vtAvisos = new VirtualTable('scrollAvisos', 'tbodyAvisos', 44, 10);
+const vtAvisosTratados = new VirtualTable('scrollAvisosTratados', 'tbodyAvisosTratados', 44, 10);
 let debounceTimer;
 let charts = {};
 
@@ -540,6 +580,8 @@ function setTab(tab, btn){
   btn.classList.add('active');
   document.getElementById('fupForm').style.display = (tab === 'fup') ? 'flex' : 'none';
   document.getElementById('fupPendentesWrap').style.display = (tab === 'fup') ? 'block' : 'none';
+  document.getElementById('avisosWrap').style.display = (tab === 'avisos') ? 'block' : 'none';
+  document.getElementById('scrollTabela').style.display = (tab === 'avisos') ? 'none' : 'block';
   load();
 }
 
@@ -580,7 +622,7 @@ async function uploadFile(input){
 
 function buildParams(){
   const params = new URLSearchParams();
-  params.set('aba', currentTab === 'fup' ? 'todos' : currentTab);
+  params.set('aba', (currentTab === 'fup' || currentTab === 'avisos') ? 'todos' : currentTab);
   const busca = document.getElementById('f_busca').value;
   const statusSel = pillValues('pills_status');
   const tipoSel = pillValues('pills_tipo');
@@ -601,6 +643,10 @@ async function load(){
     await loadFupTab();
     return;
   }
+  if(currentTab === 'avisos'){
+    await loadAvisosTab();
+    return;
+  }
   const params = buildParams();
   const res = await fetch('/api/pedidos?' + params.toString());
   const pedidos = await res.json();
@@ -611,12 +657,12 @@ async function load(){
 function renderStats(pedidos){
   const total = pedidos.length;
   const atrasoProd = pedidos.filter(p => p.atraso_producao).length;
-  const atrasoEnt = pedidos.filter(p => p.atraso_entrega).length;
+  const avisos = pedidos.filter(p => p.aviso_entrega).length;
   const encerrados = pedidos.filter(p => p.status === 'Encerrado').length;
   document.getElementById('stats').innerHTML = `
     <div class="stat"><div class="n">${total}</div><div class="l">Pedidos no filtro</div></div>
     <div class="stat atraso"><div class="n">${atrasoProd}</div><div class="l">Atraso de produção</div></div>
-    <div class="stat atraso"><div class="n">${atrasoEnt}</div><div class="l">Atraso de entrega</div></div>
+    <div class="stat atraso"><div class="n">${avisos}</div><div class="l">Avisos (sem canhoto)</div></div>
     <div class="stat"><div class="n">${encerrados}</div><div class="l">Encerrados</div></div>
   `;
 }
@@ -655,8 +701,8 @@ function linhaPedido(p){
       <td class="col-secondary">${p.tipo_entrega || '—'}</td>
       <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
       <td>${p.atraso_producao ? `<span class="atraso-tag">${textoAtraso(p.dias_atraso_producao, 'produção')}</span>` : ''}
-          ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}
-          ${(!p.atraso_producao && !p.atraso_entrega) ? '—' : ''}</td>
+          ${p.aviso_entrega ? `<span class="atraso-tag">Aviso: ${p.dias_uteis_desde_faturamento}d s/ canhoto</span>` : ''}
+          ${(!p.atraso_producao && !p.aviso_entrega) ? '—' : ''}</td>
       <td class="col-secondary">${p.numero_oe || '—'}</td>
       <td class="col-secondary">${p.nf || '—'}</td>
       <td class="col-secondary">${p.motivo_atraso_fup || '—'}
@@ -687,8 +733,8 @@ function linhaFupPendente(p){
       <td class="col-secondary">${fmtDate(p.data_entrega_prevista)}</td>
       <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
       <td>${p.atraso_producao ? `<span class="atraso-tag">${textoAtraso(p.dias_atraso_producao, 'produção')}</span>` : ''}
-          ${p.atraso_entrega ? `<span class="atraso-tag">${p.dias_atraso_entrega}d entrega</span>` : ''}
-          ${(!p.atraso_producao && !p.atraso_entrega) ? '—' : ''}</td>
+          ${p.aviso_entrega ? `<span class="atraso-tag">Aviso: ${p.dias_uteis_desde_faturamento}d s/ canhoto</span>` : ''}
+          ${(!p.atraso_producao && !p.aviso_entrega) ? '—' : ''}</td>
       <td>
         <button class="small-action fup" onclick="preencherFup('${p.numero_pedido}')">Registrar FUP</button>
         <button class="small-action fup" onclick="abrirHistoricoFup('${p.numero_pedido}')" title="Ver histórico completo de FUP">📋</button>
@@ -744,6 +790,176 @@ async function loadFupTab(){
   document.getElementById('empty').innerHTML = 'Nenhum FUP registrado ainda. Use a tabela acima ou o formulário para registrar o primeiro.';
   window.fupsCache = fups;
   vtPedidos.setData(fups, linhaFupHistorico, 6);
+}
+
+// ---------------- Aba Avisos ----------------
+function linhaAviso(p){
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td>${p.tipo_entrega || '—'}</td>
+      <td><span class="atraso-tag">${p.dias_uteis_desde_faturamento}d</span></td>
+      <td class="col-secondary">${p.nf || '—'}</td>
+      <td>
+        <button class="small-action fup" onclick="preencherAviso('${p.numero_pedido}')">Registrar aviso</button>
+        <button class="small-action fup" onclick="abrirHistoricoAviso('${p.numero_pedido}')" title="Ver histórico de avisos">📋</button>
+      </td>
+    </tr>
+  `;
+}
+function linhaAvisoTratado(p){
+  const ultimo = (window.avisosRegistrosCache || []).filter(a => a.numero_pedido === p.numero_pedido)
+    .sort((a,b) => (b.data_registro > a.data_registro ? 1 : -1))[0];
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td><span class="atraso-tag">${p.dias_uteis_desde_faturamento}d</span></td>
+      <td>${ultimo ? ultimo.motivo : '—'}</td>
+      <td class="col-secondary">${ultimo && ultimo.proxima_data_limite ? fmtDate(ultimo.proxima_data_limite) : '—'}</td>
+      <td>
+        ${ultimo ? `<button class="small-action fup" onclick="abrirEditarAviso(${ultimo.id})">✎</button>` : ''}
+        <button class="small-action fup" onclick="abrirHistoricoAviso('${p.numero_pedido}')" title="Ver histórico de avisos">📋</button>
+      </td>
+    </tr>
+  `;
+}
+
+async function loadAvisosTab(){
+  const params = buildParams();
+  const res = await fetch('/api/avisos?' + params.toString());
+  const data = await res.json();
+
+  const resRegistros = await fetch('/api/avisos/registros');
+  window.avisosRegistrosCache = await resRegistros.json();
+
+  vtAvisos.setData(data.avisos, linhaAviso, 6);
+  if(!data.avisos.length){
+    document.getElementById('tbodyAvisos').innerHTML = `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum aviso pendente 🎉</td></tr>`;
+  }
+  vtAvisosTratados.setData(data.tratados, linhaAvisoTratado, 6);
+  if(!data.tratados.length){
+    document.getElementById('tbodyAvisosTratados').innerHTML = `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido em acompanhamento no momento.</td></tr>`;
+  }
+
+  document.getElementById('stats').innerHTML = `
+    <div class="stat atraso"><div class="n">${data.avisos.length}</div><div class="l">Avisos pendentes</div></div>
+    <div class="stat"><div class="n">${data.tratados.length}</div><div class="l">Em acompanhamento (tratados)</div></div>
+  `;
+}
+
+function preencherAviso(numeroPedido){
+  document.getElementById('aviso_pedido').value = numeroPedido;
+  document.getElementById('aviso_pedido').scrollIntoView({behavior:'smooth', block:'center'});
+  document.getElementById('aviso_pedido').focus();
+}
+
+async function salvarAviso(){
+  const body = {
+    numero_pedido: document.getElementById('aviso_pedido').value.trim(),
+    data_registro: document.getElementById('aviso_data').value || new Date().toISOString().slice(0,10),
+    motivo: document.getElementById('aviso_motivo').value.trim(),
+    proxima_data_limite: document.getElementById('aviso_proxima_data').value || null,
+  };
+  if(!body.numero_pedido){ toast('Informe o número do pedido', true); return; }
+  if(!body.motivo){ toast('Informe o motivo', true); return; }
+  try{
+    const res = await fetch('/api/avisos/registros', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Aviso registrado');
+    document.getElementById('aviso_pedido').value = '';
+    document.getElementById('aviso_motivo').value = '';
+    document.getElementById('aviso_proxima_data').value = '';
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+let avisoEmEdicaoId = null;
+function abrirEditarAviso(id){
+  const a = (window.avisosRegistrosCache || []).find(x => x.id === id);
+  if(!a){ toast('Registro não encontrado', true); return; }
+  avisoEmEdicaoId = id;
+  document.getElementById('editarAvisoPedidoNum').textContent = '#' + a.numero_pedido;
+  document.getElementById('editar_aviso_data').value = a.data_registro;
+  document.getElementById('editar_aviso_motivo').value = a.motivo || '';
+  document.getElementById('editar_aviso_proxima_data').value = a.proxima_data_limite || '';
+  document.getElementById('editarAvisoOverlay').classList.add('show');
+}
+function fecharEditarAviso(){
+  document.getElementById('editarAvisoOverlay').classList.remove('show');
+  avisoEmEdicaoId = null;
+}
+async function salvarEdicaoAviso(){
+  const a = (window.avisosRegistrosCache || []).find(x => x.id === avisoEmEdicaoId);
+  if(!a) return;
+  const motivo = document.getElementById('editar_aviso_motivo').value.trim();
+  if(!motivo){ toast('Informe o motivo', true); return; }
+  const body = {
+    numero_pedido: a.numero_pedido,
+    data_registro: document.getElementById('editar_aviso_data').value,
+    motivo: motivo,
+    proxima_data_limite: document.getElementById('editar_aviso_proxima_data').value || null,
+  };
+  try{
+    const res = await fetch(`/api/avisos/registros/${avisoEmEdicaoId}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Aviso atualizado');
+    fecharEditarAviso();
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+async function apagarAviso(id){
+  if(!confirm('Apagar este registro de aviso? Essa ação não pode ser desfeita.')) return;
+  try{
+    const res = await fetch(`/api/avisos/registros/${id}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Registro apagado');
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+async function abrirHistoricoAviso(numeroPedido){
+  document.getElementById('historicoPedidoNum').textContent = '#' + numeroPedido + ' — Histórico de Avisos';
+  document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Carregando…</div>';
+  document.getElementById('historicoOverlay').classList.add('show');
+  try{
+    const res = await fetch(`/api/pedidos/${numeroPedido}`);
+    if(!res.ok) throw new Error('Pedido não encontrado');
+    const data = await res.json();
+    if(!data.avisos.length){
+      document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Nenhum aviso registrado ainda para este pedido.</div>';
+      return;
+    }
+    document.getElementById('historicoLista').innerHTML = data.avisos.map(a => `
+      <div style="border:1px solid var(--border); border-radius:8px; padding:10px 12px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-dim); margin-bottom:4px;">
+          <span>${fmtDate(a.data_registro)}</span>
+          ${a.proxima_data_limite ? `<span class="atraso-tag">Próx. verificação: ${fmtDate(a.proxima_data_limite)}</span>` : ''}
+        </div>
+        <div style="font-weight:700;">${a.motivo}</div>
+        <div style="margin-top:6px; display:flex; gap:6px;">
+          <button class="small-action fup" onclick="fecharHistoricoModal(); abrirEditarAviso(${a.id})">✎ Editar</button>
+          <button class="small-action" onclick="apagarAviso(${a.id}); fecharHistoricoModal();">🗑 Apagar</button>
+        </div>
+      </div>
+    `).join('');
+  }catch(e){
+    document.getElementById('historicoLista').innerHTML = `<div style="color:var(--danger)">Erro: ${e.message}</div>`;
+  }
 }
 
 function preencherFup(numeroPedido){
@@ -1017,9 +1233,9 @@ async function loadAtual(){
   document.getElementById('monitorStatsAtual').innerHTML = `
     <div class="stat"><div class="n">${d.total_pedidos}</div><div class="l">Total de pedidos</div></div>
     <div class="stat atraso"><div class="n">${d.atraso_producao_n}</div><div class="l">Atraso de produção</div></div>
-    <div class="stat atraso"><div class="n">${d.atraso_entrega_n}</div><div class="l">Atraso de entrega</div></div>
+    <div class="stat atraso"><div class="n">${d.aviso_entrega_n}</div><div class="l">Avisos (sem canhoto)</div></div>
     <div class="stat"><div class="n">${d.media_atraso_producao}d</div><div class="l">Média dias atraso produção</div></div>
-    <div class="stat"><div class="n">${d.media_atraso_entrega}d</div><div class="l">Média dias atraso entrega</div></div>
+    <div class="stat"><div class="n">${d.media_dias_aviso}d</div><div class="l">Média dias sem canhoto (avisos)</div></div>
   `;
 
   destroyChart('status');
@@ -1032,7 +1248,7 @@ async function loadAtual(){
   destroyChart('tipo');
   charts.tipo = new Chart(document.getElementById('chartTipoEntrega'), {
     type:'doughnut',
-    data:{labels:Object.keys(d.atraso_por_tipo), datasets:[{data:Object.values(d.atraso_por_tipo), backgroundColor:palette}]},
+    data:{labels:Object.keys(d.aviso_por_tipo), datasets:[{data:Object.values(d.aviso_por_tipo), backgroundColor:palette}]},
     options:{responsive:true, plugins:{legend:{labels:{color:'#e7ebee'}}}}
   });
 
@@ -1080,6 +1296,7 @@ async function loadHistorico(){
 }
 
 document.getElementById('fup_data').value = new Date().toISOString().slice(0,10);
+document.getElementById('aviso_data').value = new Date().toISOString().slice(0,10);
 document.getElementById('fupPendentesWrap').style.display = 'none';
 carregarMotivos();
 load();
