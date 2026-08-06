@@ -34,6 +34,12 @@ def detectar_tipo_planilha(df: pd.DataFrame) -> str:
         return "oe"
     if {"Pedido", "NF", "Canhoto"}.issubset(cols):
         return "pedidos_mubec"
+    # Fallback: "NF" + "Canhoto" + "CLIENTE" são colunas praticamente exclusivas
+    # dessa planilha. Aceita mesmo se o cabeçalho da coluna "Pedido" vier com
+    # texto errado (ex: alguém colou uma data sem querer na célula do título) —
+    # nesse caso a primeira coluna é usada no lugar de "Pedido".
+    if {"NF", "Canhoto", "CLIENTE"}.issubset(cols):
+        return "pedidos_mubec"
 
     raise ValueError(
         "Não foi possível identificar o tipo da planilha. "
@@ -133,8 +139,13 @@ def importar_pedidos_mubec(df: pd.DataFrame, session: Session) -> int:
     """
     count = 0
     cache: dict = {}
+    # Normalmente a coluna se chama "Pedido", mas às vezes o cabeçalho vem
+    # errado (ex: uma data colada por engano na célula do título). Nesse
+    # caso, cai pra primeira coluna da planilha, que é sempre o pedido.
+    col_pedido = "Pedido" if "Pedido" in df.columns else df.columns[0]
+
     for _, row in df.iterrows():
-        numero_pedido_raw = row.get("Pedido")
+        numero_pedido_raw = row.get(col_pedido)
         if pd.isna(numero_pedido_raw):
             continue
         numero_pedido = str(numero_pedido_raw).split(".")[0]
