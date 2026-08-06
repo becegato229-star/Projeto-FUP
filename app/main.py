@@ -10,7 +10,10 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
 from .database import init_db, get_session, engine
-from .models import Pedido, FupRegistro, FupRegistroCreate, MOTIVOS_ATRASO_PADRAO
+from .models import (
+    Pedido, FupRegistro, FupRegistroCreate, MOTIVOS_ATRASO_PADRAO,
+    AvisoRegistro, AvisoRegistroCreate,
+)
 from .importer import importar_planilha, recalcular_status_e_atrasos
 
 app = FastAPI(title="FlowLog (self-hosted)")
@@ -66,7 +69,7 @@ def _recalcular_se_necessario(session: Session):
 
 @app.get("/api/pedidos")
 def listar_pedidos(
-    aba: str = Query("todos", description="todos | antes_faturar | depois_faturar"),
+    aba: str = Query("todos", description="reservado para uso futuro; hoje sempre 'todos'"),
     tipo_entrega: Optional[str] = Query(None, description="Entrega,Retira,Transportadora (separados por vírgula)"),
     status: Optional[str] = Query(None, description="Bloqueado,Aprovado,Faturado,Encerrado,Cancelado (separados por vírgula)"),
     apenas_atrasados: bool = False,
@@ -85,15 +88,11 @@ def listar_pedidos(
     busca_norm = busca.strip().lower() if busca else None
 
     def bate_filtros(p: Pedido) -> bool:
-        if aba == "antes_faturar" and p.status not in ("Bloqueado", "Aprovado"):
-            return False
-        if aba == "depois_faturar" and p.status not in ("Faturado", "Encerrado"):
-            return False
         if tipo_list and p.tipo_entrega not in tipo_list:
             return False
         if status_list and p.status not in status_list:
             return False
-        if apenas_atrasados and not (p.atraso_producao or p.atraso_entrega):
+        if apenas_atrasados and not (p.atraso_producao or p.aviso_entrega):
             return False
         if data_de and (not p.data_emissao or p.data_emissao < data_de):
             return False
@@ -124,7 +123,12 @@ def obter_pedido(numero_pedido: str, session: Session = Depends(get_session)):
         .where(FupRegistro.numero_pedido == numero_pedido)
         .order_by(FupRegistro.data_referencia.desc())
     ).all()
-    return {"pedido": pedido, "fups": fups}
+    avisos = session.exec(
+        select(AvisoRegistro)
+        .where(AvisoRegistro.numero_pedido == numero_pedido)
+        .order_by(AvisoRegistro.data_registro.desc())
+    ).all()
+    return {"pedido": pedido, "fups": fups, "avisos": avisos}
 
 
 # ---------------------------------------------------------------------
@@ -255,6 +259,98 @@ def apagar_fup(fup_id: int, session: Session = Depends(get_session)):
 
 
 # ---------------------------------------------------------------------
+# Avisos — pedidos faturados, sem canhoto, além do prazo esperado pro tipo
+# de entrega. Separado do FUP (contexto de negócio diferente).
+#
+# Um pedido com aviso_entrega=True pode estar em 2 estados:
+#   - "avisos"   -> ainda sem nenhum registro de investigação, ou o registro
+#                   mais recente tem uma "próxima data limite" que já passou
+#                   (a soneca expirou e ele volta a pedir atenção)
+#   - "tratados" -> tem um registro recente com próxima data limite no
+#                   futuro (ou sem data limite nenhuma)
+# Quando o canhoto chega, o pedido sai dos dois — mas o histórico de
+# registros nunca é apagado, fica disponível pelo detalhe do pedido.
+# ---------------------------------------------------------------------
+def _estado_aviso(numero_pedido: str, session: Session) -> str:
+    ultimo = session.exec(
+        select(AvisoRegistro)
+        .where(AvisoRegistro.numero_pedido == numero_pedido)
+        .order_by(AvisoRegistro.data_registro.desc(), AvisoRegistro.id.desc())
+    ).first()
+    if ultimo and (ultimo.proxima_data_limite is None or ultimo.proxima_data_limite > date.today()):
+        return "tratado"
+    return "aviso"
+
+
+@app.get("/api/avisos")
+def listar_avisos(
+    tipo_entrega: Optional[str] = None,
+    data_de: Optional[date] = None,
+    data_ate: Optional[date] = None,
+    busca: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    _recalcular_se_necessario(session)
+    pedidos = listar_pedidos(
+        aba="todos", tipo_entrega=tipo_entrega, status=None, apenas_atrasados=False,
+        data_de=data_de, data_ate=data_ate, cliente=None, busca=busca, session=session,
+    )  # type: ignore
+    pedidos_com_aviso = [p for p in pedidos if p.aviso_entrega]
+
+    avisos, tratados = [], []
+    for p in pedidos_com_aviso:
+        if _estado_aviso(p.numero_pedido, session) == "tratado":
+            tratados.append(p)
+        else:
+            avisos.append(p)
+    return {"avisos": avisos, "tratados": tratados}
+
+
+@app.get("/api/avisos/registros")
+def listar_avisos_registros(session: Session = Depends(get_session)):
+    return session.exec(select(AvisoRegistro).order_by(AvisoRegistro.data_registro.desc())).all()
+
+
+@app.post("/api/avisos/registros")
+def criar_aviso_registro(dados: AvisoRegistroCreate, session: Session = Depends(get_session)):
+    if not session.get(Pedido, dados.numero_pedido):
+        raise HTTPException(404, "Pedido não encontrado")
+    if not dados.motivo or not dados.motivo.strip():
+        raise HTTPException(400, "Motivo é obrigatório")
+    registro = AvisoRegistro(**dados.dict())
+    session.add(registro)
+    session.commit()
+    session.refresh(registro)
+    return registro
+
+
+@app.put("/api/avisos/registros/{registro_id}")
+def editar_aviso_registro(registro_id: int, dados: AvisoRegistroCreate, session: Session = Depends(get_session)):
+    registro = session.get(AvisoRegistro, registro_id)
+    if not registro:
+        raise HTTPException(404, "Registro de aviso não encontrado")
+    if not dados.motivo or not dados.motivo.strip():
+        raise HTTPException(400, "Motivo é obrigatório")
+    registro.data_registro = dados.data_registro
+    registro.motivo = dados.motivo
+    registro.proxima_data_limite = dados.proxima_data_limite
+    session.add(registro)
+    session.commit()
+    session.refresh(registro)
+    return registro
+
+
+@app.delete("/api/avisos/registros/{registro_id}")
+def apagar_aviso_registro(registro_id: int, session: Session = Depends(get_session)):
+    registro = session.get(AvisoRegistro, registro_id)
+    if not registro:
+        raise HTTPException(404, "Registro de aviso não encontrado")
+    session.delete(registro)
+    session.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------
 # Exportação para Excel — exporta exatamente o que está filtrado na tela,
 # com colunas de FUP dinâmicas (FUP 1, FUP 2, ...) quando houver histórico
 # ---------------------------------------------------------------------
@@ -332,34 +428,34 @@ def dashboard_atual(session: Session = Depends(get_session)):
     for p in pedidos:
         status_count[p.status or "Indefinido"] = status_count.get(p.status or "Indefinido", 0) + 1
 
-    atraso_por_tipo: dict = {}
+    aviso_por_tipo: dict = {}
     for p in pedidos:
-        if p.atraso_producao or p.atraso_entrega:
+        if p.aviso_entrega:
             k = p.tipo_entrega or "Desconhecido"
-            atraso_por_tipo[k] = atraso_por_tipo.get(k, 0) + 1
+            aviso_por_tipo[k] = aviso_por_tipo.get(k, 0) + 1
 
     atraso_producao_n = sum(1 for p in pedidos if p.atraso_producao)
-    atraso_entrega_n = sum(1 for p in pedidos if p.atraso_entrega)
+    aviso_entrega_n = sum(1 for p in pedidos if p.aviso_entrega)
 
     dias_prod = [p.dias_atraso_producao for p in pedidos if p.atraso_producao]
-    dias_ent = [p.dias_atraso_entrega for p in pedidos if p.atraso_entrega]
+    dias_aviso = [p.dias_uteis_desde_faturamento for p in pedidos if p.aviso_entrega]
     media_atraso_producao = round(sum(dias_prod) / len(dias_prod), 1) if dias_prod else 0
-    media_atraso_entrega = round(sum(dias_ent) / len(dias_ent), 1) if dias_ent else 0
+    media_dias_aviso = round(sum(dias_aviso) / len(dias_aviso), 1) if dias_aviso else 0
 
     atraso_por_cliente: dict = {}
     for p in pedidos:
-        if p.atraso_producao or p.atraso_entrega:
+        if p.atraso_producao or p.aviso_entrega:
             k = p.nome_cliente or "Desconhecido"
             atraso_por_cliente[k] = atraso_por_cliente.get(k, 0) + 1
     top_clientes = sorted(atraso_por_cliente.items(), key=lambda x: x[1], reverse=True)[:8]
 
     return {
         "status_count": status_count,
-        "atraso_por_tipo": atraso_por_tipo,
+        "aviso_por_tipo": aviso_por_tipo,
         "atraso_producao_n": atraso_producao_n,
-        "atraso_entrega_n": atraso_entrega_n,
+        "aviso_entrega_n": aviso_entrega_n,
         "media_atraso_producao": media_atraso_producao,
-        "media_atraso_entrega": media_atraso_entrega,
+        "media_dias_aviso": media_dias_aviso,
         "top_clientes_atraso": top_clientes,
         "total_pedidos": len(pedidos),
     }
