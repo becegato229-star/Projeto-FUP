@@ -11,8 +11,15 @@ from sqlmodel import Session, select
 
 from .models import Pedido
 
-# Limite de dias úteis após o faturamento para considerar "atraso de entrega"
-LIMITE_DIAS_UTEIS_ENTREGA = 2
+# Dias úteis desde o faturamento a partir dos quais aparece um "Aviso"
+# (pedido faturado, sem canhoto, além do prazo esperado pro tipo de entrega).
+# Baseado em análise real de dados históricos (ago/2026).
+LIMITES_AVISO_POR_TIPO = {
+    "Entrega": 4,
+    "Transportadora": 4,
+    "Retira": 6,
+}
+LIMITE_AVISO_PADRAO = 4  # usado se o tipo de entrega vier desconhecido
 
 
 # ---------------------------------------------------------------------
@@ -223,14 +230,15 @@ def recalcular_status_e_atrasos(session: Session) -> None:
             p.atraso_producao = True
             p.dias_atraso_producao = _dias_uteis_entre(p.data_entrega_prevista, hoje)
 
-        # --- Atraso de entrega: faturado, mas não encerrado, há mais de N dias úteis ---
-        p.atraso_entrega = False
-        p.dias_atraso_entrega = 0
-        if p.status == "Faturado" and p.data_faturamento:
+        # --- Aviso: faturado, sem canhoto, além do prazo esperado pro tipo de entrega ---
+        p.aviso_entrega = False
+        p.dias_uteis_desde_faturamento = 0
+        if p.status == "Faturado" and p.data_faturamento and not p.canhoto:
             dias = _dias_uteis_entre(p.data_faturamento, hoje)
-            if dias > LIMITE_DIAS_UTEIS_ENTREGA:
-                p.atraso_entrega = True
-                p.dias_atraso_entrega = dias - LIMITE_DIAS_UTEIS_ENTREGA
+            p.dias_uteis_desde_faturamento = dias
+            limite = LIMITES_AVISO_POR_TIPO.get(p.tipo_entrega, LIMITE_AVISO_PADRAO)
+            if dias >= limite:
+                p.aviso_entrega = True
 
         session.add(p)
 
