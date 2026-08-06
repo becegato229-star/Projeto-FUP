@@ -156,7 +156,31 @@
   .empty{padding:60px 0; text-align:center; color:var(--text-dim);}
   .empty b{color:var(--text);}
 
-  #fupForm{display:none; gap:10px; padding:14px 0; flex-wrap:wrap; align-items:flex-end;}
+  #fupForm{display:none;}
+  .form-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:16px 18px; margin:16px 0;
+  }
+  .form-card-title{
+    font-size:13px; font-weight:700; color:var(--text); margin-bottom:12px;
+    padding-bottom:10px; border-bottom:1px solid var(--border);
+  }
+  .form-card-body{
+    display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;
+  }
+  .form-card-body label{
+    font-size:11.5px; color:var(--text-dim); display:flex; flex-direction:column; gap:5px;
+  }
+  .form-card-body label.grow{ flex:1; min-width:220px; }
+  .form-card-body input, .form-card-body select{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:8px 11px; border-radius:6px; font-size:13px; min-width:140px;
+  }
+  .form-card-body label.chk{
+    flex-direction:row !important; align-items:center; gap:7px !important; min-width:0;
+    padding-bottom:9px;
+  }
+  .form-card-body label.chk input{ min-width:0; width:auto; }
   .section-title{font-size:13px; font-weight:700; color:var(--text-dim); margin:22px 0 6px; text-transform:uppercase; letter-spacing:.03em;}
 
   #toast{
@@ -325,15 +349,18 @@
 <main>
   <div class="stats" id="stats"></div>
 
-  <div id="fupForm">
-    <label>Nº do pedido<input type="text" id="fup_pedido" placeholder="ex: 20233"></label>
-    <label>Data<input type="date" id="fup_data"></label>
-    <label class="chk"><input type="checkbox" id="fup_previsao"> Previsão de atraso</label>
-    <label>Motivo
-      <select id="fup_motivo"></select>
-    </label>
-    <label>Observação<input type="text" id="fup_obs" style="width:220px"></label>
-    <button class="primary" onclick="salvarFup()">Registrar FUP</button>
+  <div class="form-card" id="fupForm">
+    <div class="form-card-title">📋 Registrar novo FUP</div>
+    <div class="form-card-body">
+      <label>Nº do pedido<input type="text" id="fup_pedido" placeholder="ex: 20233"></label>
+      <label>Data<input type="date" id="fup_data"></label>
+      <label>Motivo
+        <select id="fup_motivo"></select>
+      </label>
+      <label class="grow">Observação<input type="text" id="fup_obs"></label>
+      <label class="chk"><input type="checkbox" id="fup_previsao"> Previsão de atraso</label>
+      <button class="primary" onclick="salvarFup()">Registrar FUP</button>
+    </div>
   </div>
 
   <div id="fupPendentesWrap" style="display:none">
@@ -348,18 +375,21 @@
   </div>
 
   <div id="avisosWrap" style="display:none">
-    <div id="avisosForm" style="display:flex; gap:10px; padding:14px 0; flex-wrap:wrap; align-items:flex-end;">
-      <label>Nº do pedido<input type="text" id="aviso_pedido" placeholder="ex: 20233"></label>
-      <label>Data<input type="date" id="aviso_data"></label>
-      <label>Motivo (texto livre)<input type="text" id="aviso_motivo" placeholder="ex: liguei pra transportadora, falou que..." style="width:280px"></label>
-      <label>Próxima verificação (opcional)<input type="date" id="aviso_proxima_data"></label>
-      <button class="primary" onclick="salvarAviso()">Registrar aviso</button>
+    <div class="form-card">
+      <div class="form-card-title">⚠ Registrar novo aviso</div>
+      <div class="form-card-body">
+        <label>Nº do pedido<input type="text" id="aviso_pedido" placeholder="ex: 20233"></label>
+        <label>Data<input type="date" id="aviso_data"></label>
+        <label class="grow">Motivo (texto livre)<input type="text" id="aviso_motivo" placeholder="ex: liguei pra transportadora, falou que..."></label>
+        <label>Próxima verificação (opcional)<input type="date" id="aviso_proxima_data"></label>
+        <button class="primary" onclick="salvarAviso()">Registrar aviso</button>
+      </div>
     </div>
 
     <div class="section-title">⚠ Avisos (precisam de atenção)</div>
     <div class="table-scroll" id="scrollAvisos" style="max-height:320px;">
       <table>
-        <thead><tr><th>Pedido</th><th>Cliente</th><th>Tipo</th><th>Dias s/ canhoto</th><th class="col-secondary">NF</th><th></th></tr></thead>
+        <thead><tr><th>Pedido</th><th>Cliente</th><th>Tipo</th><th class="col-secondary">Faturamento</th><th>Entrega original</th><th>Dias s/ canhoto</th><th class="col-secondary">NF</th><th></th></tr></thead>
         <tbody id="tbodyAvisos"></tbody>
       </table>
     </div>
@@ -367,7 +397,7 @@
     <div class="section-title">✓ Tratados (em acompanhamento)</div>
     <div class="table-scroll" id="scrollAvisosTratados" style="max-height:320px;">
       <table>
-        <thead><tr><th>Pedido</th><th>Cliente</th><th>Dias s/ canhoto</th><th>Último motivo</th><th class="col-secondary">Próxima verificação</th><th></th></tr></thead>
+        <thead><tr><th>Pedido</th><th>Cliente</th><th class="col-secondary">Faturamento</th><th>Entrega original</th><th>Dias s/ canhoto</th><th>Último motivo</th><th class="col-secondary">Próxima verificação</th><th></th></tr></thead>
         <tbody id="tbodyAvisosTratados"></tbody>
       </table>
     </div>
@@ -578,7 +608,7 @@ function setTab(tab, btn){
   currentTab = tab;
   document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  document.getElementById('fupForm').style.display = (tab === 'fup') ? 'flex' : 'none';
+  document.getElementById('fupForm').style.display = (tab === 'fup') ? 'block' : 'none';
   document.getElementById('fupPendentesWrap').style.display = (tab === 'fup') ? 'block' : 'none';
   document.getElementById('avisosWrap').style.display = (tab === 'avisos') ? 'block' : 'none';
   document.getElementById('scrollTabela').style.display = (tab === 'avisos') ? 'none' : 'block';
@@ -799,6 +829,8 @@ function linhaAviso(p){
       <td style="font-family:var(--mono)">${p.numero_pedido}</td>
       <td>${p.nome_cliente || '—'}</td>
       <td>${p.tipo_entrega || '—'}</td>
+      <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
+      <td>${fmtDate(p.data_entrega_prevista)}</td>
       <td><span class="atraso-tag">${p.dias_uteis_desde_faturamento}d</span></td>
       <td class="col-secondary">${p.nf || '—'}</td>
       <td>
@@ -815,6 +847,8 @@ function linhaAvisoTratado(p){
     <tr>
       <td style="font-family:var(--mono)">${p.numero_pedido}</td>
       <td>${p.nome_cliente || '—'}</td>
+      <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
+      <td>${fmtDate(p.data_entrega_prevista)}</td>
       <td><span class="atraso-tag">${p.dias_uteis_desde_faturamento}d</span></td>
       <td>${ultimo ? ultimo.motivo : '—'}</td>
       <td class="col-secondary">${ultimo && ultimo.proxima_data_limite ? fmtDate(ultimo.proxima_data_limite) : '—'}</td>
@@ -834,13 +868,13 @@ async function loadAvisosTab(){
   const resRegistros = await fetch('/api/avisos/registros');
   window.avisosRegistrosCache = await resRegistros.json();
 
-  vtAvisos.setData(data.avisos, linhaAviso, 6);
+  vtAvisos.setData(data.avisos, linhaAviso, 8);
   if(!data.avisos.length){
-    document.getElementById('tbodyAvisos').innerHTML = `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum aviso pendente 🎉</td></tr>`;
+    document.getElementById('tbodyAvisos').innerHTML = `<tr><td colspan="8" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum aviso pendente 🎉</td></tr>`;
   }
-  vtAvisosTratados.setData(data.tratados, linhaAvisoTratado, 6);
+  vtAvisosTratados.setData(data.tratados, linhaAvisoTratado, 8);
   if(!data.tratados.length){
-    document.getElementById('tbodyAvisosTratados').innerHTML = `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido em acompanhamento no momento.</td></tr>`;
+    document.getElementById('tbodyAvisosTratados').innerHTML = `<tr><td colspan="8" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido em acompanhamento no momento.</td></tr>`;
   }
 
   document.getElementById('stats').innerHTML = `
