@@ -633,9 +633,20 @@ function toast(msg, isError=false){
   setTimeout(() => t.style.display = 'none', 4000);
 }
 
+let uploadEmAndamento = false;
+
 async function uploadFile(input){
   const file = input.files[0];
   if(!file) return;
+  if(uploadEmAndamento){
+    toast('Já tem uma importação em andamento — aguarde ela terminar antes de enviar outra.', true);
+    input.value = '';
+    return;
+  }
+  uploadEmAndamento = true;
+  document.querySelectorAll('.upload-btn').forEach(b => b.style.pointerEvents = 'none');
+  document.querySelectorAll('.upload-btn').forEach(b => b.style.opacity = '0.5');
+
   const formData = new FormData();
   formData.append('file', file);
   try{
@@ -648,6 +659,9 @@ async function uploadFile(input){
     toast('Erro: ' + e.message, true);
   }
   input.value = '';
+  uploadEmAndamento = false;
+  document.querySelectorAll('.upload-btn').forEach(b => b.style.pointerEvents = '');
+  document.querySelectorAll('.upload-btn').forEach(b => b.style.opacity = '');
 }
 
 function buildParams(){
