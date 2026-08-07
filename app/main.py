@@ -8,6 +8,7 @@ from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
+from sqlalchemy.exc import IntegrityError
 
 from .database import init_db, get_session, engine
 from .models import (
@@ -25,11 +26,22 @@ async def erro_inesperado_handler(request, exc: Exception):
     frontend, em vez de uma página de erro em texto puro que quebra o
     'await res.json()' da tela com uma mensagem confusa de 'JSON inválido'."""
     import traceback
-    traceback.print_exc()  # ainda aparece no log do Railway pra debug
-    return JSONResponse(
-        status_code=500,
-        content={"detail": f"Erro interno inesperado: {type(exc).__name__}: {exc}"},
-    )
+    traceback.print_exc()  # traceback completo ainda aparece no log do Railway pra debug
+
+    if isinstance(exc, IntegrityError):
+        mensagem = (
+            "Conflito ao salvar os dados no banco — provavelmente duas ações "
+            "aconteceram ao mesmo tempo (ex: dois uploads simultâneos). "
+            "Aguarde um instante e tente de novo."
+        )
+    else:
+        # corta mensagens muito longas (ex: erros de SQL trazem a query inteira)
+        texto = str(exc)
+        if len(texto) > 200:
+            texto = texto[:200] + "…"
+        mensagem = f"Erro interno inesperado: {type(exc).__name__}: {texto}"
+
+    return JSONResponse(status_code=500, content={"detail": mensagem})
 
 
 @app.on_event("startup")
@@ -59,6 +71,19 @@ async def importar(file: UploadFile = File(...), session: Session = Depends(get_
         resultado = importar_planilha(io.BytesIO(content), session)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except IntegrityError:
+        # Conflito de gravação (ex: dois uploads ao mesmo tempo). Desfaz e
+        # tenta mais uma vez com uma sessão limpa antes de desistir.
+        session.rollback()
+        try:
+            resultado = importar_planilha(io.BytesIO(content), session)
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(
+                409,
+                "Conflito ao salvar os dados — provavelmente duas importações "
+                "foram enviadas ao mesmo tempo. Aguarde um instante e tente importar de novo.",
+            )
     recalcular_status_e_atrasos(session)
     return resultado
 
