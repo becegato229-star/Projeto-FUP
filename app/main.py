@@ -5,7 +5,7 @@ from typing import Optional
 
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
@@ -17,6 +17,19 @@ from .models import (
 from .importer import importar_planilha, recalcular_status_e_atrasos
 
 app = FastAPI(title="FlowLog (self-hosted)")
+
+
+@app.exception_handler(Exception)
+async def erro_inesperado_handler(request, exc: Exception):
+    """Garante que QUALQUER erro inesperado volte como JSON legível pro
+    frontend, em vez de uma página de erro em texto puro que quebra o
+    'await res.json()' da tela com uma mensagem confusa de 'JSON inválido'."""
+    import traceback
+    traceback.print_exc()  # ainda aparece no log do Railway pra debug
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Erro interno inesperado: {type(exc).__name__}: {exc}"},
+    )
 
 
 @app.on_event("startup")
