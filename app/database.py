@@ -34,9 +34,38 @@ def _migrar_colunas_faltando():
                     conn.commit()
 
 
+def _remover_colunas_obsoletas():
+    """Remove colunas que existem no banco mas não existem mais no model atual
+    (ex: um campo renomeado/removido numa atualização). Sem isso, colunas
+    antigas com restrição NOT NULL travam a inserção de registros novos,
+    já que o código atual nunca mais preenche esses campos."""
+    with engine.connect() as conn:
+        for nome_tabela, tabela in SQLModel.metadata.tables.items():
+            existe = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n"),
+                {"n": nome_tabela},
+            ).fetchone()
+            if not existe:
+                continue
+            colunas_atuais = {
+                row[1] for row in conn.execute(text(f"PRAGMA table_info({nome_tabela})"))
+            }
+            colunas_do_model = {c.name for c in tabela.columns}
+            obsoletas = colunas_atuais - colunas_do_model
+            for coluna in obsoletas:
+                try:
+                    conn.execute(text(f"ALTER TABLE {nome_tabela} DROP COLUMN {coluna}"))
+                    conn.commit()
+                except Exception:
+                    # SQLite antigo pode não suportar DROP COLUMN; não é
+                    # crítico o suficiente pra derrubar a inicialização do app.
+                    conn.rollback()
+
+
 def init_db():
     SQLModel.metadata.create_all(engine)
     _migrar_colunas_faltando()
+    _remover_colunas_obsoletas()
 
 
 def get_session():
