@@ -241,13 +241,21 @@ def recalcular_status_e_atrasos(session: Session) -> None:
         else:
             p.status = p.situacao_erp or "Indefinido"
 
-        # --- Atraso de produção: ainda não faturado e a data prevista (hoje ou antes) ---
-        # (a "nova data de entrega" é só informativa; não altera se o pedido conta como atrasado)
+        # --- Atraso de produção: ainda não faturado e a data prevista já chegou ---
+        # Pedidos "Retira" têm 1 dia de tolerância (o cliente pode buscar até
+        # o próprio dia da data prevista); os demais tipos contam a partir do
+        # próprio dia. A "nova data de entrega" é só informativa; não altera
+        # se o pedido conta como atrasado.
         p.atraso_producao = False
         p.dias_atraso_producao = 0
-        if p.status in ("Bloqueado", "Aprovado") and p.data_entrega_prevista and hoje >= p.data_entrega_prevista:
-            p.atraso_producao = True
-            p.dias_atraso_producao = _dias_uteis_entre(p.data_entrega_prevista, hoje)
+        if p.status in ("Bloqueado", "Aprovado") and p.data_entrega_prevista:
+            if p.tipo_entrega == "Retira":
+                esta_no_prazo_vencido = hoje > p.data_entrega_prevista
+            else:
+                esta_no_prazo_vencido = hoje >= p.data_entrega_prevista
+            if esta_no_prazo_vencido:
+                p.atraso_producao = True
+                p.dias_atraso_producao = _dias_uteis_entre(p.data_entrega_prevista, hoje)
 
         # --- Aviso: faturado, sem canhoto, além do prazo esperado pro tipo de entrega ---
         p.aviso_entrega = False
