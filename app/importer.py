@@ -34,11 +34,11 @@ def detectar_tipo_planilha(df: pd.DataFrame) -> str:
         return "oe"
     if {"Pedido", "NF", "Canhoto"}.issubset(cols):
         return "pedidos_mubec"
-    # Fallback: "NF" + "Canhoto" + "CLIENTE" são colunas praticamente exclusivas
-    # dessa planilha. Aceita mesmo se o cabeçalho da coluna "Pedido" vier com
-    # texto errado (ex: alguém colou uma data sem querer na célula do título) —
-    # nesse caso a primeira coluna é usada no lugar de "Pedido".
-    if {"NF", "Canhoto", "CLIENTE"}.issubset(cols):
+    # Fallback: aceita mesmo se o cabeçalho da coluna "Pedido" vier com texto
+    # errado (ex: alguém colou uma data sem querer na célula do título) — mas
+    # exige um conjunto maior de colunas exclusivas dessa planilha específica,
+    # pra não confundir com outra aba parecida do mesmo arquivo.
+    if {"NF", "Canhoto", "CLIENTE", "Data de\nFaturamento", "Data de\nentrega"}.issubset(cols):
         return "pedidos_mubec"
 
     raise ValueError(
