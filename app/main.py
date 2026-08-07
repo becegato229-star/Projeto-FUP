@@ -71,21 +71,38 @@ async def importar(file: UploadFile = File(...), session: Session = Depends(get_
         resultado = importar_planilha(io.BytesIO(content), session)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    except IntegrityError:
-        # Conflito de gravação (ex: dois uploads ao mesmo tempo). Desfaz e
-        # tenta mais uma vez com uma sessão limpa antes de desistir.
+    except IntegrityError as e1:
+        # Desfaz e tenta mais uma vez (cobre o caso raro de condição de corrida).
         session.rollback()
         try:
             resultado = importar_planilha(io.BytesIO(content), session)
-        except IntegrityError:
+        except IntegrityError as e2:
             session.rollback()
-            raise HTTPException(
-                409,
-                "Conflito ao salvar os dados — provavelmente duas importações "
-                "foram enviadas ao mesmo tempo. Aguarde um instante e tente importar de novo.",
-            )
+            raise HTTPException(409, f"Conflito ao salvar os dados. Detalhe técnico: {_detalhe_integrity_error(e2)}")
     recalcular_status_e_atrasos(session)
     return resultado
+
+
+def _detalhe_integrity_error(exc: IntegrityError) -> str:
+    """Extrai o máximo de informação útil de um IntegrityError pra facilitar
+    o diagnóstico — qual restrição foi violada e com qual(is) valor(es)."""
+    causa = str(exc.orig) if getattr(exc, "orig", None) else str(exc)
+    valores = ""
+    try:
+        params = exc.params
+        if isinstance(params, list) and params:
+            # tenta achar o(s) numero_pedido envolvido(s) nos parâmetros do INSERT
+            candidatos = []
+            for p in params:
+                if isinstance(p, (list, tuple)) and p:
+                    candidatos.append(str(p[0]))
+                elif isinstance(p, dict) and "numero_pedido" in p:
+                    candidatos.append(str(p["numero_pedido"]))
+            if candidatos:
+                valores = " | pedido(s) envolvido(s): " + ", ".join(candidatos[:10])
+    except Exception:
+        pass
+    return f"{causa}{valores}"
 
 
 # ---------------------------------------------------------------------
