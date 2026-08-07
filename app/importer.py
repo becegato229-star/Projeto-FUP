@@ -25,6 +25,14 @@ LIMITE_AVISO_PADRAO = 4  # usado se o tipo de entrega vier desconhecido
 # ---------------------------------------------------------------------
 # Detecção do tipo de planilha
 # ---------------------------------------------------------------------
+def _achar_coluna(colunas, nome_alvo: str):
+    """Acha uma coluna pelo nome, ignorando maiúsculas/minúsculas (ex: 'Pedido' == 'pedido')."""
+    for c in colunas:
+        if c.strip().lower() == nome_alvo.strip().lower():
+            return c
+    return None
+
+
 def detectar_tipo_planilha(df: pd.DataFrame) -> str:
     cols = set(c.strip() for c in df.columns)
 
@@ -32,10 +40,10 @@ def detectar_tipo_planilha(df: pd.DataFrame) -> str:
         return "follow_up_vendas"
     if {"Cód. da OE", "Cód. do pedido"}.issubset(cols):
         return "oe"
-    if {"Pedido", "NF", "Canhoto"}.issubset(cols):
+    if _achar_coluna(cols, "Pedido") and {"NF", "Canhoto"}.issubset(cols):
         return "pedidos_mubec"
-    # Fallback: aceita mesmo se o cabeçalho da coluna "Pedido" vier com texto
-    # errado (ex: alguém colou uma data sem querer na célula do título) — mas
+    # Fallback: aceita mesmo se não achar nenhuma coluna parecida com "Pedido"
+    # (ex: cabeçalho corrompido com texto errado colado por engano) — mas
     # exige um conjunto maior de colunas exclusivas dessa planilha específica,
     # pra não confundir com outra aba parecida do mesmo arquivo.
     if {"NF", "Canhoto", "CLIENTE", "Data de\nFaturamento", "Data de\nentrega"}.issubset(cols):
@@ -139,10 +147,10 @@ def importar_pedidos_mubec(df: pd.DataFrame, session: Session) -> int:
     """
     count = 0
     cache: dict = {}
-    # Normalmente a coluna se chama "Pedido", mas às vezes o cabeçalho vem
-    # errado (ex: uma data colada por engano na célula do título). Nesse
-    # caso, cai pra primeira coluna da planilha, que é sempre o pedido.
-    col_pedido = "Pedido" if "Pedido" in df.columns else df.columns[0]
+    # Normalmente a coluna se chama "Pedido" (às vezes "pedido", minúsculo).
+    # Se não achar de jeito nenhum, cai pra primeira coluna da planilha, que
+    # é sempre o pedido (cobre o caso de cabeçalho corrompido/texto errado).
+    col_pedido = _achar_coluna(df.columns, "Pedido") or df.columns[0]
 
     for _, row in df.iterrows():
         numero_pedido_raw = row.get(col_pedido)
