@@ -5,7 +5,10 @@ from sqlmodel import SQLModel, create_engine, Session
 DB_PATH = os.environ.get("FLOWLOG_DB_PATH", "flowlog.db")
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False, "timeout": 15},
+)
 
 
 def _migrar_colunas_faltando():
