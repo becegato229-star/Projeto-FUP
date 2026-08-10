@@ -130,6 +130,7 @@ def listar_pedidos(
     apenas_atrasados: bool = False,
     data_de: Optional[date] = None,
     data_ate: Optional[date] = None,
+    campo_data: str = Query("entrega", description="qual data usar no filtro data_de/data_ate: entrega | emissao | entrega_efetiva"),
     cliente: Optional[str] = None,
     busca: Optional[str] = Query(None, description="busca livre por pedido, OE, NF ou cliente"),
     session: Session = Depends(get_session),
@@ -142,6 +143,13 @@ def listar_pedidos(
     tipo_list = [t.strip() for t in tipo_entrega.split(",")] if tipo_entrega else None
     busca_norm = busca.strip().lower() if busca else None
 
+    campo_data_map = {
+        "entrega": "data_entrega_prevista",
+        "emissao": "data_emissao",
+        "entrega_efetiva": "data_entrega_real",
+    }
+    atributo_data = campo_data_map.get(campo_data, "data_entrega_prevista")
+
     def bate_filtros(p: Pedido) -> bool:
         if tipo_list and p.tipo_entrega not in tipo_list:
             return False
@@ -149,9 +157,10 @@ def listar_pedidos(
             return False
         if apenas_atrasados and not (p.atraso_producao or p.aviso_entrega):
             return False
-        if data_de and (not p.data_emissao or p.data_emissao < data_de):
+        valor_data = getattr(p, atributo_data)
+        if data_de and (not valor_data or valor_data < data_de):
             return False
-        if data_ate and (not p.data_emissao or p.data_emissao > data_ate):
+        if data_ate and (not valor_data or valor_data > data_ate):
             return False
         if cliente and (not p.nome_cliente or cliente.lower() not in p.nome_cliente.lower()):
             return False
@@ -342,13 +351,14 @@ def listar_avisos(
     tipo_entrega: Optional[str] = None,
     data_de: Optional[date] = None,
     data_ate: Optional[date] = None,
+    campo_data: str = Query("entrega"),
     busca: Optional[str] = None,
     session: Session = Depends(get_session),
 ):
     _recalcular_se_necessario(session)
     pedidos = listar_pedidos(
         aba="todos", tipo_entrega=tipo_entrega, status=None, apenas_atrasados=False,
-        data_de=data_de, data_ate=data_ate, cliente=None, busca=busca, session=session,
+        data_de=data_de, data_ate=data_ate, campo_data=campo_data, cliente=None, busca=busca, session=session,
     )  # type: ignore
     pedidos_com_aviso = [p for p in pedidos if p.aviso_entrega]
 
@@ -417,13 +427,14 @@ def exportar_excel(
     apenas_atrasados: bool = False,
     data_de: Optional[date] = None,
     data_ate: Optional[date] = None,
+    campo_data: str = Query("entrega"),
     cliente: Optional[str] = None,
     busca: Optional[str] = None,
     session: Session = Depends(get_session),
 ):
     pedidos = listar_pedidos(
         aba=aba, tipo_entrega=tipo_entrega, status=status, apenas_atrasados=apenas_atrasados,
-        data_de=data_de, data_ate=data_ate, cliente=cliente, busca=busca, session=session,
+        data_de=data_de, data_ate=data_ate, campo_data=campo_data, cliente=cliente, busca=busca, session=session,
     )  # type: ignore
 
     # busca todos os FUPs dos pedidos filtrados de uma vez, ordenados por data (mais antigo primeiro)
