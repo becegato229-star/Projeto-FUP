@@ -475,6 +475,14 @@
         <tbody id="tbodyTercSemVinculo"></tbody>
       </table>
     </div>
+
+    <div class="section-title">📥 Notas de retorno</div>
+    <div class="table-scroll" id="scrollTercRetorno" style="max-height:320px;">
+      <table>
+        <thead><tr><th>Nota retorno</th><th>Data</th><th>Vínculo (saída)</th><th>Lead time</th><th class="col-secondary">Fornecedor</th><th></th></tr></thead>
+        <tbody id="tbodyTercRetorno"></tbody>
+      </table>
+    </div>
   </div>
 
   <div class="table-scroll" id="scrollTabela">
@@ -1199,6 +1207,28 @@ function linhaTercSemVinculo(r){
   `;
 }
 
+function linhaTercRetorno(r){
+  const vinculo = r.numero_nota_saida
+    ? `<span style="font-family:var(--mono); color:var(--ok)">${r.numero_nota_saida}</span>`
+    : `<span style="color:var(--text-dim)">—</span>`;
+  const leadTime = r.dias_lead_time !== null
+    ? `<span class="atraso-tag" style="color:var(--ok)">${r.dias_lead_time}d</span>`
+    : `<span style="color:var(--text-dim)">—</span>`;
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${r.numero_nota}</td>
+      <td>${fmtDate(r.data_nota)}</td>
+      <td>${vinculo}</td>
+      <td>${leadTime}</td>
+      <td class="col-secondary">${r.fornecedor}</td>
+      <td>
+        <button class="small-action fup" onclick="abrirEditarNotaRetorno('${r.numero_nota}')" title="Editar">✎</button>
+        <button class="small-action" onclick="apagarNotaRetorno('${r.numero_nota}')" title="Apagar">🗑</button>
+      </td>
+    </tr>
+  `;
+}
+
 async function loadTerceirizacaoTab(){
   await carregarFornecedoresDatalist();
   const fornecedor = document.getElementById('terc_fornecedor_filtro').value.trim();
@@ -1209,6 +1239,7 @@ async function loadTerceirizacaoTab(){
   window.tercNotasSaidaCache = data.notas_saida;
   window.tercParesCache = data.pares;
   window.tercSemVinculoCache = data.sem_vinculo;
+  window.tercNotasRetornoCache = data.notas_retorno;
 
   document.getElementById('statsTerc').innerHTML = `
     <div class="stat"><div class="n">${data.stats.total_pares}</div><div class="l">Pares vinculados</div></div>
@@ -1230,6 +1261,10 @@ async function loadTerceirizacaoTab(){
   document.getElementById('tbodyTercSemVinculo').innerHTML = data.sem_vinculo.length
     ? data.sem_vinculo.map(linhaTercSemVinculo).join('')
     : `<tr><td colspan="4" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma pendência de vínculo 🎉</td></tr>`;
+
+  document.getElementById('tbodyTercRetorno').innerHTML = data.notas_retorno.length
+    ? data.notas_retorno.map(linhaTercRetorno).join('')
+    : `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de retorno registrada ainda.</td></tr>`;
 
   const opcoesSaida = data.notas_saida.map(s => `<option value="${s.numero_nota}">${s.numero_nota} (${fmtDate(s.data_nota)})</option>`).join('');
   document.getElementById('terc_retorno_saida_manual').innerHTML =
