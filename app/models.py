@@ -96,3 +96,40 @@ MOTIVOS_ATRASO_PADRAO = [
     "Manutenção de máquina",
     "Outro",
 ]
+
+
+# =======================================================================
+# Terceirização — lead time de industrialização (ex: zincagem na JJ Leste)
+# Totalmente independente do fluxo de Pedidos.
+# =======================================================================
+class NotaSaida(SQLModel, table=True):
+    """Nota de remessa: material saindo da Mubec pro fornecedor terceirizado."""
+    numero_nota: str = Field(primary_key=True, index=True)
+    data_nota: date
+    fornecedor: str = Field(default="JJ LESTE GALVANIZACAO LTDA", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class NotaSaidaCreate(SQLModel):
+    numero_nota: str
+    data_nota: date
+    fornecedor: str = "JJ LESTE GALVANIZACAO LTDA"
+
+
+class NotaRetorno(SQLModel, table=True):
+    """Nota de retorno: material processado voltando do fornecedor pra Mubec."""
+    numero_nota: str = Field(primary_key=True, index=True)
+    data_nota: date
+    fornecedor: str = Field(default="JJ LESTE GALVANIZACAO LTDA", index=True)
+    numero_nota_saida: Optional[str] = Field(default=None, index=True)  # vínculo, se encontrado
+    informacoes_adicionais: Optional[str] = None  # texto colado, guardado pra referência/auditoria
+    vinculo_manual: bool = False  # True se o vínculo foi escolhido manualmente (não veio da extração automática)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class NotaRetornoCreate(SQLModel):
+    numero_nota: str
+    data_nota: date
+    fornecedor: str = "JJ LESTE GALVANIZACAO LTDA"
+    numero_nota_saida: Optional[str] = None
+    informacoes_adicionais: Optional[str] = None
