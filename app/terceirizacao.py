@@ -100,6 +100,20 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
     ]
     aguardando_retorno_n = sum(1 for n in notas_saida if n["retornos_vinculados"] == 0)
 
+    # Todas as notas de retorno numa lista só, igual a de saída — vinculadas
+    # mostram a nota de saída e o lead time; sem vínculo mostram '—'.
+    notas_retorno = []
+    for r in retornos:
+        vinculada = r.numero_nota_saida in saidas_por_numero if r.numero_nota_saida else False
+        s = saidas_por_numero.get(r.numero_nota_saida) if vinculada else None
+        notas_retorno.append({
+            "numero_nota": r.numero_nota,
+            "data_nota": r.data_nota,
+            "fornecedor": r.fornecedor,
+            "numero_nota_saida": r.numero_nota_saida if vinculada else None,
+            "dias_lead_time": calcular_lead_time_dias(s.data_nota, r.data_nota) if s else None,
+        })
+
     dias_lista = [p["dias_lead_time"] for p in pares]
     stats = {
         "total_pares": len(pares),
@@ -112,11 +126,13 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
 
     pares.sort(key=lambda p: p["data_retorno"], reverse=True)
     notas_saida.sort(key=lambda n: n["data_nota"], reverse=True)
+    notas_retorno.sort(key=lambda n: n["data_nota"], reverse=True)
     sem_vinculo.sort(key=lambda r: r.data_nota, reverse=True)
 
     return {
         "pares": pares,
         "notas_saida": notas_saida,
+        "notas_retorno": notas_retorno,
         "sem_vinculo": sem_vinculo,
         "stats": stats,
     }
