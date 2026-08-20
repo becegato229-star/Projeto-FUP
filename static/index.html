@@ -303,6 +303,7 @@
   <button class="active" data-tab="todos" onclick="setTab('todos', this)">Todos</button>
   <button data-tab="avisos" onclick="setTab('avisos', this)">⚠ Avisos</button>
   <button data-tab="fup" onclick="setTab('fup', this)">FUP</button>
+  <button data-tab="terceirizacao" onclick="setTab('terceirizacao', this)">🏭 Terceirização</button>
 </nav>
 
 <button class="mobile-only filtros-toggle" onclick="toggleFiltrosMobile()">
@@ -406,6 +407,72 @@
       <table>
         <thead><tr><th>Pedido</th><th>Cliente</th><th class="col-secondary">Faturamento</th><th>Entrega original</th><th>Dias s/ canhoto</th><th>Último motivo</th><th class="col-secondary">Próxima verificação</th><th></th></tr></thead>
         <tbody id="tbodyAvisosTratados"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="terceirizacaoWrap" style="display:none">
+    <div class="toolbar-top" style="padding:14px 0;">
+      <label class="grow">Fornecedor
+        <input type="text" id="terc_fornecedor_filtro" list="terc_fornecedores_datalist" value="JJ LESTE GALVANIZACAO LTDA" onchange="loadTerceirizacaoTab()">
+        <datalist id="terc_fornecedores_datalist"></datalist>
+      </label>
+    </div>
+
+    <div class="stats" id="statsTerc"></div>
+
+    <div style="display:flex; gap:16px; flex-wrap:wrap; margin:16px 0;">
+      <div class="form-card" style="flex:1; min-width:280px;">
+        <div class="form-card-title">📤 Registrar nota de saída</div>
+        <div class="form-card-body">
+          <label>Número da nota<input type="text" id="terc_saida_numero" placeholder="ex: 116858"></label>
+          <label>Data<input type="date" id="terc_saida_data"></label>
+          <label class="grow">Fornecedor<input type="text" id="terc_saida_fornecedor" list="terc_fornecedores_datalist" value="JJ LESTE GALVANIZACAO LTDA"></label>
+          <button class="primary" onclick="salvarNotaSaida()">Registrar saída</button>
+        </div>
+      </div>
+
+      <div class="form-card" style="flex:1; min-width:280px;">
+        <div class="form-card-title">📥 Registrar nota de retorno</div>
+        <div class="form-card-body">
+          <label>Número da nota<input type="text" id="terc_retorno_numero" placeholder="ex: 9186"></label>
+          <label>Data<input type="date" id="terc_retorno_data"></label>
+          <label class="grow">Fornecedor<input type="text" id="terc_retorno_fornecedor" list="terc_fornecedores_datalist" value="JJ LESTE GALVANIZACAO LTDA"></label>
+          <label class="grow">Colar "Informações Adicionais" (detecta o vínculo sozinho)
+            <input type="text" id="terc_retorno_info" placeholder="cole aqui o texto da nota..." oninput="preVerificarVinculo()">
+          </label>
+          <div id="terc_vinculo_preview" style="font-size:12px; color:var(--text-dim); width:100%;"></div>
+          <label class="grow">Ou escolher a nota de saída manualmente
+            <select id="terc_retorno_saida_manual">
+              <option value="">— nenhuma (deixar a extração automática decidir) —</option>
+            </select>
+          </label>
+          <button class="primary" onclick="salvarNotaRetorno()">Registrar retorno</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">🔗 Pares vinculados</div>
+    <div class="table-scroll" id="scrollTercPares" style="max-height:320px;">
+      <table>
+        <thead><tr><th>Nota saída</th><th>Data saída</th><th>Nota retorno</th><th>Data retorno</th><th>Lead time</th><th class="col-secondary">Fornecedor</th></tr></thead>
+        <tbody id="tbodyTercPares"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">⏳ Aguardando retorno</div>
+    <div class="table-scroll" id="scrollTercAguardando" style="max-height:260px;">
+      <table>
+        <thead><tr><th>Nota saída</th><th>Data</th><th>Dias em aberto</th><th class="col-secondary">Fornecedor</th></tr></thead>
+        <tbody id="tbodyTercAguardando"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">⚠ Sem vínculo encontrado (precisa de atenção)</div>
+    <div class="table-scroll" id="scrollTercSemVinculo" style="max-height:260px;">
+      <table>
+        <thead><tr><th>Nota retorno</th><th>Data</th><th class="col-secondary">Texto colado</th><th></th></tr></thead>
+        <tbody id="tbodyTercSemVinculo"></tbody>
       </table>
     </div>
   </div>
@@ -618,7 +685,10 @@ function setTab(tab, btn){
   document.getElementById('fupForm').style.display = (tab === 'fup') ? 'block' : 'none';
   document.getElementById('fupPendentesWrap').style.display = (tab === 'fup') ? 'block' : 'none';
   document.getElementById('avisosWrap').style.display = (tab === 'avisos') ? 'block' : 'none';
-  document.getElementById('scrollTabela').style.display = (tab === 'avisos') ? 'none' : 'block';
+  document.getElementById('terceirizacaoWrap').style.display = (tab === 'terceirizacao') ? 'block' : 'none';
+  document.getElementById('scrollTabela').style.display = (tab === 'avisos' || tab === 'terceirizacao') ? 'none' : 'block';
+  document.getElementById('filtrosPanel').style.display = (tab === 'terceirizacao') ? 'none' : '';
+  document.querySelector('.filtros-toggle').style.display = (tab === 'terceirizacao') ? 'none' : '';
   load();
 }
 
@@ -699,6 +769,10 @@ async function load(){
   }
   if(currentTab === 'avisos'){
     await loadAvisosTab();
+    return;
+  }
+  if(currentTab === 'terceirizacao'){
+    await loadTerceirizacaoTab();
     return;
   }
   const params = buildParams();
@@ -1018,6 +1092,161 @@ async function abrirHistoricoAviso(numeroPedido){
   }catch(e){
     document.getElementById('historicoLista').innerHTML = `<div style="color:var(--danger)">Erro: ${e.message}</div>`;
   }
+}
+
+// ---------------- Aba Terceirização ----------------
+let debounceTercTimer;
+function preVerificarVinculo(){
+  clearTimeout(debounceTercTimer);
+  debounceTercTimer = setTimeout(async () => {
+    const texto = document.getElementById('terc_retorno_info').value.trim();
+    const preview = document.getElementById('terc_vinculo_preview');
+    if(!texto){ preview.textContent = ''; return; }
+    try{
+      const res = await fetch('/api/terceirizacao/extrair-vinculo?' + new URLSearchParams({informacoes_adicionais: texto}));
+      const data = await res.json();
+      preview.innerHTML = data.encontrado
+        ? `✓ Vínculo detectado: nota de saída <b style="color:var(--ok)">${data.numero_nota_saida}</b>`
+        : `⚠ Nenhum vínculo reconhecido automaticamente — escolha manualmente abaixo, se souber.`;
+    }catch(e){ preview.textContent = ''; }
+  }, 400);
+}
+
+async function carregarFornecedoresDatalist(){
+  try{
+    const res = await fetch('/api/terceirizacao/fornecedores');
+    const fornecedores = await res.json();
+    document.getElementById('terc_fornecedores_datalist').innerHTML =
+      fornecedores.map(f => `<option value="${f}"></option>`).join('');
+  }catch(e){}
+}
+
+function linhaTercPar(p){
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.nota_saida}</td>
+      <td>${fmtDate(p.data_saida)}</td>
+      <td style="font-family:var(--mono)">${p.nota_retorno}</td>
+      <td>${fmtDate(p.data_retorno)}</td>
+      <td><span class="atraso-tag" style="color:var(--ok)">${p.dias_lead_time}d</span></td>
+      <td class="col-secondary">${p.fornecedor}</td>
+    </tr>
+  `;
+}
+function linhaTercAguardando(s){
+  const diasEmAberto = Math.floor((new Date() - new Date(s.data_nota + 'T00:00:00')) / 86400000);
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${s.numero_nota}</td>
+      <td>${fmtDate(s.data_nota)}</td>
+      <td><span class="atraso-tag">${diasEmAberto}d</span></td>
+      <td class="col-secondary">${s.fornecedor}</td>
+    </tr>
+  `;
+}
+function linhaTercSemVinculo(r){
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${r.numero_nota}</td>
+      <td>${fmtDate(r.data_nota)}</td>
+      <td class="col-secondary" style="white-space:normal; max-width:320px;">${r.informacoes_adicionais || '—'}</td>
+      <td><button class="small-action fup" onclick="abrirVincularManual('${r.numero_nota}')">Vincular</button></td>
+    </tr>
+  `;
+}
+
+async function loadTerceirizacaoTab(){
+  await carregarFornecedoresDatalist();
+  const fornecedor = document.getElementById('terc_fornecedor_filtro').value.trim();
+  const params = fornecedor ? new URLSearchParams({fornecedor}) : new URLSearchParams();
+  const res = await fetch('/api/terceirizacao?' + params.toString());
+  const data = await res.json();
+
+  window.tercAguardandoCache = data.aguardando_retorno;
+
+  document.getElementById('statsTerc').innerHTML = `
+    <div class="stat"><div class="n">${data.stats.total_pares}</div><div class="l">Pares vinculados</div></div>
+    <div class="stat"><div class="n">${data.stats.lead_time_medio}d</div><div class="l">Lead time médio</div></div>
+    <div class="stat"><div class="n">${data.stats.lead_time_minimo}d</div><div class="l">Mínimo</div></div>
+    <div class="stat"><div class="n">${data.stats.lead_time_maximo}d</div><div class="l">Máximo</div></div>
+    <div class="stat atraso"><div class="n">${data.stats.aguardando_retorno_n}</div><div class="l">Aguardando retorno</div></div>
+    <div class="stat atraso"><div class="n">${data.stats.sem_vinculo_n}</div><div class="l">Sem vínculo</div></div>
+  `;
+
+  document.getElementById('tbodyTercPares').innerHTML = data.pares.length
+    ? data.pares.map(linhaTercPar).join('')
+    : `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum par vinculado ainda.</td></tr>`;
+
+  document.getElementById('tbodyTercAguardando').innerHTML = data.aguardando_retorno.length
+    ? data.aguardando_retorno.map(linhaTercAguardando).join('')
+    : `<tr><td colspan="4" style="color:var(--text-dim); text-align:center; padding:20px">Nada aguardando retorno.</td></tr>`;
+
+  document.getElementById('tbodyTercSemVinculo').innerHTML = data.sem_vinculo.length
+    ? data.sem_vinculo.map(linhaTercSemVinculo).join('')
+    : `<tr><td colspan="4" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma pendência de vínculo 🎉</td></tr>`;
+
+  document.getElementById('terc_retorno_saida_manual').innerHTML =
+    '<option value="">— nenhuma (deixar a extração automática decidir) —</option>' +
+    data.aguardando_retorno.map(s => `<option value="${s.numero_nota}">${s.numero_nota} (${fmtDate(s.data_nota)})</option>`).join('');
+}
+
+async function salvarNotaSaida(){
+  const body = {
+    numero_nota: document.getElementById('terc_saida_numero').value.trim(),
+    data_nota: document.getElementById('terc_saida_data').value,
+    fornecedor: document.getElementById('terc_saida_fornecedor').value.trim() || 'JJ LESTE GALVANIZACAO LTDA',
+  };
+  if(!body.numero_nota || !body.data_nota){ toast('Preencha número e data da nota', true); return; }
+  try{
+    const res = await fetch('/api/terceirizacao/saida', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Nota de saída registrada');
+    document.getElementById('terc_saida_numero').value = '';
+    document.getElementById('terc_saida_data').value = '';
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+async function salvarNotaRetorno(){
+  const body = {
+    numero_nota: document.getElementById('terc_retorno_numero').value.trim(),
+    data_nota: document.getElementById('terc_retorno_data').value,
+    fornecedor: document.getElementById('terc_retorno_fornecedor').value.trim() || 'JJ LESTE GALVANIZACAO LTDA',
+    informacoes_adicionais: document.getElementById('terc_retorno_info').value.trim() || null,
+    numero_nota_saida: document.getElementById('terc_retorno_saida_manual').value || null,
+  };
+  if(!body.numero_nota || !body.data_nota){ toast('Preencha número e data da nota', true); return; }
+  try{
+    const res = await fetch('/api/terceirizacao/retorno', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast(data.numero_nota_saida ? `Retorno registrado e vinculado à nota ${data.numero_nota_saida}` : 'Retorno registrado, sem vínculo encontrado ainda');
+    document.getElementById('terc_retorno_numero').value = '';
+    document.getElementById('terc_retorno_data').value = '';
+    document.getElementById('terc_retorno_info').value = '';
+    document.getElementById('terc_vinculo_preview').innerHTML = '';
+    document.getElementById('terc_retorno_saida_manual').value = '';
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+let notaRetornoParaVincular = null;
+function abrirVincularManual(numeroRetorno){
+  notaRetornoParaVincular = numeroRetorno;
+  const opcoes = (window.tercAguardandoCache || []).map(s => `${s.numero_nota} (${fmtDate(s.data_nota)})`).join(', ') || 'nenhuma nota de saída em aberto no momento';
+  const escolha = prompt(`Vincular a nota de retorno ${numeroRetorno} a qual nota de saída?\n\nEm aberto: ${opcoes}\n\nDigite o número da nota de saída:`);
+  if(!escolha) return;
+  vincularManual(numeroRetorno, escolha.trim());
+}
+async function vincularManual(numeroRetorno, numeroSaida){
+  try{
+    const res = await fetch(`/api/terceirizacao/retorno/${numeroRetorno}/vincular?` + new URLSearchParams({numero_nota_saida: numeroSaida}), {method:'PUT'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao vincular');
+    toast('Vínculo criado');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
 }
 
 function preencherFup(numeroPedido){
@@ -1355,6 +1584,8 @@ async function loadHistorico(){
 
 document.getElementById('fup_data').value = new Date().toISOString().slice(0,10);
 document.getElementById('aviso_data').value = new Date().toISOString().slice(0,10);
+document.getElementById('terc_saida_data').value = new Date().toISOString().slice(0,10);
+document.getElementById('terc_retorno_data').value = new Date().toISOString().slice(0,10);
 document.getElementById('fupPendentesWrap').style.display = 'none';
 carregarMotivos();
 load();
