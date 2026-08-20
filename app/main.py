@@ -516,7 +516,7 @@ def editar_nota_saida(numero_nota_atual: str, dados: NotaSaidaEditar, session: S
     return nota
 
 
-@app.post("/api/terceirizacao/extrair-vinculo")
+@app.get("/api/terceirizacao/extrair-vinculo")
 def extrair_vinculo(informacoes_adicionais: str = Query(...)):
     """Pré-visualização: extrai o número da nota de saída do texto colado,
     sem salvar nada — usado pra preencher o formulário automaticamente
