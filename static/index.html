@@ -455,15 +455,15 @@
     <div class="section-title">🔗 Pares vinculados</div>
     <div class="table-scroll" id="scrollTercPares" style="max-height:320px;">
       <table>
-        <thead><tr><th>Nota saída</th><th>Data saída</th><th>Nota retorno</th><th>Data retorno</th><th>Lead time</th><th class="col-secondary">Fornecedor</th></tr></thead>
+        <thead><tr><th>Nota saída</th><th>Data saída</th><th>Nota retorno</th><th>Data retorno</th><th>Lead time</th><th class="col-secondary">Fornecedor</th><th></th></tr></thead>
         <tbody id="tbodyTercPares"></tbody>
       </table>
     </div>
 
-    <div class="section-title">⏳ Aguardando retorno</div>
+    <div class="section-title">📤 Notas de saída</div>
     <div class="table-scroll" id="scrollTercAguardando" style="max-height:260px;">
       <table>
-        <thead><tr><th>Nota saída</th><th>Data</th><th>Dias em aberto</th><th class="col-secondary">Fornecedor</th></tr></thead>
+        <thead><tr><th>Nota saída</th><th>Data</th><th>Retornos vinculados</th><th class="col-secondary">Fornecedor</th><th></th></tr></thead>
         <tbody id="tbodyTercAguardando"></tbody>
       </table>
     </div>
@@ -550,6 +550,38 @@
     <div class="actions">
       <button class="ghost" onclick="fecharEditarFup()">Cancelar</button>
       <button class="primary" onclick="salvarEdicaoFup()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editarNotaSaidaOverlay">
+  <div class="modal">
+    <h3>Editar nota de saída</h3>
+    <label>Número da nota<input type="text" id="editar_saida_numero"></label>
+    <label>Data<input type="date" id="editar_saida_data"></label>
+    <label class="grow">Fornecedor<input type="text" id="editar_saida_fornecedor" list="terc_fornecedores_datalist"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarNotaSaida()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoNotaSaida()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editarNotaRetornoOverlay">
+  <div class="modal">
+    <h3>Editar nota de retorno</h3>
+    <label>Número da nota<input type="text" id="editar_retorno_numero"></label>
+    <label>Data<input type="date" id="editar_retorno_data"></label>
+    <label class="grow">Fornecedor<input type="text" id="editar_retorno_fornecedor" list="terc_fornecedores_datalist"></label>
+    <label class="grow">Vínculo (nota de saída)
+      <select id="editar_retorno_saida_vinculo">
+        <option value="">— sem vínculo —</option>
+      </select>
+    </label>
+    <label class="grow">Informações adicionais (texto colado)<input type="text" id="editar_retorno_info"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarNotaRetorno()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoNotaRetorno()">Salvar alterações</button>
     </div>
   </div>
 </div>
@@ -1130,17 +1162,25 @@ function linhaTercPar(p){
       <td>${fmtDate(p.data_retorno)}</td>
       <td><span class="atraso-tag" style="color:var(--ok)">${p.dias_lead_time}d</span></td>
       <td class="col-secondary">${p.fornecedor}</td>
+      <td>
+        <button class="small-action fup" onclick="abrirEditarNotaRetorno('${p.nota_retorno}')" title="Editar a nota de retorno deste par">✎</button>
+        <button class="small-action" onclick="apagarNotaRetorno('${p.nota_retorno}')" title="Apagar a nota de retorno (desfaz o vínculo)">🗑</button>
+      </td>
     </tr>
   `;
 }
-function linhaTercAguardando(s){
-  const diasEmAberto = Math.floor((new Date() - new Date(s.data_nota + 'T00:00:00')) / 86400000);
+function linhaTercSaida(s){
+  const corContagem = s.retornos_vinculados === 0 ? 'var(--text-dim)' : 'var(--ok)';
   return `
     <tr>
       <td style="font-family:var(--mono)">${s.numero_nota}</td>
       <td>${fmtDate(s.data_nota)}</td>
-      <td><span class="atraso-tag">${diasEmAberto}d</span></td>
+      <td><span style="color:${corContagem}; font-weight:700;">${s.retornos_vinculados}</span></td>
       <td class="col-secondary">${s.fornecedor}</td>
+      <td>
+        <button class="small-action fup" onclick="abrirEditarNotaSaida('${s.numero_nota}')" title="Editar">✎</button>
+        <button class="small-action" onclick="apagarNotaSaida('${s.numero_nota}')" title="Apagar">🗑</button>
+      </td>
     </tr>
   `;
 }
@@ -1150,7 +1190,11 @@ function linhaTercSemVinculo(r){
       <td style="font-family:var(--mono)">${r.numero_nota}</td>
       <td>${fmtDate(r.data_nota)}</td>
       <td class="col-secondary" style="white-space:normal; max-width:320px;">${r.informacoes_adicionais || '—'}</td>
-      <td><button class="small-action fup" onclick="abrirVincularManual('${r.numero_nota}')">Vincular</button></td>
+      <td>
+        <button class="small-action fup" onclick="abrirVincularManual('${r.numero_nota}')">Vincular</button>
+        <button class="small-action fup" onclick="abrirEditarNotaRetorno('${r.numero_nota}')" title="Editar">✎</button>
+        <button class="small-action" onclick="apagarNotaRetorno('${r.numero_nota}')" title="Apagar">🗑</button>
+      </td>
     </tr>
   `;
 }
@@ -1162,32 +1206,36 @@ async function loadTerceirizacaoTab(){
   const res = await fetch('/api/terceirizacao?' + params.toString());
   const data = await res.json();
 
-  window.tercAguardandoCache = data.aguardando_retorno;
+  window.tercNotasSaidaCache = data.notas_saida;
+  window.tercParesCache = data.pares;
+  window.tercSemVinculoCache = data.sem_vinculo;
 
   document.getElementById('statsTerc').innerHTML = `
     <div class="stat"><div class="n">${data.stats.total_pares}</div><div class="l">Pares vinculados</div></div>
     <div class="stat"><div class="n">${data.stats.lead_time_medio}d</div><div class="l">Lead time médio</div></div>
     <div class="stat"><div class="n">${data.stats.lead_time_minimo}d</div><div class="l">Mínimo</div></div>
     <div class="stat"><div class="n">${data.stats.lead_time_maximo}d</div><div class="l">Máximo</div></div>
-    <div class="stat atraso"><div class="n">${data.stats.aguardando_retorno_n}</div><div class="l">Aguardando retorno</div></div>
+    <div class="stat atraso"><div class="n">${data.stats.aguardando_retorno_n}</div><div class="l">Sem nenhum retorno ainda</div></div>
     <div class="stat atraso"><div class="n">${data.stats.sem_vinculo_n}</div><div class="l">Sem vínculo</div></div>
   `;
 
   document.getElementById('tbodyTercPares').innerHTML = data.pares.length
     ? data.pares.map(linhaTercPar).join('')
-    : `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum par vinculado ainda.</td></tr>`;
+    : `<tr><td colspan="7" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum par vinculado ainda.</td></tr>`;
 
-  document.getElementById('tbodyTercAguardando').innerHTML = data.aguardando_retorno.length
-    ? data.aguardando_retorno.map(linhaTercAguardando).join('')
-    : `<tr><td colspan="4" style="color:var(--text-dim); text-align:center; padding:20px">Nada aguardando retorno.</td></tr>`;
+  document.getElementById('tbodyTercAguardando').innerHTML = data.notas_saida.length
+    ? data.notas_saida.map(linhaTercSaida).join('')
+    : `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de saída registrada ainda.</td></tr>`;
 
   document.getElementById('tbodyTercSemVinculo').innerHTML = data.sem_vinculo.length
     ? data.sem_vinculo.map(linhaTercSemVinculo).join('')
     : `<tr><td colspan="4" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma pendência de vínculo 🎉</td></tr>`;
 
+  const opcoesSaida = data.notas_saida.map(s => `<option value="${s.numero_nota}">${s.numero_nota} (${fmtDate(s.data_nota)})</option>`).join('');
   document.getElementById('terc_retorno_saida_manual').innerHTML =
-    '<option value="">— nenhuma (deixar a extração automática decidir) —</option>' +
-    data.aguardando_retorno.map(s => `<option value="${s.numero_nota}">${s.numero_nota} (${fmtDate(s.data_nota)})</option>`).join('');
+    '<option value="">— nenhuma (deixar a extração automática decidir) —</option>' + opcoesSaida;
+  document.getElementById('editar_retorno_saida_vinculo').innerHTML =
+    '<option value="">— sem vínculo —</option>' + opcoesSaida;
 }
 
 async function salvarNotaSaida(){
@@ -1234,8 +1282,8 @@ async function salvarNotaRetorno(){
 let notaRetornoParaVincular = null;
 function abrirVincularManual(numeroRetorno){
   notaRetornoParaVincular = numeroRetorno;
-  const opcoes = (window.tercAguardandoCache || []).map(s => `${s.numero_nota} (${fmtDate(s.data_nota)})`).join(', ') || 'nenhuma nota de saída em aberto no momento';
-  const escolha = prompt(`Vincular a nota de retorno ${numeroRetorno} a qual nota de saída?\n\nEm aberto: ${opcoes}\n\nDigite o número da nota de saída:`);
+  const opcoes = (window.tercNotasSaidaCache || []).map(s => `${s.numero_nota} (${fmtDate(s.data_nota)})`).join(', ') || 'nenhuma nota de saída cadastrada ainda';
+  const escolha = prompt(`Vincular a nota de retorno ${numeroRetorno} a qual nota de saída?\n\nDisponíveis: ${opcoes}\n\nDigite o número da nota de saída:`);
   if(!escolha) return;
   vincularManual(numeroRetorno, escolha.trim());
 }
@@ -1245,6 +1293,102 @@ async function vincularManual(numeroRetorno, numeroSaida){
     const data = await res.json();
     if(!res.ok) throw new Error(data.detail || 'Erro ao vincular');
     toast('Vínculo criado');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+// ---- Editar/apagar nota de saída ----
+let notaSaidaEmEdicaoOriginal = null;
+function abrirEditarNotaSaida(numeroNota){
+  const s = (window.tercNotasSaidaCache || []).find(x => x.numero_nota === numeroNota);
+  if(!s){ toast('Nota não encontrada', true); return; }
+  notaSaidaEmEdicaoOriginal = numeroNota;
+  document.getElementById('editar_saida_numero').value = s.numero_nota;
+  document.getElementById('editar_saida_data').value = s.data_nota;
+  document.getElementById('editar_saida_fornecedor').value = s.fornecedor;
+  document.getElementById('editarNotaSaidaOverlay').classList.add('show');
+}
+function fecharEditarNotaSaida(){
+  document.getElementById('editarNotaSaidaOverlay').classList.remove('show');
+  notaSaidaEmEdicaoOriginal = null;
+}
+async function salvarEdicaoNotaSaida(){
+  const body = {
+    numero_nota: document.getElementById('editar_saida_numero').value.trim(),
+    data_nota: document.getElementById('editar_saida_data').value,
+    fornecedor: document.getElementById('editar_saida_fornecedor').value.trim(),
+  };
+  if(!body.numero_nota || !body.data_nota){ toast('Preencha número e data', true); return; }
+  try{
+    const res = await fetch(`/api/terceirizacao/saida/${notaSaidaEmEdicaoOriginal}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Nota de saída atualizada');
+    fecharEditarNotaSaida();
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function apagarNotaSaida(numeroNota){
+  if(!confirm(`Apagar a nota de saída ${numeroNota}? Isso não pode ser desfeito.`)) return;
+  try{
+    const res = await fetch(`/api/terceirizacao/saida/${numeroNota}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Nota de saída apagada');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+// ---- Editar/apagar nota de retorno ----
+let notaRetornoEmEdicaoOriginal = null;
+async function abrirEditarNotaRetorno(numeroNota){
+  let r;
+  try{
+    const res = await fetch(`/api/terceirizacao/retorno/${numeroNota}`);
+    if(!res.ok) throw new Error('Nota não encontrada');
+    r = await res.json();
+  }catch(e){ toast('Erro: ' + e.message, true); return; }
+  notaRetornoEmEdicaoOriginal = numeroNota;
+  document.getElementById('editar_retorno_numero').value = r.numero_nota;
+  document.getElementById('editar_retorno_data').value = r.data_nota;
+  document.getElementById('editar_retorno_fornecedor').value = r.fornecedor;
+  document.getElementById('editar_retorno_info').value = r.informacoes_adicionais || '';
+  document.getElementById('editar_retorno_saida_vinculo').value = r.numero_nota_saida || '';
+  document.getElementById('editarNotaRetornoOverlay').classList.add('show');
+}
+function fecharEditarNotaRetorno(){
+  document.getElementById('editarNotaRetornoOverlay').classList.remove('show');
+  notaRetornoEmEdicaoOriginal = null;
+}
+async function salvarEdicaoNotaRetorno(){
+  const body = {
+    numero_nota: document.getElementById('editar_retorno_numero').value.trim(),
+    data_nota: document.getElementById('editar_retorno_data').value,
+    fornecedor: document.getElementById('editar_retorno_fornecedor').value.trim(),
+    numero_nota_saida: document.getElementById('editar_retorno_saida_vinculo').value || null,
+    informacoes_adicionais: document.getElementById('editar_retorno_info').value.trim() || null,
+  };
+  if(!body.numero_nota || !body.data_nota){ toast('Preencha número e data', true); return; }
+  try{
+    const res = await fetch(`/api/terceirizacao/retorno/${notaRetornoEmEdicaoOriginal}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Nota de retorno atualizada');
+    fecharEditarNotaRetorno();
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function apagarNotaRetorno(numeroNota){
+  if(!confirm(`Apagar a nota de retorno ${numeroNota}? Isso não pode ser desfeito.`)) return;
+  try{
+    const res = await fetch(`/api/terceirizacao/retorno/${numeroNota}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Nota de retorno apagada');
     load();
   }catch(e){ toast('Erro: ' + e.message, true); }
 }
