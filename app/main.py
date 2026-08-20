@@ -14,8 +14,10 @@ from .database import init_db, get_session, engine
 from .models import (
     Pedido, FupRegistro, FupRegistroCreate, MOTIVOS_ATRASO_PADRAO,
     AvisoRegistro, AvisoRegistroCreate,
+    NotaSaida, NotaSaidaCreate, NotaRetorno, NotaRetornoCreate,
 )
 from .importer import importar_planilha, recalcular_status_e_atrasos
+from .terceirizacao import extrair_numero_nota_saida, montar_pares
 
 app = FastAPI(title="FlowLog (self-hosted)")
 
@@ -411,6 +413,118 @@ def apagar_aviso_registro(registro_id: int, session: Session = Depends(get_sessi
     if not registro:
         raise HTTPException(404, "Registro de aviso não encontrado")
     session.delete(registro)
+    session.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------
+# Terceirização — lead time de industrialização (ex: zincagem na JJ Leste).
+# Totalmente independente do fluxo de Pedidos.
+# ---------------------------------------------------------------------
+FORNECEDOR_PADRAO = "JJ LESTE GALVANIZACAO LTDA"
+
+
+@app.get("/api/terceirizacao/fornecedores")
+def listar_fornecedores(session: Session = Depends(get_session)):
+    """Lista os fornecedores já usados, pra alimentar sugestões na tela
+    (além do padrão), preparando pra quando houver mais de um."""
+    saidas = session.exec(select(NotaSaida.fornecedor).distinct()).all()
+    retornos = session.exec(select(NotaRetorno.fornecedor).distinct()).all()
+    fornecedores = sorted(set(saidas) | set(retornos) | {FORNECEDOR_PADRAO})
+    return fornecedores
+
+
+@app.get("/api/terceirizacao")
+def obter_terceirizacao(
+    fornecedor: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    dados = montar_pares(session, fornecedor=fornecedor)
+    return dados
+
+
+@app.post("/api/terceirizacao/saida")
+def criar_nota_saida(dados: NotaSaidaCreate, session: Session = Depends(get_session)):
+    if session.get(NotaSaida, dados.numero_nota):
+        raise HTTPException(409, f"Já existe uma nota de saída com o número {dados.numero_nota}")
+    nota = NotaSaida(**dados.dict())
+    session.add(nota)
+    session.commit()
+    session.refresh(nota)
+    return nota
+
+
+@app.delete("/api/terceirizacao/saida/{numero_nota}")
+def apagar_nota_saida(numero_nota: str, session: Session = Depends(get_session)):
+    nota = session.get(NotaSaida, numero_nota)
+    if not nota:
+        raise HTTPException(404, "Nota de saída não encontrada")
+    session.delete(nota)
+    session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/terceirizacao/extrair-vinculo")
+def extrair_vinculo(informacoes_adicionais: str = Query(...)):
+    """Pré-visualização: extrai o número da nota de saída do texto colado,
+    sem salvar nada — usado pra preencher o formulário automaticamente
+    antes do usuário confirmar."""
+    numero = extrair_numero_nota_saida(informacoes_adicionais)
+    return {"numero_nota_saida": numero, "encontrado": numero is not None}
+
+
+@app.post("/api/terceirizacao/retorno")
+def criar_nota_retorno(dados: NotaRetornoCreate, session: Session = Depends(get_session)):
+    if session.get(NotaRetorno, dados.numero_nota):
+        raise HTTPException(409, f"Já existe uma nota de retorno com o número {dados.numero_nota}")
+
+    numero_saida = dados.numero_nota_saida
+    vinculo_manual = bool(numero_saida)
+    if not numero_saida and dados.informacoes_adicionais:
+        numero_saida = extrair_numero_nota_saida(dados.informacoes_adicionais)
+        vinculo_manual = False
+
+    nota = NotaRetorno(
+        numero_nota=dados.numero_nota,
+        data_nota=dados.data_nota,
+        fornecedor=dados.fornecedor,
+        numero_nota_saida=numero_saida,
+        informacoes_adicionais=dados.informacoes_adicionais,
+        vinculo_manual=vinculo_manual,
+    )
+    session.add(nota)
+    session.commit()
+    session.refresh(nota)
+    return nota
+
+
+@app.put("/api/terceirizacao/retorno/{numero_nota}/vincular")
+def vincular_nota_retorno_manualmente(
+    numero_nota: str,
+    numero_nota_saida: str = Query(...),
+    session: Session = Depends(get_session),
+):
+    """Permite vincular (ou corrigir o vínculo de) uma nota de retorno
+    manualmente, pros casos em que a extração automática não encontrou nada
+    ou encontrou errado."""
+    nota = session.get(NotaRetorno, numero_nota)
+    if not nota:
+        raise HTTPException(404, "Nota de retorno não encontrada")
+    if not session.get(NotaSaida, numero_nota_saida):
+        raise HTTPException(404, f"Nota de saída {numero_nota_saida} não encontrada")
+    nota.numero_nota_saida = numero_nota_saida
+    nota.vinculo_manual = True
+    session.add(nota)
+    session.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/terceirizacao/retorno/{numero_nota}")
+def apagar_nota_retorno(numero_nota: str, session: Session = Depends(get_session)):
+    nota = session.get(NotaRetorno, numero_nota)
+    if not nota:
+        raise HTTPException(404, "Nota de retorno não encontrada")
+    session.delete(nota)
     session.commit()
     return {"ok": True}
 
