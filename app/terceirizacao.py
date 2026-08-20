@@ -52,7 +52,9 @@ def calcular_lead_time_dias(data_saida: date, data_retorno: date) -> int:
 
 def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
     """Monta a visão completa: pares vinculados (com lead time calculado),
-    notas de saída aguardando retorno, e notas de retorno sem vínculo
+    notas de saída (com a contagem de retornos já vinculados a cada uma —
+    uma nota de saída pode ter mais de um retorno vinculado, ex: devolução
+    parcial em mais de uma remessa), e notas de retorno sem vínculo
     encontrado (precisam de atenção manual)."""
     query_saida = select(NotaSaida)
     query_retorno = select(NotaRetorno)
@@ -85,9 +87,18 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
             "dias_lead_time": calcular_lead_time_dias(s.data_nota, r.data_nota),
         })
 
-    aguardando_retorno = [
-        s for s in saidas if s.numero_nota not in retornos_por_saida
+    # Todas as notas de saída aparecem aqui — não somem mais assim que um
+    # retorno é vinculado, já que pode ter mais de um (devolução parcial).
+    notas_saida = [
+        {
+            "numero_nota": s.numero_nota,
+            "data_nota": s.data_nota,
+            "fornecedor": s.fornecedor,
+            "retornos_vinculados": len(retornos_por_saida.get(s.numero_nota, [])),
+        }
+        for s in saidas
     ]
+    aguardando_retorno_n = sum(1 for n in notas_saida if n["retornos_vinculados"] == 0)
 
     dias_lista = [p["dias_lead_time"] for p in pares]
     stats = {
@@ -95,17 +106,17 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
         "lead_time_medio": round(sum(dias_lista) / len(dias_lista), 1) if dias_lista else 0,
         "lead_time_minimo": min(dias_lista) if dias_lista else 0,
         "lead_time_maximo": max(dias_lista) if dias_lista else 0,
-        "aguardando_retorno_n": len(aguardando_retorno),
+        "aguardando_retorno_n": aguardando_retorno_n,
         "sem_vinculo_n": len(sem_vinculo),
     }
 
     pares.sort(key=lambda p: p["data_retorno"], reverse=True)
-    aguardando_retorno.sort(key=lambda s: s.data_nota, reverse=True)
+    notas_saida.sort(key=lambda n: n["data_nota"], reverse=True)
     sem_vinculo.sort(key=lambda r: r.data_nota, reverse=True)
 
     return {
         "pares": pares,
-        "aguardando_retorno": aguardando_retorno,
+        "notas_saida": notas_saida,
         "sem_vinculo": sem_vinculo,
         "stats": stats,
     }
