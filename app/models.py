@@ -116,6 +116,15 @@ class NotaSaidaCreate(SQLModel):
     fornecedor: str = "JJ LESTE GALVANIZACAO LTDA"
 
 
+class NotaSaidaEditar(SQLModel):
+    """Permite trocar até o número da nota (o identificador). Se o número
+    mudar, os retornos já vinculados a essa saída são atualizados junto,
+    pra não perder o vínculo."""
+    numero_nota: str
+    data_nota: date
+    fornecedor: str
+
+
 class NotaRetorno(SQLModel, table=True):
     """Nota de retorno: material processado voltando do fornecedor pra Mubec."""
     numero_nota: str = Field(primary_key=True, index=True)
@@ -131,5 +140,15 @@ class NotaRetornoCreate(SQLModel):
     numero_nota: str
     data_nota: date
     fornecedor: str = "JJ LESTE GALVANIZACAO LTDA"
+    numero_nota_saida: Optional[str] = None
+    informacoes_adicionais: Optional[str] = None
+
+
+class NotaRetornoEditar(SQLModel):
+    """Permite trocar número, data, fornecedor e o vínculo (ou remover o
+    vínculo, deixando None) de um lançamento já existente."""
+    numero_nota: str
+    data_nota: date
+    fornecedor: str
     numero_nota_saida: Optional[str] = None
     informacoes_adicionais: Optional[str] = None
