@@ -14,7 +14,7 @@ from .database import init_db, get_session, engine
 from .models import (
     Pedido, FupRegistro, FupRegistroCreate, MOTIVOS_ATRASO_PADRAO,
     AvisoRegistro, AvisoRegistroCreate,
-    NotaSaida, NotaSaidaCreate, NotaRetorno, NotaRetornoCreate,
+    NotaSaida, NotaSaidaCreate, NotaSaidaEditar, NotaRetorno, NotaRetornoCreate, NotaRetornoEditar,
 )
 from .importer import importar_planilha, recalcular_status_e_atrasos
 from .terceirizacao import extrair_numero_nota_saida, montar_pares
@@ -434,6 +434,22 @@ def listar_fornecedores(session: Session = Depends(get_session)):
     return fornecedores
 
 
+@app.get("/api/terceirizacao/saida/{numero_nota}")
+def obter_nota_saida(numero_nota: str, session: Session = Depends(get_session)):
+    nota = session.get(NotaSaida, numero_nota)
+    if not nota:
+        raise HTTPException(404, "Nota de saída não encontrada")
+    return nota
+
+
+@app.get("/api/terceirizacao/retorno/{numero_nota}")
+def obter_nota_retorno(numero_nota: str, session: Session = Depends(get_session)):
+    nota = session.get(NotaRetorno, numero_nota)
+    if not nota:
+        raise HTTPException(404, "Nota de retorno não encontrada")
+    return nota
+
+
 @app.get("/api/terceirizacao")
 def obter_terceirizacao(
     fornecedor: Optional[str] = None,
@@ -462,6 +478,42 @@ def apagar_nota_saida(numero_nota: str, session: Session = Depends(get_session))
     session.delete(nota)
     session.commit()
     return {"ok": True}
+
+
+@app.put("/api/terceirizacao/saida/{numero_nota_atual}")
+def editar_nota_saida(numero_nota_atual: str, dados: NotaSaidaEditar, session: Session = Depends(get_session)):
+    nota = session.get(NotaSaida, numero_nota_atual)
+    if not nota:
+        raise HTTPException(404, "Nota de saída não encontrada")
+
+    if dados.numero_nota != numero_nota_atual:
+        # Trocou o número (o identificador) — precisa recriar com a nova
+        # chave e atualizar os retornos que estavam vinculados à antiga,
+        # pra não perder o vínculo.
+        if session.get(NotaSaida, dados.numero_nota):
+            raise HTTPException(409, f"Já existe uma nota de saída com o número {dados.numero_nota}")
+        nova = NotaSaida(
+            numero_nota=dados.numero_nota,
+            data_nota=dados.data_nota,
+            fornecedor=dados.fornecedor,
+            created_at=nota.created_at,
+        )
+        session.add(nova)
+        retornos_vinculados = session.exec(
+            select(NotaRetorno).where(NotaRetorno.numero_nota_saida == numero_nota_atual)
+        ).all()
+        for r in retornos_vinculados:
+            r.numero_nota_saida = dados.numero_nota
+            session.add(r)
+        session.delete(nota)
+        session.commit()
+        return nova
+
+    nota.data_nota = dados.data_nota
+    nota.fornecedor = dados.fornecedor
+    session.add(nota)
+    session.commit()
+    return nota
 
 
 @app.post("/api/terceirizacao/extrair-vinculo")
@@ -527,6 +579,41 @@ def apagar_nota_retorno(numero_nota: str, session: Session = Depends(get_session
     session.delete(nota)
     session.commit()
     return {"ok": True}
+
+
+@app.put("/api/terceirizacao/retorno/{numero_nota_atual}")
+def editar_nota_retorno(numero_nota_atual: str, dados: NotaRetornoEditar, session: Session = Depends(get_session)):
+    nota = session.get(NotaRetorno, numero_nota_atual)
+    if not nota:
+        raise HTTPException(404, "Nota de retorno não encontrada")
+    if dados.numero_nota_saida and not session.get(NotaSaida, dados.numero_nota_saida):
+        raise HTTPException(404, f"Nota de saída {dados.numero_nota_saida} não encontrada")
+
+    if dados.numero_nota != numero_nota_atual:
+        if session.get(NotaRetorno, dados.numero_nota):
+            raise HTTPException(409, f"Já existe uma nota de retorno com o número {dados.numero_nota}")
+        nova = NotaRetorno(
+            numero_nota=dados.numero_nota,
+            data_nota=dados.data_nota,
+            fornecedor=dados.fornecedor,
+            numero_nota_saida=dados.numero_nota_saida,
+            informacoes_adicionais=dados.informacoes_adicionais,
+            vinculo_manual=True,
+            created_at=nota.created_at,
+        )
+        session.add(nova)
+        session.delete(nota)
+        session.commit()
+        return nova
+
+    nota.data_nota = dados.data_nota
+    nota.fornecedor = dados.fornecedor
+    nota.numero_nota_saida = dados.numero_nota_saida
+    nota.informacoes_adicionais = dados.informacoes_adicionais
+    nota.vinculo_manual = True
+    session.add(nota)
+    session.commit()
+    return nota
 
 
 # ---------------------------------------------------------------------
