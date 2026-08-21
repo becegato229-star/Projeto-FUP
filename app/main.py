@@ -286,13 +286,13 @@ def criar_fup(dados: FupRegistroCreate, session: Session = Depends(get_session))
     fup = FupRegistro(**dados.dict())
     session.add(fup)
     session.commit()
-    session.refresh(fup)
 
     # espelha o motivo mais recente no pedido, para facilitar filtro/exibição
     pedido = session.get(Pedido, fup.numero_pedido)
     pedido.motivo_atraso_fup = _texto_motivo_exibicao(fup.motivo_atraso, fup.observacao)
     session.add(pedido)
     session.commit()
+    session.refresh(fup)  # por último: o commit acima expira os dados do fup, precisa recarregar antes de devolver
     return fup
 
 
@@ -309,8 +309,8 @@ def editar_fup(fup_id: int, dados: FupRegistroCreate, session: Session = Depends
     fup.observacao = dados.observacao
     session.add(fup)
     session.commit()
-    session.refresh(fup)
     _recalcular_motivo_espelhado(fup.numero_pedido, session)
+    session.refresh(fup)  # por último: a linha acima faz commit e expira os dados do fup
     return fup
 
 
@@ -810,6 +810,18 @@ def listar_cobranca(session: Session = Depends(get_session)):
     return {"em_aberto": em_aberto, "pago": pagos, "stats": stats}
 
 
+@app.get("/api/cobranca/pendentes-contagem")
+def contar_cobrancas_pendentes(session: Session = Depends(get_session)):
+    """Quantos boletos em aberto já chegaram (ou passaram) da data marcada
+    pra ligar de novo — usado pro sininho/contador na aba. Precisa vir
+    ANTES da rota /api/cobranca/{nosso_numero} nesse arquivo, senão
+    "pendentes-contagem" seria interpretado como um número de boleto."""
+    hoje = date.today()
+    boletos = session.exec(select(Boleto).where(Boleto.status == "Em aberto")).all()
+    pendentes = sum(1 for b in boletos if b.proxima_cobranca and b.proxima_cobranca <= hoje)
+    return {"pendentes": pendentes}
+
+
 @app.get("/api/cobranca/{nosso_numero}")
 def obter_boleto(nosso_numero: str, session: Session = Depends(get_session)):
     boleto = session.get(Boleto, nosso_numero)
@@ -864,6 +876,7 @@ def _recalcular_motivo_cobranca_espelhado(nosso_numero: str, session: Session):
     boleto = session.get(Boleto, nosso_numero)
     if boleto:
         boleto.motivo_cobranca_recente = ultimo.motivo if ultimo else None
+        boleto.proxima_cobranca = ultimo.proxima_data_cobranca if ultimo else None
         session.add(boleto)
         session.commit()
 
@@ -882,8 +895,8 @@ def criar_cobranca_registro(dados: CobrancaRegistroCreate, session: Session = De
     registro = CobrancaRegistro(**dados.dict())
     session.add(registro)
     session.commit()
-    session.refresh(registro)
     _recalcular_motivo_cobranca_espelhado(dados.nosso_numero, session)
+    session.refresh(registro)  # por último: a linha acima faz commit e expira os dados do registro
     return registro
 
 
@@ -896,9 +909,11 @@ def editar_cobranca_registro(registro_id: int, dados: CobrancaRegistroCreate, se
         raise HTTPException(400, "Motivo é obrigatório")
     registro.data_registro = dados.data_registro
     registro.motivo = dados.motivo
+    registro.proxima_data_cobranca = dados.proxima_data_cobranca
     session.add(registro)
     session.commit()
     _recalcular_motivo_cobranca_espelhado(registro.nosso_numero, session)
+    session.refresh(registro)  # por último: a linha acima faz commit e expira os dados do registro
     return registro
 
 
