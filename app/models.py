@@ -159,16 +159,16 @@ class NotaRetornoEditar(SQLModel):
 # Totalmente independente do fluxo de Pedidos/Avisos/FUP.
 # =======================================================================
 class Boleto(SQLModel, table=True):
-    """Um boleto vencido, identificado pelo 'Nosso Número' (número único
-    atribuído pelo banco). Some da planilha diária = foi pago (regra
-    automática); pode ser corrigido manualmente se estiver errado."""
-    nosso_numero: str = Field(primary_key=True, index=True)
+    """Um boleto vencido, identificado pelo 'Seu Número' (nosso próprio
+    número de documento, único por boleto). Some da planilha diária = foi
+    pago (regra automática); pode ser corrigido manualmente se estiver
+    errado."""
+    seu_numero: str = Field(primary_key=True, index=True)
 
     # --- Dados vindos da planilha do banco ---
     pagador: Optional[str] = None
     cnpj_cpf: Optional[str] = None
     tipo: Optional[str] = None
-    seu_numero: Optional[str] = None
     carteira: Optional[str] = None
     data_emissao: Optional[date] = None
     data_vencimento: Optional[date] = None
@@ -202,7 +202,7 @@ class CobrancaRegistro(SQLModel, table=True):
     """Registro de cobrança feita ao cliente — mesmo espírito do FUP, mas
     específico do contexto de boletos vencidos."""
     id: Optional[int] = Field(default=None, primary_key=True)
-    nosso_numero: str = Field(index=True, foreign_key="boleto.nosso_numero")
+    seu_numero: str = Field(index=True, foreign_key="boleto.seu_numero")
     data_registro: date = Field(default_factory=date.today)
     motivo: str  # texto livre, ex: "liguei, cliente disse que paga sexta"
     proxima_data_cobranca: Optional[date] = None  # quando ligar de novo, se souber
@@ -210,7 +210,7 @@ class CobrancaRegistro(SQLModel, table=True):
 
 
 class CobrancaRegistroCreate(SQLModel):
-    nosso_numero: str
+    seu_numero: str
     data_registro: date = Field(default_factory=date.today)
     motivo: str
     proxima_data_cobranca: Optional[date] = None
