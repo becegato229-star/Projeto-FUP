@@ -62,8 +62,47 @@ def _remover_colunas_obsoletas():
                     conn.rollback()
 
 
+def _corrigir_chave_primaria_alterada():
+    """Detecta quando a chave primária de uma tabela mudou no código (ex:
+    trocamos de 'nosso_numero' pra 'seu_numero' como identificador do
+    Boleto) — o que o SQLite não sabe fazer sozinho via ALTER TABLE (não dá
+    pra remover ou trocar uma coluna que é PRIMARY KEY).
+
+    Proteção de segurança: só recria a tabela do zero se ela estiver VAZIA.
+    Se tiver dado de verdade, não mexe em nada — evita apagar informação
+    por engano numa atualização futura; nesse caso, precisaria de uma
+    migração manual específica."""
+    with engine.connect() as conn:
+        for nome_tabela, tabela in SQLModel.metadata.tables.items():
+            existe = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n"),
+                {"n": nome_tabela},
+            ).fetchone()
+            if not existe:
+                continue
+
+            pk_atual = {
+                row[1] for row in conn.execute(text(f"PRAGMA table_info({nome_tabela})")) if row[5] > 0
+            }
+            pk_do_model = {c.name for c in tabela.columns if c.primary_key}
+
+            if pk_atual == pk_do_model:
+                continue  # chave primária já bate, nada a fazer
+
+            total_linhas = conn.execute(text(f"SELECT COUNT(*) FROM {nome_tabela}")).scalar()
+            if total_linhas > 0:
+                # Tem dado de verdade e a chave primária não bate mais — não
+                # mexe automaticamente, isso precisa de atenção manual.
+                continue
+
+            conn.execute(text(f"DROP TABLE {nome_tabela}"))
+            conn.commit()
+
+
 def init_db():
     SQLModel.metadata.create_all(engine)
+    _corrigir_chave_primaria_alterada()
+    SQLModel.metadata.create_all(engine)  # recria do zero qualquer tabela que foi derrubada acima
     _migrar_colunas_faltando()
     _remover_colunas_obsoletas()
 
