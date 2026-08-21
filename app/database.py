@@ -75,7 +75,29 @@ def _ajustar_tabelas_ao_model():
 
 def init_db():
     SQLModel.metadata.create_all(engine)
+    _limpeza_pontual_cobrancaregistro_orfao()
     _ajustar_tabelas_ao_model()
+
+
+def _limpeza_pontual_cobrancaregistro_orfao():
+    """Correção pontual e única: a tabela 'cobrancaregistro' ficou com 1
+    linha órfã (de teste, sem valor real) que impedia a reconstrução
+    automática da estrutura (a proteção de segurança nunca mexe em tabela
+    com dado dentro). Usuário confirmou explicitamente que essa linha podia
+    ser apagada — diagnosticado via /api/debug/schema em 21/08/2026.
+
+    Só age se detectar exatamente essa situação (coluna antiga
+    'nosso_numero' ainda presente); não é um comportamento genérico."""
+    with engine.connect() as conn:
+        existe = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='cobrancaregistro'")
+        ).fetchone()
+        if not existe:
+            return
+        colunas = {row[1] for row in conn.execute(text("PRAGMA table_info(cobrancaregistro)"))}
+        if "nosso_numero" in colunas:
+            conn.execute(text("DELETE FROM cobrancaregistro"))
+            conn.commit()
 
 
 def get_session():
