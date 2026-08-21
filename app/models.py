@@ -183,6 +183,7 @@ class Boleto(SQLModel, table=True):
     data_pago_sistema: Optional[date] = None  # data em que sumiu da planilha (pagamento inferido)
     reapareceu: bool = False            # true = tinha sido marcado Pago e voltou a aparecer
     motivo_cobranca_recente: Optional[str] = None  # último motivo espelhado (facilita listagem)
+    proxima_cobranca: Optional[date] = None  # espelhado do último registro — quando ligar de novo
 
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -204,6 +205,7 @@ class CobrancaRegistro(SQLModel, table=True):
     nosso_numero: str = Field(index=True, foreign_key="boleto.nosso_numero")
     data_registro: date = Field(default_factory=date.today)
     motivo: str  # texto livre, ex: "liguei, cliente disse que paga sexta"
+    proxima_data_cobranca: Optional[date] = None  # quando ligar de novo, se souber
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -211,3 +213,4 @@ class CobrancaRegistroCreate(SQLModel):
     nosso_numero: str
     data_registro: date = Field(default_factory=date.today)
     motivo: str
+    proxima_data_cobranca: Optional[date] = None
