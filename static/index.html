@@ -70,6 +70,8 @@
 
   tr.linha-pendente{ background:#3a1f0f; }
   tr.linha-pendente:hover{ background:#452612; }
+  tr.linha-paga{ background:#173420; }
+  tr.linha-paga:hover{ background:#1e4028; }
 
   .subtabs{ display:flex; gap:2px; }
   .subtabs button{
@@ -1564,9 +1566,10 @@ async function uploadCobranca(input){
   input.value = '';
 }
 
-function diasEmAtraso(dataVencimento){
+function diasEmAtraso(dataVencimento, dataFim){
   if(!dataVencimento) return null;
-  const dias = Math.floor((new Date().setHours(0,0,0,0) - new Date(dataVencimento + 'T00:00:00')) / 86400000);
+  const fim = dataFim ? new Date(dataFim + 'T00:00:00') : new Date().setHours(0,0,0,0);
+  const dias = Math.floor((fim - new Date(dataVencimento + 'T00:00:00')) / 86400000);
   return dias;
 }
 
@@ -1575,15 +1578,21 @@ function linhaCobranca(b){
   const pendenteLigacao = b.status === 'Em aberto' && b.proxima_cobranca && b.proxima_cobranca <= hojeISO;
   const tagReapareceu = b.reapareceu ? `<span class="atraso-tag" style="margin-left:6px">⚠ Reapareceu</span>` : '';
   const tagPendente = pendenteLigacao ? `<span class="atraso-tag" style="margin-left:6px">🔔 Ligar hoje</span>` : '';
-  const dias = b.status === 'Em aberto' ? diasEmAtraso(b.data_vencimento) : null;
+  const dias = b.status === 'Pago'
+    ? diasEmAtraso(b.data_vencimento, b.data_pago_sistema)
+    : diasEmAtraso(b.data_vencimento);
   const colunaExtra = cobrancaSubtab === 'pago'
     ? `<td>${fmtDate(b.data_pago_sistema)}</td>`
     : `<td>${fmtDate(b.data_vencimento)}</td>`;
-  const colunaDiasAtraso = cobrancaSubtab !== 'pago'
-    ? `<td>${dias !== null ? (dias > 0 ? `<span class="atraso-tag">${dias}d</span>` : '—') : '—'}</td>`
-    : '';
+  let conteudoDias;
+  if(b.status === 'Pago'){
+    conteudoDias = (dias !== null && dias > 0) ? `Pago c/ ${dias}d atraso` : 'Pago em dia';
+  }else{
+    conteudoDias = (dias !== null && dias > 0) ? `<span class="atraso-tag">${dias}d</span>` : '—';
+  }
+  const colunaDiasAtraso = `<td>${conteudoDias}</td>`;
   return `
-    <tr class="${pendenteLigacao ? 'linha-pendente' : ''}">
+    <tr class="${pendenteLigacao ? 'linha-pendente' : (b.status === 'Pago' ? 'linha-paga' : '')}">
       <td style="font-family:var(--mono)">${b.seu_numero}</td>
       <td>${b.pagador || '—'}${tagReapareceu}${tagPendente}</td>
       <td class="col-secondary">${b.cnpj_cpf || '—'}</td>
@@ -1679,7 +1688,7 @@ function renderTabelaCobranca(){
   lista = [...lista].sort((a,b) => (a.data_vencimento || '9999') > (b.data_vencimento || '9999') ? 1 : -1);
 
   const colunaExtraHeader = cobrancaSubtab === 'pago' ? 'Data que pagou' : 'Vencimento';
-  const colunaDiasHeader = cobrancaSubtab !== 'pago' ? '<th>Dias em atraso</th>' : '';
+  const colunaDiasHeader = '<th>Dias em atraso</th>';
   document.getElementById('theadCobranca').innerHTML = `
     <th>Seu Número</th><th>Pagador</th><th class="col-secondary">CNPJ/CPF</th><th>Valor título</th>
     <th>${colunaExtraHeader}</th>${colunaDiasHeader}<th class="col-secondary">Última cobrança</th><th></th>
