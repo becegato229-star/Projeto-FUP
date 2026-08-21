@@ -33,10 +33,14 @@ async def erro_inesperado_handler(request, exc: Exception):
     traceback.print_exc()  # traceback completo ainda aparece no log do Railway pra debug
 
     if isinstance(exc, IntegrityError):
+        # pega a causa raiz de verdade (ex: "NOT NULL constraint failed: boleto.x"),
+        # sem o SQL inteiro nem a lista de parâmetros, que pode ficar gigante
+        causa_raiz = str(getattr(exc, "orig", exc)).split("\n")[0]
+        if len(causa_raiz) > 200:
+            causa_raiz = causa_raiz[:200] + "…"
         mensagem = (
-            "Conflito ao salvar os dados no banco — provavelmente duas ações "
-            "aconteceram ao mesmo tempo (ex: dois uploads simultâneos). "
-            "Aguarde um instante e tente de novo."
+            "Conflito ao salvar os dados no banco. "
+            f"Detalhe técnico: {causa_raiz}"
         )
     else:
         # corta mensagens muito longas (ex: erros de SQL trazem a query inteira)
