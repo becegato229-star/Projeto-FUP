@@ -526,7 +526,7 @@
     <div class="form-card">
       <div class="form-card-title">📞 Registrar cobrança</div>
       <div class="form-card-body">
-        <label>Nosso Número<input type="text" id="cob_nosso_numero" placeholder="ex: 25391"></label>
+        <label>Seu Número<input type="text" id="cob_seu_numero" placeholder="ex: 115352-002"></label>
         <label>Data<input type="date" id="cob_data"></label>
         <label class="grow">Motivo<input type="text" id="cob_motivo" placeholder="ex: liguei, cliente disse que paga sexta"></label>
         <label>Ligar de novo em (opcional)<input type="date" id="cob_proxima_data"></label>
@@ -1584,7 +1584,7 @@ function linhaCobranca(b){
     : '';
   return `
     <tr class="${pendenteLigacao ? 'linha-pendente' : ''}">
-      <td style="font-family:var(--mono)">${b.nosso_numero}</td>
+      <td style="font-family:var(--mono)">${b.seu_numero}</td>
       <td>${b.pagador || '—'}${tagReapareceu}${tagPendente}</td>
       <td class="col-secondary">${b.cnpj_cpf || '—'}</td>
       <td>${fmtMoeda(b.valor_titulo)}</td>
@@ -1592,10 +1592,10 @@ function linhaCobranca(b){
       ${colunaDiasAtraso}
       <td class="col-secondary">${b.motivo_cobranca_recente || '—'}</td>
       <td>
-        <button class="small-action fup" onclick="preencherCobranca('${b.nosso_numero}')" title="Registrar cobrança">📞</button>
-        <button class="small-action fup" onclick="abrirHistoricoCobranca('${b.nosso_numero}')" title="Ver histórico">📋</button>
-        <button class="small-action fup" onclick="abrirEditarBoleto('${b.nosso_numero}')" title="Editar">✎</button>
-        <button class="small-action" onclick="apagarBoleto('${b.nosso_numero}')" title="Apagar">🗑</button>
+        <button class="small-action fup" onclick="preencherCobranca('${b.seu_numero}')" title="Registrar cobrança">📞</button>
+        <button class="small-action fup" onclick="abrirHistoricoCobranca('${b.seu_numero}')" title="Ver histórico">📋</button>
+        <button class="small-action fup" onclick="abrirEditarBoleto('${b.seu_numero}')" title="Editar">✎</button>
+        <button class="small-action" onclick="apagarBoleto('${b.seu_numero}')" title="Apagar">🗑</button>
       </td>
     </tr>
   `;
@@ -1655,7 +1655,7 @@ function renderTabelaCobranca(){
   if(busca){
     const buscaNorm = busca.toLowerCase();
     lista = lista.filter(b => {
-      const camposExatos = [b.nosso_numero, b.cnpj_cpf, b.seu_numero, b.valor_titulo != null ? String(b.valor_titulo) : ''];
+      const camposExatos = [b.seu_numero, b.cnpj_cpf, b.valor_titulo != null ? String(b.valor_titulo) : ''];
       const bateExato = camposExatos.some(c => c && String(c).toLowerCase().includes(buscaNorm));
       return bateExato || contemAproximado(b.pagador, busca);
     });
@@ -1681,7 +1681,7 @@ function renderTabelaCobranca(){
   const colunaExtraHeader = cobrancaSubtab === 'pago' ? 'Data que pagou' : 'Vencimento';
   const colunaDiasHeader = cobrancaSubtab !== 'pago' ? '<th>Dias em atraso</th>' : '';
   document.getElementById('theadCobranca').innerHTML = `
-    <th>Nosso Número</th><th>Pagador</th><th class="col-secondary">CNPJ/CPF</th><th>Valor título</th>
+    <th>Seu Número</th><th>Pagador</th><th class="col-secondary">CNPJ/CPF</th><th>Valor título</th>
     <th>${colunaExtraHeader}</th>${colunaDiasHeader}<th class="col-secondary">Última cobrança</th><th></th>
   `;
   document.getElementById('tbodyCobranca').innerHTML = lista.length
@@ -1718,27 +1718,27 @@ async function loadCobrancaTab(){
   atualizarBadgeCobranca();
 }
 
-function preencherCobranca(nossoNumero){
-  document.getElementById('cob_nosso_numero').value = nossoNumero;
-  document.getElementById('cob_nosso_numero').scrollIntoView({behavior:'smooth', block:'center'});
-  document.getElementById('cob_nosso_numero').focus();
+function preencherCobranca(seuNumero){
+  document.getElementById('cob_seu_numero').value = seuNumero;
+  document.getElementById('cob_seu_numero').scrollIntoView({behavior:'smooth', block:'center'});
+  document.getElementById('cob_seu_numero').focus();
 }
 
 async function salvarCobranca(){
   const body = {
-    nosso_numero: document.getElementById('cob_nosso_numero').value.trim(),
+    seu_numero: document.getElementById('cob_seu_numero').value.trim(),
     data_registro: document.getElementById('cob_data').value || new Date().toISOString().slice(0,10),
     motivo: document.getElementById('cob_motivo').value.trim(),
     proxima_data_cobranca: document.getElementById('cob_proxima_data').value || null,
   };
-  if(!body.nosso_numero){ toast('Informe o Nosso Número', true); return; }
+  if(!body.seu_numero){ toast('Informe o Seu Número', true); return; }
   if(!body.motivo){ toast('Informe o motivo', true); return; }
   try{
     const res = await fetch('/api/cobranca-registros', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const data = await res.json();
     if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
     toast('Cobrança registrada');
-    document.getElementById('cob_nosso_numero').value = '';
+    document.getElementById('cob_seu_numero').value = '';
     document.getElementById('cob_motivo').value = '';
     document.getElementById('cob_proxima_data').value = '';
     load();
@@ -1747,12 +1747,12 @@ async function salvarCobranca(){
 
 // ---- Editar/apagar boleto ----
 let boletoEmEdicao = null;
-function abrirEditarBoleto(nossoNumero){
+function abrirEditarBoleto(seuNumero){
   const lista = [...(window.cobrancaCache?.em_aberto || []), ...(window.cobrancaCache?.pago || [])];
-  const b = lista.find(x => x.nosso_numero === nossoNumero);
+  const b = lista.find(x => x.seu_numero === seuNumero);
   if(!b){ toast('Boleto não encontrado', true); return; }
-  boletoEmEdicao = nossoNumero;
-  document.getElementById('editarBoletoNum').textContent = nossoNumero;
+  boletoEmEdicao = seuNumero;
+  document.getElementById('editarBoletoNum').textContent = seuNumero;
   document.getElementById('editar_boleto_status').value = b.status;
   document.getElementById('editar_boleto_vencimento').value = b.data_vencimento || '';
   document.getElementById('editar_boleto_valor_titulo').value = b.valor_titulo ?? '';
@@ -1779,10 +1779,10 @@ async function salvarEdicaoBoleto(){
     load();
   }catch(e){ toast('Erro: ' + e.message, true); }
 }
-async function apagarBoleto(nossoNumero){
-  if(!confirm(`Apagar o boleto ${nossoNumero}? Isso não pode ser desfeito.`)) return;
+async function apagarBoleto(seuNumero){
+  if(!confirm(`Apagar o boleto ${seuNumero}? Isso não pode ser desfeito.`)) return;
   try{
-    const res = await fetch(`/api/cobranca/${nossoNumero}`, {method:'DELETE'});
+    const res = await fetch(`/api/cobranca/${seuNumero}`, {method:'DELETE'});
     const data = await res.json();
     if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
     toast('Boleto apagado');
@@ -1792,12 +1792,12 @@ async function apagarBoleto(nossoNumero){
 
 // ---- Editar/apagar registro de cobrança ----
 let cobrancaRegistroEmEdicao = null;
-async function abrirHistoricoCobranca(nossoNumero){
-  document.getElementById('historicoPedidoNum').textContent = nossoNumero + ' — Histórico de cobrança';
+async function abrirHistoricoCobranca(seuNumero){
+  document.getElementById('historicoPedidoNum').textContent = seuNumero + ' — Histórico de cobrança';
   document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Carregando…</div>';
   document.getElementById('historicoOverlay').classList.add('show');
   try{
-    const res = await fetch(`/api/cobranca/${nossoNumero}`);
+    const res = await fetch(`/api/cobranca/${seuNumero}`);
     if(!res.ok) throw new Error('Boleto não encontrado');
     const data = await res.json();
     window.cobrancaRegistrosCache = data.registros;
@@ -1826,7 +1826,7 @@ function abrirEditarCobranca(id){
   const r = (window.cobrancaRegistrosCache || []).find(x => x.id === id);
   if(!r){ toast('Registro não encontrado', true); return; }
   cobrancaRegistroEmEdicao = id;
-  document.getElementById('editarCobrancaNum').textContent = r.nosso_numero;
+  document.getElementById('editarCobrancaNum').textContent = r.seu_numero;
   document.getElementById('editar_cobranca_data').value = r.data_registro;
   document.getElementById('editar_cobranca_motivo').value = r.motivo;
   document.getElementById('editar_cobranca_proxima_data').value = r.proxima_data_cobranca || '';
@@ -1842,7 +1842,7 @@ async function salvarEdicaoCobranca(){
   const motivo = document.getElementById('editar_cobranca_motivo').value.trim();
   if(!motivo){ toast('Informe o motivo', true); return; }
   const body = {
-    nosso_numero: r.nosso_numero,
+    seu_numero: r.seu_numero,
     data_registro: document.getElementById('editar_cobranca_data').value,
     motivo: motivo,
     proxima_data_cobranca: document.getElementById('editar_cobranca_proxima_data').value || null,
