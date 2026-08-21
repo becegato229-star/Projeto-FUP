@@ -22,7 +22,7 @@ from sqlmodel import Session, select
 
 from .models import Boleto
 
-COLUNAS_ESPERADAS = {"Pagador", "Nosso Número", "Data Vencimento"}
+COLUNAS_ESPERADAS = {"Pagador", "Seu Número", "Data Vencimento"}
 
 
 def _to_date(value) -> Optional[date]:
@@ -91,18 +91,18 @@ def importar_boletos(file_bytes, session: Session) -> dict:
     reapareceram = 0
 
     for _, row in df.iterrows():
-        nosso_numero_raw = row.get("Nosso Número")
-        if pd.isna(nosso_numero_raw):
+        seu_numero_raw = row.get("Seu Número")
+        if pd.isna(seu_numero_raw):
             continue
-        nosso_numero = str(nosso_numero_raw).split(".")[0].strip()
-        if not nosso_numero:
+        seu_numero = str(seu_numero_raw).strip()
+        if not seu_numero:
             continue
-        numeros_na_planilha.add(nosso_numero)
+        numeros_na_planilha.add(seu_numero)
 
-        boleto = session.get(Boleto, nosso_numero)
+        boleto = session.get(Boleto, seu_numero)
         era_novo = boleto is None
         if boleto is None:
-            boleto = Boleto(nosso_numero=nosso_numero)
+            boleto = Boleto(seu_numero=seu_numero)
 
         if not era_novo and boleto.status == "Pago":
             boleto.reapareceu = True
@@ -111,7 +111,6 @@ def importar_boletos(file_bytes, session: Session) -> dict:
         boleto.pagador = row.get("Pagador") or boleto.pagador
         boleto.cnpj_cpf = row.get("CPF/CNPJ Pagador") or boleto.cnpj_cpf
         boleto.tipo = row.get("Tipo") or boleto.tipo
-        boleto.seu_numero = str(row.get("Seu Número")) if not pd.isna(row.get("Seu Número")) else boleto.seu_numero
         if "Carteira" in df.columns and not pd.isna(row.get("Carteira")):
             boleto.carteira = str(row.get("Carteira"))
         boleto.data_emissao = _to_date(row.get("Data Emissão")) or boleto.data_emissao
@@ -136,7 +135,7 @@ def importar_boletos(file_bytes, session: Session) -> dict:
     em_aberto = session.exec(select(Boleto).where(Boleto.status == "Em aberto")).all()
     marcados_pagos = 0
     for boleto in em_aberto:
-        if boleto.nosso_numero not in numeros_na_planilha:
+        if boleto.seu_numero not in numeros_na_planilha:
             boleto.status = "Pago"
             boleto.data_pago_sistema = hoje
             boleto.reapareceu = False
