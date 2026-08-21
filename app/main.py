@@ -934,6 +934,46 @@ def apagar_cobranca_registro(registro_id: int, session: Session = Depends(get_se
 
 
 # ---------------------------------------------------------------------
+# Diagnóstico (temporário) — só leitura, não altera nada no banco.
+# Mostra a estrutura real de cada tabela, pra investigar problemas de
+# schema sem precisar adivinhar. Pode ser removido depois de resolvido.
+# ---------------------------------------------------------------------
+@app.get("/api/debug/schema")
+def debug_schema(session: Session = Depends(get_session)):
+    from sqlmodel import SQLModel
+    from sqlalchemy import text as sql_text
+
+    resultado = {}
+    with engine.connect() as conn:
+        for nome_tabela, tabela in SQLModel.metadata.tables.items():
+            existe = conn.execute(
+                sql_text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n"),
+                {"n": nome_tabela},
+            ).fetchone()
+            if not existe:
+                resultado[nome_tabela] = {"existe": False}
+                continue
+            info = list(conn.execute(sql_text(f"PRAGMA table_info({nome_tabela})")))
+            colunas_banco = [row[1] for row in info]
+            pk_banco = [row[1] for row in info if row[5] > 0]
+            colunas_model = [c.name for c in tabela.columns]
+            pk_model = [c.name for c in tabela.columns if c.primary_key]
+            total_linhas = conn.execute(sql_text(f"SELECT COUNT(*) FROM {nome_tabela}")).scalar()
+            resultado[nome_tabela] = {
+                "existe": True,
+                "total_linhas": total_linhas,
+                "colunas_banco": colunas_banco,
+                "colunas_model": colunas_model,
+                "colunas_sobrando_no_banco": list(set(colunas_banco) - set(colunas_model)),
+                "colunas_faltando_no_banco": list(set(colunas_model) - set(colunas_banco)),
+                "pk_banco": pk_banco,
+                "pk_model": pk_model,
+                "estrutura_bate": set(colunas_banco) == set(colunas_model) and set(pk_banco) == set(pk_model),
+            }
+    return resultado
+
+
+# ---------------------------------------------------------------------
 # Frontend estático
 # ---------------------------------------------------------------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
