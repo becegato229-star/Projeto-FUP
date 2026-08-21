@@ -152,3 +152,62 @@ class NotaRetornoEditar(SQLModel):
     fornecedor: str
     numero_nota_saida: Optional[str] = None
     informacoes_adicionais: Optional[str] = None
+
+
+# =======================================================================
+# Cobrança — boletos vencidos, importados diariamente do relatório do banco.
+# Totalmente independente do fluxo de Pedidos/Avisos/FUP.
+# =======================================================================
+class Boleto(SQLModel, table=True):
+    """Um boleto vencido, identificado pelo 'Nosso Número' (número único
+    atribuído pelo banco). Some da planilha diária = foi pago (regra
+    automática); pode ser corrigido manualmente se estiver errado."""
+    nosso_numero: str = Field(primary_key=True, index=True)
+
+    # --- Dados vindos da planilha do banco ---
+    pagador: Optional[str] = None
+    cnpj_cpf: Optional[str] = None
+    tipo: Optional[str] = None
+    seu_numero: Optional[str] = None
+    carteira: Optional[str] = None
+    data_emissao: Optional[date] = None
+    data_vencimento: Optional[date] = None
+    data_pagamento_banco: Optional[date] = None  # campo "Data Pagamento" do banco, se vier preenchido
+    data_baixa: Optional[date] = None
+    valor_titulo: Optional[float] = None
+    valor_pago: Optional[float] = None
+    status_planilha: Optional[str] = None  # texto cru vindo do banco (ex: "vencida")
+
+    # --- Controlado pelo FlowLog ---
+    status: str = "Em aberto"           # "Em aberto" | "Pago"
+    data_pago_sistema: Optional[date] = None  # data em que sumiu da planilha (pagamento inferido)
+    reapareceu: bool = False            # true = tinha sido marcado Pago e voltou a aparecer
+    motivo_cobranca_recente: Optional[str] = None  # último motivo espelhado (facilita listagem)
+
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class BoletoEditar(SQLModel):
+    """Edição manual de um boleto — inclusive corrigir o status, já que a
+    regra automática pode errar (ex: negociação, não necessariamente pago)."""
+    status: str
+    data_vencimento: Optional[date] = None
+    valor_titulo: Optional[float] = None
+    valor_pago: Optional[float] = None
+    data_pago_sistema: Optional[date] = None
+
+
+class CobrancaRegistro(SQLModel, table=True):
+    """Registro de cobrança feita ao cliente — mesmo espírito do FUP, mas
+    específico do contexto de boletos vencidos."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nosso_numero: str = Field(index=True, foreign_key="boleto.nosso_numero")
+    data_registro: date = Field(default_factory=date.today)
+    motivo: str  # texto livre, ex: "liguei, cliente disse que paga sexta"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CobrancaRegistroCreate(SQLModel):
+    nosso_numero: str
+    data_registro: date = Field(default_factory=date.today)
+    motivo: str
