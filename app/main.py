@@ -814,7 +814,7 @@ def listar_cobranca(session: Session = Depends(get_session)):
 def contar_cobrancas_pendentes(session: Session = Depends(get_session)):
     """Quantos boletos em aberto já chegaram (ou passaram) da data marcada
     pra ligar de novo — usado pro sininho/contador na aba. Precisa vir
-    ANTES da rota /api/cobranca/{nosso_numero} nesse arquivo, senão
+    ANTES da rota /api/cobranca/{seu_numero} nesse arquivo, senão
     "pendentes-contagem" seria interpretado como um número de boleto."""
     hoje = date.today()
     boletos = session.exec(select(Boleto).where(Boleto.status == "Em aberto")).all()
@@ -822,22 +822,22 @@ def contar_cobrancas_pendentes(session: Session = Depends(get_session)):
     return {"pendentes": pendentes}
 
 
-@app.get("/api/cobranca/{nosso_numero}")
-def obter_boleto(nosso_numero: str, session: Session = Depends(get_session)):
-    boleto = session.get(Boleto, nosso_numero)
+@app.get("/api/cobranca/{seu_numero}")
+def obter_boleto(seu_numero: str, session: Session = Depends(get_session)):
+    boleto = session.get(Boleto, seu_numero)
     if not boleto:
         raise HTTPException(404, "Boleto não encontrado")
     registros = session.exec(
         select(CobrancaRegistro)
-        .where(CobrancaRegistro.nosso_numero == nosso_numero)
+        .where(CobrancaRegistro.seu_numero == seu_numero)
         .order_by(CobrancaRegistro.data_registro.desc())
     ).all()
     return {"boleto": boleto, "registros": registros}
 
 
-@app.put("/api/cobranca/{nosso_numero}")
-def editar_boleto(nosso_numero: str, dados: BoletoEditar, session: Session = Depends(get_session)):
-    boleto = session.get(Boleto, nosso_numero)
+@app.put("/api/cobranca/{seu_numero}")
+def editar_boleto(seu_numero: str, dados: BoletoEditar, session: Session = Depends(get_session)):
+    boleto = session.get(Boleto, seu_numero)
     if not boleto:
         raise HTTPException(404, "Boleto não encontrado")
     boleto.status = dados.status
@@ -857,9 +857,9 @@ def editar_boleto(nosso_numero: str, dados: BoletoEditar, session: Session = Dep
     return {"ok": True}
 
 
-@app.delete("/api/cobranca/{nosso_numero}")
-def apagar_boleto(nosso_numero: str, session: Session = Depends(get_session)):
-    boleto = session.get(Boleto, nosso_numero)
+@app.delete("/api/cobranca/{seu_numero}")
+def apagar_boleto(seu_numero: str, session: Session = Depends(get_session)):
+    boleto = session.get(Boleto, seu_numero)
     if not boleto:
         raise HTTPException(404, "Boleto não encontrado")
     session.delete(boleto)
@@ -867,13 +867,13 @@ def apagar_boleto(nosso_numero: str, session: Session = Depends(get_session)):
     return {"ok": True}
 
 
-def _recalcular_motivo_cobranca_espelhado(nosso_numero: str, session: Session):
+def _recalcular_motivo_cobranca_espelhado(seu_numero: str, session: Session):
     ultimo = session.exec(
         select(CobrancaRegistro)
-        .where(CobrancaRegistro.nosso_numero == nosso_numero)
+        .where(CobrancaRegistro.seu_numero == seu_numero)
         .order_by(CobrancaRegistro.data_registro.desc(), CobrancaRegistro.id.desc())
     ).first()
-    boleto = session.get(Boleto, nosso_numero)
+    boleto = session.get(Boleto, seu_numero)
     if boleto:
         boleto.motivo_cobranca_recente = ultimo.motivo if ultimo else None
         boleto.proxima_cobranca = ultimo.proxima_data_cobranca if ultimo else None
@@ -888,14 +888,14 @@ def listar_cobranca_registros(session: Session = Depends(get_session)):
 
 @app.post("/api/cobranca-registros")
 def criar_cobranca_registro(dados: CobrancaRegistroCreate, session: Session = Depends(get_session)):
-    if not session.get(Boleto, dados.nosso_numero):
+    if not session.get(Boleto, dados.seu_numero):
         raise HTTPException(404, "Boleto não encontrado")
     if not dados.motivo or not dados.motivo.strip():
         raise HTTPException(400, "Motivo é obrigatório")
     registro = CobrancaRegistro(**dados.dict())
     session.add(registro)
     session.commit()
-    _recalcular_motivo_cobranca_espelhado(dados.nosso_numero, session)
+    _recalcular_motivo_cobranca_espelhado(dados.seu_numero, session)
     session.refresh(registro)  # por último: a linha acima faz commit e expira os dados do registro
     return registro
 
@@ -912,7 +912,7 @@ def editar_cobranca_registro(registro_id: int, dados: CobrancaRegistroCreate, se
     registro.proxima_data_cobranca = dados.proxima_data_cobranca
     session.add(registro)
     session.commit()
-    _recalcular_motivo_cobranca_espelhado(registro.nosso_numero, session)
+    _recalcular_motivo_cobranca_espelhado(registro.seu_numero, session)
     session.refresh(registro)  # por último: a linha acima faz commit e expira os dados do registro
     return registro
 
@@ -922,10 +922,10 @@ def apagar_cobranca_registro(registro_id: int, session: Session = Depends(get_se
     registro = session.get(CobrancaRegistro, registro_id)
     if not registro:
         raise HTTPException(404, "Registro de cobrança não encontrado")
-    nosso_numero = registro.nosso_numero
+    seu_numero = registro.seu_numero
     session.delete(registro)
     session.commit()
-    _recalcular_motivo_cobranca_espelhado(nosso_numero, session)
+    _recalcular_motivo_cobranca_espelhado(seu_numero, session)
     return {"ok": True}
 
 
