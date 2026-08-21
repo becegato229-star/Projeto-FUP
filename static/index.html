@@ -63,6 +63,13 @@
   }
   nav.tabs button.active{color:var(--text); border-bottom-color:var(--accent);}
 
+  .subtabs{ display:flex; gap:2px; }
+  .subtabs button{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text-dim);
+    padding:8px 16px; font-size:12.5px; cursor:pointer; font-weight:600; border-radius:6px;
+  }
+  .subtabs button.active{color:#1a1200; background:var(--accent); border-color:var(--accent);}
+
   .toolbar-top{
     display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;
     padding:14px 24px 10px;
@@ -304,6 +311,7 @@
   <button data-tab="avisos" onclick="setTab('avisos', this)">⚠ Avisos</button>
   <button data-tab="fup" onclick="setTab('fup', this)">FUP</button>
   <button data-tab="terceirizacao" onclick="setTab('terceirizacao', this)">🏭 Terceirização</button>
+  <button data-tab="cobranca" onclick="setTab('cobranca', this)">💰 Cobrança</button>
 </nav>
 
 <button class="mobile-only filtros-toggle" onclick="toggleFiltrosMobile()">
@@ -485,6 +493,39 @@
     </div>
   </div>
 
+  <div id="cobrancaWrap" style="display:none">
+    <div class="toolbar-top" style="padding:14px 0;">
+      <label class="upload-btn" style="display:inline-flex; align-items:center;">
+        ⬆ Importar relatório de boletos vencidos
+        <input type="file" accept=".xlsx,.xls" onchange="uploadCobranca(this)" style="position:absolute; inset:0; opacity:0; cursor:pointer;">
+      </label>
+    </div>
+
+    <div class="stats" id="statsCobranca"></div>
+
+    <div class="form-card">
+      <div class="form-card-title">📞 Registrar cobrança</div>
+      <div class="form-card-body">
+        <label>Nosso Número<input type="text" id="cob_nosso_numero" placeholder="ex: 25391"></label>
+        <label>Data<input type="date" id="cob_data"></label>
+        <label class="grow">Motivo<input type="text" id="cob_motivo" placeholder="ex: liguei, cliente disse que paga sexta"></label>
+        <button class="primary" onclick="salvarCobranca()">Registrar cobrança</button>
+      </div>
+    </div>
+
+    <div class="subtabs" style="margin-top:10px;">
+      <button class="active" data-subtab="em_aberto" onclick="setCobrancaSubtab('em_aberto', this)">Em aberto</button>
+      <button data-subtab="pago" onclick="setCobrancaSubtab('pago', this)">Pago</button>
+    </div>
+
+    <div class="table-scroll" id="scrollCobranca" style="max-height:480px; margin-top:10px;">
+      <table>
+        <thead><tr id="theadCobranca"></tr></thead>
+        <tbody id="tbodyCobranca"></tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="table-scroll" id="scrollTabela">
     <table id="tabela">
       <thead><tr id="thead"></tr></thead>
@@ -603,6 +644,37 @@
     <div class="actions">
       <button class="ghost" onclick="fecharEditarAviso()">Cancelar</button>
       <button class="primary" onclick="salvarEdicaoAviso()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editarBoletoOverlay">
+  <div class="modal">
+    <h3>Editar boleto — <span id="editarBoletoNum"></span></h3>
+    <label>Status
+      <select id="editar_boleto_status" style="background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;">
+        <option value="Em aberto">Em aberto</option>
+        <option value="Pago">Pago</option>
+      </select>
+    </label>
+    <label>Data de vencimento<input type="date" id="editar_boleto_vencimento"></label>
+    <label>Valor do título (R$)<input type="number" step="0.01" id="editar_boleto_valor_titulo"></label>
+    <label>Valor pago (R$)<input type="number" step="0.01" id="editar_boleto_valor_pago"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarBoleto()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoBoleto()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editarCobrancaOverlay">
+  <div class="modal">
+    <h3>Editar cobrança — <span id="editarCobrancaNum"></span></h3>
+    <label>Data<input type="date" id="editar_cobranca_data"></label>
+    <label>Motivo<input type="text" id="editar_cobranca_motivo"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarCobranca()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoCobranca()">Salvar alterações</button>
     </div>
   </div>
 </div>
@@ -726,9 +798,10 @@ function setTab(tab, btn){
   document.getElementById('fupPendentesWrap').style.display = (tab === 'fup') ? 'block' : 'none';
   document.getElementById('avisosWrap').style.display = (tab === 'avisos') ? 'block' : 'none';
   document.getElementById('terceirizacaoWrap').style.display = (tab === 'terceirizacao') ? 'block' : 'none';
-  document.getElementById('scrollTabela').style.display = (tab === 'avisos' || tab === 'terceirizacao') ? 'none' : 'block';
-  document.getElementById('filtrosPanel').style.display = (tab === 'terceirizacao') ? 'none' : '';
-  document.querySelector('.filtros-toggle').style.display = (tab === 'terceirizacao') ? 'none' : '';
+  document.getElementById('cobrancaWrap').style.display = (tab === 'cobranca') ? 'block' : 'none';
+  document.getElementById('scrollTabela').style.display = (tab === 'avisos' || tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : 'block';
+  document.getElementById('filtrosPanel').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
+  document.querySelector('.filtros-toggle').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
   load();
 }
 
@@ -813,6 +886,10 @@ async function load(){
   }
   if(currentTab === 'terceirizacao'){
     await loadTerceirizacaoTab();
+    return;
+  }
+  if(currentTab === 'cobranca'){
+    await loadCobrancaTab();
     return;
   }
   const params = buildParams();
@@ -1428,6 +1505,230 @@ async function apagarNotaRetorno(numeroNota){
   }catch(e){ toast('Erro: ' + e.message, true); }
 }
 
+// ---------------- Aba Cobrança ----------------
+let cobrancaSubtab = 'em_aberto';
+function setCobrancaSubtab(subtab, btn){
+  cobrancaSubtab = subtab;
+  document.querySelectorAll('#cobrancaWrap .subtabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTabelaCobranca();
+}
+
+function fmtMoeda(v){
+  if(v === null || v === undefined) return '—';
+  return 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+async function uploadCobranca(input){
+  const file = input.files[0];
+  if(!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try{
+    const res = await fetch('/api/cobranca/importar', {method:'POST', body: formData});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao importar');
+    toast(`Importado: ${data.novos} novo(s), ${data.atualizados} atualizado(s), ${data.marcados_pagos} marcado(s) como pago${data.reapareceram ? `, ${data.reapareceram} reapareceu(ram)` : ''}`);
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+  input.value = '';
+}
+
+function linhaCobranca(b){
+  const tagReapareceu = b.reapareceu ? `<span class="atraso-tag" style="margin-left:6px">⚠ Reapareceu</span>` : '';
+  const colunaExtra = cobrancaSubtab === 'pago'
+    ? `<td>${fmtDate(b.data_pago_sistema)}</td>`
+    : `<td>${fmtDate(b.data_vencimento)}</td>`;
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${b.nosso_numero}</td>
+      <td>${b.pagador || '—'}${tagReapareceu}</td>
+      <td class="col-secondary">${b.cnpj_cpf || '—'}</td>
+      <td>${fmtMoeda(b.valor_titulo)}</td>
+      ${colunaExtra}
+      <td class="col-secondary">${b.motivo_cobranca_recente || '—'}</td>
+      <td>
+        <button class="small-action fup" onclick="preencherCobranca('${b.nosso_numero}')" title="Registrar cobrança">📞</button>
+        <button class="small-action fup" onclick="abrirHistoricoCobranca('${b.nosso_numero}')" title="Ver histórico">📋</button>
+        <button class="small-action fup" onclick="abrirEditarBoleto('${b.nosso_numero}')" title="Editar">✎</button>
+        <button class="small-action" onclick="apagarBoleto('${b.nosso_numero}')" title="Apagar">🗑</button>
+      </td>
+    </tr>
+  `;
+}
+
+function renderTabelaCobranca(){
+  const lista = cobrancaSubtab === 'pago' ? (window.cobrancaCache?.pago || []) : (window.cobrancaCache?.em_aberto || []);
+  const colunaExtraHeader = cobrancaSubtab === 'pago' ? 'Data que pagou' : 'Vencimento';
+  document.getElementById('theadCobranca').innerHTML = `
+    <th>Nosso Número</th><th>Pagador</th><th class="col-secondary">CNPJ/CPF</th><th>Valor título</th>
+    <th>${colunaExtraHeader}</th><th class="col-secondary">Última cobrança</th><th></th>
+  `;
+  document.getElementById('tbodyCobranca').innerHTML = lista.length
+    ? lista.map(linhaCobranca).join('')
+    : `<tr><td colspan="7" style="color:var(--text-dim); text-align:center; padding:20px">${cobrancaSubtab === 'pago' ? 'Nenhum boleto pago ainda.' : 'Nenhum boleto em aberto — importe o relatório do banco pra começar.'}</td></tr>`;
+}
+
+async function loadCobrancaTab(){
+  const res = await fetch('/api/cobranca');
+  const data = await res.json();
+  window.cobrancaCache = data;
+
+  document.getElementById('statsCobranca').innerHTML = `
+    <div class="stat atraso"><div class="n">${data.stats.total_em_aberto}</div><div class="l">Boletos em aberto</div></div>
+    <div class="stat atraso"><div class="n">${fmtMoeda(data.stats.valor_em_aberto)}</div><div class="l">Valor em aberto</div></div>
+    <div class="stat"><div class="n">${data.stats.total_pago}</div><div class="l">Boletos pagos</div></div>
+    <div class="stat"><div class="n">${fmtMoeda(data.stats.valor_pago)}</div><div class="l">Valor recebido</div></div>
+    ${data.stats.reapareceram_n > 0 ? `<div class="stat atraso"><div class="n">${data.stats.reapareceram_n}</div><div class="l">Reapareceram</div></div>` : ''}
+  `;
+
+  renderTabelaCobranca();
+}
+
+function preencherCobranca(nossoNumero){
+  document.getElementById('cob_nosso_numero').value = nossoNumero;
+  document.getElementById('cob_nosso_numero').scrollIntoView({behavior:'smooth', block:'center'});
+  document.getElementById('cob_nosso_numero').focus();
+}
+
+async function salvarCobranca(){
+  const body = {
+    nosso_numero: document.getElementById('cob_nosso_numero').value.trim(),
+    data_registro: document.getElementById('cob_data').value || new Date().toISOString().slice(0,10),
+    motivo: document.getElementById('cob_motivo').value.trim(),
+  };
+  if(!body.nosso_numero){ toast('Informe o Nosso Número', true); return; }
+  if(!body.motivo){ toast('Informe o motivo', true); return; }
+  try{
+    const res = await fetch('/api/cobranca-registros', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Cobrança registrada');
+    document.getElementById('cob_nosso_numero').value = '';
+    document.getElementById('cob_motivo').value = '';
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+// ---- Editar/apagar boleto ----
+let boletoEmEdicao = null;
+function abrirEditarBoleto(nossoNumero){
+  const lista = [...(window.cobrancaCache?.em_aberto || []), ...(window.cobrancaCache?.pago || [])];
+  const b = lista.find(x => x.nosso_numero === nossoNumero);
+  if(!b){ toast('Boleto não encontrado', true); return; }
+  boletoEmEdicao = nossoNumero;
+  document.getElementById('editarBoletoNum').textContent = nossoNumero;
+  document.getElementById('editar_boleto_status').value = b.status;
+  document.getElementById('editar_boleto_vencimento').value = b.data_vencimento || '';
+  document.getElementById('editar_boleto_valor_titulo').value = b.valor_titulo ?? '';
+  document.getElementById('editar_boleto_valor_pago').value = b.valor_pago ?? '';
+  document.getElementById('editarBoletoOverlay').classList.add('show');
+}
+function fecharEditarBoleto(){
+  document.getElementById('editarBoletoOverlay').classList.remove('show');
+  boletoEmEdicao = null;
+}
+async function salvarEdicaoBoleto(){
+  const body = {
+    status: document.getElementById('editar_boleto_status').value,
+    data_vencimento: document.getElementById('editar_boleto_vencimento').value || null,
+    valor_titulo: document.getElementById('editar_boleto_valor_titulo').value ? parseFloat(document.getElementById('editar_boleto_valor_titulo').value) : null,
+    valor_pago: document.getElementById('editar_boleto_valor_pago').value ? parseFloat(document.getElementById('editar_boleto_valor_pago').value) : null,
+  };
+  try{
+    const res = await fetch(`/api/cobranca/${boletoEmEdicao}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Boleto atualizado');
+    fecharEditarBoleto();
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function apagarBoleto(nossoNumero){
+  if(!confirm(`Apagar o boleto ${nossoNumero}? Isso não pode ser desfeito.`)) return;
+  try{
+    const res = await fetch(`/api/cobranca/${nossoNumero}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Boleto apagado');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+// ---- Editar/apagar registro de cobrança ----
+let cobrancaRegistroEmEdicao = null;
+async function abrirHistoricoCobranca(nossoNumero){
+  document.getElementById('historicoPedidoNum').textContent = nossoNumero + ' — Histórico de cobrança';
+  document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Carregando…</div>';
+  document.getElementById('historicoOverlay').classList.add('show');
+  try{
+    const res = await fetch(`/api/cobranca/${nossoNumero}`);
+    if(!res.ok) throw new Error('Boleto não encontrado');
+    const data = await res.json();
+    window.cobrancaRegistrosCache = data.registros;
+    if(!data.registros.length){
+      document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Nenhuma cobrança registrada ainda para este boleto.</div>';
+      return;
+    }
+    document.getElementById('historicoLista').innerHTML = data.registros.map(r => `
+      <div style="border:1px solid var(--border); border-radius:8px; padding:10px 12px;">
+        <div style="font-size:12px; color:var(--text-dim); margin-bottom:4px;">${fmtDate(r.data_registro)}</div>
+        <div style="font-weight:700;">${r.motivo}</div>
+        <div style="margin-top:6px; display:flex; gap:6px;">
+          <button class="small-action fup" onclick="fecharHistoricoModal(); abrirEditarCobranca(${r.id})">✎ Editar</button>
+          <button class="small-action" onclick="apagarCobrancaRegistro(${r.id}); fecharHistoricoModal();">🗑 Apagar</button>
+        </div>
+      </div>
+    `).join('');
+  }catch(e){
+    document.getElementById('historicoLista').innerHTML = `<div style="color:var(--danger)">Erro: ${e.message}</div>`;
+  }
+}
+function abrirEditarCobranca(id){
+  const r = (window.cobrancaRegistrosCache || []).find(x => x.id === id);
+  if(!r){ toast('Registro não encontrado', true); return; }
+  cobrancaRegistroEmEdicao = id;
+  document.getElementById('editarCobrancaNum').textContent = r.nosso_numero;
+  document.getElementById('editar_cobranca_data').value = r.data_registro;
+  document.getElementById('editar_cobranca_motivo').value = r.motivo;
+  document.getElementById('editarCobrancaOverlay').classList.add('show');
+}
+function fecharEditarCobranca(){
+  document.getElementById('editarCobrancaOverlay').classList.remove('show');
+  cobrancaRegistroEmEdicao = null;
+}
+async function salvarEdicaoCobranca(){
+  const r = (window.cobrancaRegistrosCache || []).find(x => x.id === cobrancaRegistroEmEdicao);
+  if(!r) return;
+  const motivo = document.getElementById('editar_cobranca_motivo').value.trim();
+  if(!motivo){ toast('Informe o motivo', true); return; }
+  const body = {
+    nosso_numero: r.nosso_numero,
+    data_registro: document.getElementById('editar_cobranca_data').value,
+    motivo: motivo,
+  };
+  try{
+    const res = await fetch(`/api/cobranca-registros/${cobrancaRegistroEmEdicao}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Cobrança atualizada');
+    fecharEditarCobranca();
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function apagarCobrancaRegistro(id){
+  if(!confirm('Apagar este registro de cobrança? Essa ação não pode ser desfeita.')) return;
+  try{
+    const res = await fetch(`/api/cobranca-registros/${id}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Registro apagado');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
 function preencherFup(numeroPedido){
   document.getElementById('fup_pedido').value = numeroPedido;
   document.getElementById('fup_pedido').scrollIntoView({behavior:'smooth', block:'center'});
@@ -1765,6 +2066,7 @@ document.getElementById('fup_data').value = new Date().toISOString().slice(0,10)
 document.getElementById('aviso_data').value = new Date().toISOString().slice(0,10);
 document.getElementById('terc_saida_data').value = new Date().toISOString().slice(0,10);
 document.getElementById('terc_retorno_data').value = new Date().toISOString().slice(0,10);
+document.getElementById('cob_data').value = new Date().toISOString().slice(0,10);
 document.getElementById('fupPendentesWrap').style.display = 'none';
 carregarMotivos();
 load();
