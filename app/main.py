@@ -15,9 +15,11 @@ from .models import (
     Pedido, FupRegistro, FupRegistroCreate, MOTIVOS_ATRASO_PADRAO,
     AvisoRegistro, AvisoRegistroCreate,
     NotaSaida, NotaSaidaCreate, NotaSaidaEditar, NotaRetorno, NotaRetornoCreate, NotaRetornoEditar,
+    Boleto, BoletoEditar, CobrancaRegistro, CobrancaRegistroCreate,
 )
 from .importer import importar_planilha, recalcular_status_e_atrasos
 from .terceirizacao import extrair_numero_nota_saida, montar_pares
+from .cobranca import importar_boletos
 
 app = FastAPI(title="FlowLog (self-hosted)")
 
@@ -760,6 +762,156 @@ def dashboard_historico(
         "fup_timeline": fup_timeline,
         "total_fups": len(fups),
     }
+
+
+# ---------------------------------------------------------------------
+# Cobrança — boletos vencidos, importados diariamente do relatório do banco.
+# Totalmente independente do fluxo de Pedidos/Avisos/FUP.
+# ---------------------------------------------------------------------
+@app.post("/api/cobranca/importar")
+async def importar_cobranca(file: UploadFile = File(...), session: Session = Depends(get_session)):
+    if not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Envie um arquivo Excel (.xlsx ou .xls)")
+    content = await file.read()
+    try:
+        resultado = importar_boletos(io.BytesIO(content), session)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            409,
+            "Conflito ao salvar os dados — provavelmente duas importações "
+            "aconteceram ao mesmo tempo. Aguarde um instante e tente de novo.",
+        )
+    return resultado
+
+
+@app.get("/api/cobranca")
+def listar_cobranca(session: Session = Depends(get_session)):
+    boletos = session.exec(select(Boleto)).all()
+    em_aberto = sorted(
+        [b for b in boletos if b.status == "Em aberto"],
+        key=lambda b: b.data_vencimento or date.max,
+    )
+    pagos = sorted(
+        [b for b in boletos if b.status == "Pago"],
+        key=lambda b: b.data_vencimento or date.max,
+    )
+    valor_em_aberto = sum(b.valor_titulo or 0 for b in em_aberto)
+    valor_pago = sum(b.valor_titulo or 0 for b in pagos)
+    stats = {
+        "total_em_aberto": len(em_aberto),
+        "total_pago": len(pagos),
+        "valor_em_aberto": round(valor_em_aberto, 2),
+        "valor_pago": round(valor_pago, 2),
+        "reapareceram_n": sum(1 for b in em_aberto if b.reapareceu),
+    }
+    return {"em_aberto": em_aberto, "pago": pagos, "stats": stats}
+
+
+@app.get("/api/cobranca/{nosso_numero}")
+def obter_boleto(nosso_numero: str, session: Session = Depends(get_session)):
+    boleto = session.get(Boleto, nosso_numero)
+    if not boleto:
+        raise HTTPException(404, "Boleto não encontrado")
+    registros = session.exec(
+        select(CobrancaRegistro)
+        .where(CobrancaRegistro.nosso_numero == nosso_numero)
+        .order_by(CobrancaRegistro.data_registro.desc())
+    ).all()
+    return {"boleto": boleto, "registros": registros}
+
+
+@app.put("/api/cobranca/{nosso_numero}")
+def editar_boleto(nosso_numero: str, dados: BoletoEditar, session: Session = Depends(get_session)):
+    boleto = session.get(Boleto, nosso_numero)
+    if not boleto:
+        raise HTTPException(404, "Boleto não encontrado")
+    boleto.status = dados.status
+    if dados.data_vencimento is not None:
+        boleto.data_vencimento = dados.data_vencimento
+    if dados.valor_titulo is not None:
+        boleto.valor_titulo = dados.valor_titulo
+    if dados.valor_pago is not None:
+        boleto.valor_pago = dados.valor_pago
+    if dados.status == "Pago":
+        boleto.data_pago_sistema = dados.data_pago_sistema or boleto.data_pago_sistema or date.today()
+        boleto.reapareceu = False
+    else:
+        boleto.data_pago_sistema = None
+    session.add(boleto)
+    session.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/cobranca/{nosso_numero}")
+def apagar_boleto(nosso_numero: str, session: Session = Depends(get_session)):
+    boleto = session.get(Boleto, nosso_numero)
+    if not boleto:
+        raise HTTPException(404, "Boleto não encontrado")
+    session.delete(boleto)
+    session.commit()
+    return {"ok": True}
+
+
+def _recalcular_motivo_cobranca_espelhado(nosso_numero: str, session: Session):
+    ultimo = session.exec(
+        select(CobrancaRegistro)
+        .where(CobrancaRegistro.nosso_numero == nosso_numero)
+        .order_by(CobrancaRegistro.data_registro.desc(), CobrancaRegistro.id.desc())
+    ).first()
+    boleto = session.get(Boleto, nosso_numero)
+    if boleto:
+        boleto.motivo_cobranca_recente = ultimo.motivo if ultimo else None
+        session.add(boleto)
+        session.commit()
+
+
+@app.get("/api/cobranca-registros")
+def listar_cobranca_registros(session: Session = Depends(get_session)):
+    return session.exec(select(CobrancaRegistro).order_by(CobrancaRegistro.data_registro.desc())).all()
+
+
+@app.post("/api/cobranca-registros")
+def criar_cobranca_registro(dados: CobrancaRegistroCreate, session: Session = Depends(get_session)):
+    if not session.get(Boleto, dados.nosso_numero):
+        raise HTTPException(404, "Boleto não encontrado")
+    if not dados.motivo or not dados.motivo.strip():
+        raise HTTPException(400, "Motivo é obrigatório")
+    registro = CobrancaRegistro(**dados.dict())
+    session.add(registro)
+    session.commit()
+    session.refresh(registro)
+    _recalcular_motivo_cobranca_espelhado(dados.nosso_numero, session)
+    return registro
+
+
+@app.put("/api/cobranca-registros/{registro_id}")
+def editar_cobranca_registro(registro_id: int, dados: CobrancaRegistroCreate, session: Session = Depends(get_session)):
+    registro = session.get(CobrancaRegistro, registro_id)
+    if not registro:
+        raise HTTPException(404, "Registro de cobrança não encontrado")
+    if not dados.motivo or not dados.motivo.strip():
+        raise HTTPException(400, "Motivo é obrigatório")
+    registro.data_registro = dados.data_registro
+    registro.motivo = dados.motivo
+    session.add(registro)
+    session.commit()
+    _recalcular_motivo_cobranca_espelhado(registro.nosso_numero, session)
+    return registro
+
+
+@app.delete("/api/cobranca-registros/{registro_id}")
+def apagar_cobranca_registro(registro_id: int, session: Session = Depends(get_session)):
+    registro = session.get(CobrancaRegistro, registro_id)
+    if not registro:
+        raise HTTPException(404, "Registro de cobrança não encontrado")
+    nosso_numero = registro.nosso_numero
+    session.delete(registro)
+    session.commit()
+    _recalcular_motivo_cobranca_espelhado(nosso_numero, session)
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------
