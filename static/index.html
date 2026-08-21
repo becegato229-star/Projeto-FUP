@@ -800,6 +800,7 @@ function setTab(tab, btn){
   document.getElementById('terceirizacaoWrap').style.display = (tab === 'terceirizacao') ? 'block' : 'none';
   document.getElementById('cobrancaWrap').style.display = (tab === 'cobranca') ? 'block' : 'none';
   document.getElementById('scrollTabela').style.display = (tab === 'avisos' || tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : 'block';
+  document.getElementById('stats').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
   document.getElementById('filtrosPanel').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
   document.querySelector('.filtros-toggle').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
   load();
@@ -1578,9 +1579,7 @@ async function loadCobrancaTab(){
 
   document.getElementById('statsCobranca').innerHTML = `
     <div class="stat atraso"><div class="n">${data.stats.total_em_aberto}</div><div class="l">Boletos em aberto</div></div>
-    <div class="stat atraso"><div class="n">${fmtMoeda(data.stats.valor_em_aberto)}</div><div class="l">Valor em aberto</div></div>
     <div class="stat"><div class="n">${data.stats.total_pago}</div><div class="l">Boletos pagos</div></div>
-    <div class="stat"><div class="n">${fmtMoeda(data.stats.valor_pago)}</div><div class="l">Valor recebido</div></div>
     ${data.stats.reapareceram_n > 0 ? `<div class="stat atraso"><div class="n">${data.stats.reapareceram_n}</div><div class="l">Reapareceram</div></div>` : ''}
   `;
 
