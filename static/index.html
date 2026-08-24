@@ -1718,7 +1718,7 @@ function contemAproximado(textoAlvo, consulta){
   return false;
 }
 
-function renderTabelaCobranca(){
+function filtrarListaCobranca(){
   const emAberto = window.cobrancaCache?.em_aberto || [];
   const pago = window.cobrancaCache?.pago || [];
   let lista = cobrancaSubtab === 'pago' ? pago : cobrancaSubtab === 'em_aberto' ? emAberto : [...emAberto, ...pago];
@@ -1751,7 +1751,26 @@ function renderTabelaCobranca(){
     });
   }
 
-  lista = [...lista].sort((a,b) => (a.data_vencimento || '9999') > (b.data_vencimento || '9999') ? 1 : -1);
+  return [...lista].sort((a,b) => (a.data_vencimento || '9999') > (b.data_vencimento || '9999') ? 1 : -1);
+}
+
+function renderStatsCobranca(lista){
+  const emAberto = lista.filter(b => b.status === 'Em aberto');
+  const pago = lista.filter(b => b.status === 'Pago');
+  const somaEmAberto = emAberto.reduce((soma, b) => soma + (b.valor_titulo || 0), 0);
+  const reapareceram = lista.filter(b => b.reapareceu).length;
+
+  document.getElementById('statsCobranca').innerHTML = `
+    <div class="stat atraso"><div class="n">${emAberto.length}</div><div class="l">Boletos em aberto</div></div>
+    <div class="stat"><div class="n">${pago.length}</div><div class="l">Boletos pagos</div></div>
+    <div class="stat atraso"><div class="n">${fmtMoeda(somaEmAberto)}</div><div class="l">Soma em aberto</div></div>
+    ${reapareceram > 0 ? `<div class="stat atraso"><div class="n">${reapareceram}</div><div class="l">Reapareceram</div></div>` : ''}
+  `;
+}
+
+function renderTabelaCobranca(){
+  const lista = filtrarListaCobranca();
+  renderStatsCobranca(lista);
 
   const colunaExtraHeader = cobrancaSubtab === 'pago' ? 'Data que pagou' : 'Vencimento';
   const colunaDiasHeader = '<th>Dias em atraso</th>';
@@ -1782,12 +1801,6 @@ async function loadCobrancaTab(){
   const res = await fetch('/api/cobranca');
   const data = await res.json();
   window.cobrancaCache = data;
-
-  document.getElementById('statsCobranca').innerHTML = `
-    <div class="stat atraso"><div class="n">${data.stats.total_em_aberto}</div><div class="l">Boletos em aberto</div></div>
-    <div class="stat"><div class="n">${data.stats.total_pago}</div><div class="l">Boletos pagos</div></div>
-    ${data.stats.reapareceram_n > 0 ? `<div class="stat atraso"><div class="n">${data.stats.reapareceram_n}</div><div class="l">Reapareceram</div></div>` : ''}
-  `;
 
   renderTabelaCobranca();
   atualizarBadgeCobranca();
