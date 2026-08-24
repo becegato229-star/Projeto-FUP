@@ -73,6 +73,9 @@
   tr.linha-paga{ background:#173420; }
   tr.linha-paga:hover{ background:#1e4028; }
 
+  .th-ordenavel{ cursor:pointer; user-select:none; white-space:nowrap; }
+  .th-ordenavel:hover{ color:var(--text); }
+
   .subtabs{ display:flex; gap:2px; }
   .subtabs button{
     background:var(--panel-2); border:1px solid var(--border); color:var(--text-dim);
@@ -1718,6 +1721,34 @@ function contemAproximado(textoAlvo, consulta){
   return false;
 }
 
+let cobrancaOrdenacao = { campo: null, direcao: 'asc' };
+
+function ordenarPorColunaCobranca(campo){
+  if(cobrancaOrdenacao.campo === campo){
+    cobrancaOrdenacao.direcao = cobrancaOrdenacao.direcao === 'asc' ? 'desc' : 'asc';
+  }else{
+    cobrancaOrdenacao.campo = campo;
+    cobrancaOrdenacao.direcao = 'asc';
+  }
+  renderTabelaCobranca();
+}
+
+function valorOrdenacaoCobranca(b, campo){
+  switch(campo){
+    case 'seu_numero': return (b.seu_numero || '').toLowerCase();
+    case 'pagador': return (b.pagador || '').toLowerCase();
+    case 'cnpj_cpf': return b.cnpj_cpf || '';
+    case 'valor_titulo': return b.valor_titulo ?? -Infinity;
+    case 'data_extra': return (cobrancaSubtab === 'pago' ? b.data_pago_sistema : b.data_vencimento) || '';
+    case 'dias_atraso': {
+      const dias = b.status === 'Pago' ? diasEmAtraso(b.data_vencimento, b.data_pago_sistema) : diasEmAtraso(b.data_vencimento);
+      return dias ?? -Infinity;
+    }
+    case 'ultima_cobranca': return (b.motivo_cobranca_recente || '').toLowerCase();
+    default: return '';
+  }
+}
+
 function filtrarListaCobranca(){
   const emAberto = window.cobrancaCache?.em_aberto || [];
   const pago = window.cobrancaCache?.pago || [];
@@ -1751,6 +1782,17 @@ function filtrarListaCobranca(){
     });
   }
 
+  if(cobrancaOrdenacao.campo){
+    const campo = cobrancaOrdenacao.campo;
+    const dir = cobrancaOrdenacao.direcao === 'asc' ? 1 : -1;
+    return [...lista].sort((a, b) => {
+      const va = valorOrdenacaoCobranca(a, campo);
+      const vb = valorOrdenacaoCobranca(b, campo);
+      if(va < vb) return -1 * dir;
+      if(va > vb) return 1 * dir;
+      return 0;
+    });
+  }
   return [...lista].sort((a,b) => (a.data_vencimento || '9999') > (b.data_vencimento || '9999') ? 1 : -1);
 }
 
@@ -1766,15 +1808,26 @@ function renderStatsCobranca(lista){
   `;
 }
 
+function thOrdenavel(campo, label, extraClass){
+  const ativo = cobrancaOrdenacao.campo === campo;
+  const seta = ativo ? (cobrancaOrdenacao.direcao === 'asc' ? ' ▲' : ' ▼') : '';
+  return `<th class="th-ordenavel ${extraClass || ''}" onclick="ordenarPorColunaCobranca('${campo}')">${label}${seta}</th>`;
+}
+
 function renderTabelaCobranca(){
   const lista = filtrarListaCobranca();
   renderStatsCobranca(lista);
 
-  const colunaExtraHeader = cobrancaSubtab === 'pago' ? 'Data que pagou' : 'Vencimento';
-  const colunaDiasHeader = '<th>Dias em atraso</th>';
+  const colunaExtraLabel = cobrancaSubtab === 'pago' ? 'Data que pagou' : 'Vencimento';
   document.getElementById('theadCobranca').innerHTML = `
-    <th>Seu Número</th><th>Pagador</th><th class="col-secondary">CNPJ/CPF</th><th>Valor título</th>
-    <th>${colunaExtraHeader}</th>${colunaDiasHeader}<th class="col-secondary">Última cobrança</th><th></th>
+    ${thOrdenavel('seu_numero', 'Seu Número')}
+    ${thOrdenavel('pagador', 'Pagador')}
+    ${thOrdenavel('cnpj_cpf', 'CNPJ/CPF', 'col-secondary')}
+    ${thOrdenavel('valor_titulo', 'Valor título')}
+    ${thOrdenavel('data_extra', colunaExtraLabel)}
+    ${thOrdenavel('dias_atraso', 'Dias em atraso')}
+    ${thOrdenavel('ultima_cobranca', 'Última cobrança', 'col-secondary')}
+    <th></th>
   `;
   document.getElementById('tbodyCobranca').innerHTML = lista.length
     ? lista.map(linhaCobranca).join('')
