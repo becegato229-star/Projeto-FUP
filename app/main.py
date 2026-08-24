@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .database import init_db, get_session, engine
 from .models import (
-    Pedido, FupRegistro, FupRegistroCreate, MOTIVOS_ATRASO_PADRAO,
+    Pedido, FupRegistro, FupRegistroCreate, MOTIVOS_ATRASO_PADRAO, MotivoFup, MotivoFupCreate,
     AvisoRegistro, AvisoRegistroCreate,
     NotaSaida, NotaSaidaCreate, NotaSaidaEditar, NotaRetorno, NotaRetornoCreate, NotaRetornoEditar,
     Boleto, BoletoEditar, CobrancaRegistro, CobrancaRegistroCreate,
@@ -65,6 +65,12 @@ def on_startup():
         ).all()
         for numero in pedidos_com_fup:
             _recalcular_motivo_espelhado(numero, session)
+
+        # semeia a lista de motivos personalizável com os padrões, só na primeira vez
+        if not session.exec(select(MotivoFup)).first():
+            for texto in MOTIVOS_ATRASO_PADRAO:
+                session.add(MotivoFup(texto=texto))
+            session.commit()
 
 
 # ---------------------------------------------------------------------
@@ -255,6 +261,19 @@ def _texto_motivo_exibicao(motivo: Optional[str], observacao: Optional[str]) -> 
     return motivo
 
 
+def _texto_situacao_exibicao(situacao: Optional[str], motivo: Optional[str], observacao: Optional[str]) -> Optional[str]:
+    """Texto espelhado no pedido, considerando a situação do FUP. Registros
+    antigos (de antes dessa mudança) não têm 'situacao' salva — nesse caso,
+    trata como 'atraso', igual já funcionava antes."""
+    situacao = situacao or "atraso"
+    if situacao == "ok":
+        return f"✓ Ok — {observacao}" if observacao else "✓ Ok"
+    texto_motivo = _texto_motivo_exibicao(motivo, observacao)
+    if situacao == "previsto_atraso":
+        return f"⚠ Previsto: {texto_motivo}" if texto_motivo else "⚠ Previsto atraso"
+    return texto_motivo  # situacao == "atraso"
+
+
 def _recalcular_motivo_espelhado(numero_pedido: str, session: Session):
     """Depois de editar/apagar um FUP, atualiza o motivo mais recente
     espelhado no pedido (usado nas colunas/filtros da tela principal)."""
@@ -265,14 +284,64 @@ def _recalcular_motivo_espelhado(numero_pedido: str, session: Session):
     ).first()
     pedido = session.get(Pedido, numero_pedido)
     if pedido:
-        pedido.motivo_atraso_fup = _texto_motivo_exibicao(ultimo.motivo_atraso, ultimo.observacao) if ultimo else None
+        pedido.motivo_atraso_fup = _texto_situacao_exibicao(ultimo.situacao, ultimo.motivo_atraso, ultimo.observacao) if ultimo else None
         session.add(pedido)
         session.commit()
 
 
 @app.get("/api/fup/motivos")
-def motivos_padrao():
-    return MOTIVOS_ATRASO_PADRAO
+def listar_motivos(session: Session = Depends(get_session)):
+    motivos = session.exec(select(MotivoFup).order_by(MotivoFup.id)).all()
+    return motivos
+
+
+@app.post("/api/fup/motivos")
+def criar_motivo(dados: MotivoFupCreate, session: Session = Depends(get_session)):
+    texto = dados.texto.strip()
+    if not texto:
+        raise HTTPException(400, "Informe o texto do motivo")
+    existente = session.exec(select(MotivoFup).where(MotivoFup.texto == texto)).first()
+    if existente:
+        raise HTTPException(409, f"O motivo '{texto}' já existe")
+    motivo = MotivoFup(texto=texto)
+    session.add(motivo)
+    session.commit()
+    session.refresh(motivo)
+    return motivo
+
+
+@app.put("/api/fup/motivos/{motivo_id}")
+def editar_motivo(motivo_id: int, dados: MotivoFupCreate, session: Session = Depends(get_session)):
+    motivo = session.get(MotivoFup, motivo_id)
+    if not motivo:
+        raise HTTPException(404, "Motivo não encontrado")
+    texto = dados.texto.strip()
+    if not texto:
+        raise HTTPException(400, "Informe o texto do motivo")
+    texto_antigo = motivo.texto
+    motivo.texto = texto
+    session.add(motivo)
+    session.commit()
+    # atualiza os registros de FUP já feitos com o texto antigo, pra não
+    # ficarem "órfãos" de um motivo que não existe mais na lista
+    if texto_antigo != texto:
+        afetados = session.exec(select(FupRegistro).where(FupRegistro.motivo_atraso == texto_antigo)).all()
+        for fup in afetados:
+            fup.motivo_atraso = texto
+            session.add(fup)
+        session.commit()
+    session.refresh(motivo)
+    return motivo
+
+
+@app.delete("/api/fup/motivos/{motivo_id}")
+def apagar_motivo(motivo_id: int, session: Session = Depends(get_session)):
+    motivo = session.get(MotivoFup, motivo_id)
+    if not motivo:
+        raise HTTPException(404, "Motivo não encontrado")
+    session.delete(motivo)
+    session.commit()
+    return {"ok": True}
 
 
 @app.get("/api/fup")
@@ -281,19 +350,35 @@ def listar_fups(session: Session = Depends(get_session)):
     return fups
 
 
+def _validar_fup(dados: FupRegistroCreate):
+    if dados.situacao not in ("ok", "previsto_atraso", "atraso"):
+        raise HTTPException(400, "Situação inválida — precisa ser 'ok', 'previsto_atraso' ou 'atraso'")
+    if dados.situacao in ("previsto_atraso", "atraso"):
+        if not dados.motivo_atraso:
+            raise HTTPException(400, "Motivo é obrigatório quando a situação não é 'Ok'")
+        if dados.motivo_atraso == "Outro" and not (dados.observacao and dados.observacao.strip()):
+            raise HTTPException(400, "Observação é obrigatória quando o motivo é 'Outro'")
+
+
 @app.post("/api/fup")
 def criar_fup(dados: FupRegistroCreate, session: Session = Depends(get_session)):
     if not session.get(Pedido, dados.numero_pedido):
         raise HTTPException(404, "Pedido não encontrado")
-    if dados.motivo_atraso == "Outro" and not (dados.observacao and dados.observacao.strip()):
-        raise HTTPException(400, "Observação é obrigatória quando o motivo é 'Outro'")
-    fup = FupRegistro(**dados.dict())
+    _validar_fup(dados)
+    motivo_final = None if dados.situacao == "ok" else dados.motivo_atraso
+    fup = FupRegistro(
+        numero_pedido=dados.numero_pedido,
+        data_referencia=dados.data_referencia,
+        situacao=dados.situacao,
+        motivo_atraso=motivo_final,
+        observacao=dados.observacao,
+    )
     session.add(fup)
     session.commit()
 
-    # espelha o motivo mais recente no pedido, para facilitar filtro/exibição
+    # espelha a situação/motivo mais recente no pedido, para facilitar filtro/exibição
     pedido = session.get(Pedido, fup.numero_pedido)
-    pedido.motivo_atraso_fup = _texto_motivo_exibicao(fup.motivo_atraso, fup.observacao)
+    pedido.motivo_atraso_fup = _texto_situacao_exibicao(fup.situacao, fup.motivo_atraso, fup.observacao)
     session.add(pedido)
     session.commit()
     session.refresh(fup)  # por último: o commit acima expira os dados do fup, precisa recarregar antes de devolver
@@ -305,11 +390,10 @@ def editar_fup(fup_id: int, dados: FupRegistroCreate, session: Session = Depends
     fup = session.get(FupRegistro, fup_id)
     if not fup:
         raise HTTPException(404, "Registro de FUP não encontrado")
-    if dados.motivo_atraso == "Outro" and not (dados.observacao and dados.observacao.strip()):
-        raise HTTPException(400, "Observação é obrigatória quando o motivo é 'Outro'")
+    _validar_fup(dados)
     fup.data_referencia = dados.data_referencia
-    fup.previsao_atraso = dados.previsao_atraso
-    fup.motivo_atraso = dados.motivo_atraso
+    fup.situacao = dados.situacao
+    fup.motivo_atraso = None if dados.situacao == "ok" else dados.motivo_atraso
     fup.observacao = dados.observacao
     session.add(fup)
     session.commit()
@@ -376,7 +460,19 @@ def listar_avisos(
             tratados.append(p)
         else:
             avisos.append(p)
-    return {"avisos": avisos, "tratados": tratados}
+
+    # histórico: TODOS os pedidos que já tiveram algum registro de aviso,
+    # mesmo depois de Encerrado/Cancelado (sem isso, o pedido some da tela
+    # assim que o canhoto chega, perdendo o rastro de que foi acompanhado)
+    numeros_com_historico = session.exec(select(AvisoRegistro.numero_pedido).distinct()).all()
+    historico = []
+    for numero in numeros_com_historico:
+        p = session.get(Pedido, numero)
+        if p:
+            historico.append(p)
+    historico.sort(key=lambda p: p.data_emissao or date.min, reverse=True)
+
+    return {"avisos": avisos, "tratados": tratados, "historico": historico}
 
 
 @app.get("/api/avisos/registros")
@@ -741,6 +837,7 @@ def dashboard_atual(session: Session = Depends(get_session)):
 def dashboard_historico(
     data_de: Optional[date] = None,
     data_ate: Optional[date] = None,
+    agrupar_outros: bool = True,
     session: Session = Depends(get_session),
 ):
     fups = session.exec(select(FupRegistro)).all()
@@ -749,10 +846,23 @@ def dashboard_historico(
     if data_ate:
         fups = [f for f in fups if f.data_referencia <= data_ate]
 
+    def situacao_de(f) -> str:
+        return f.situacao or "atraso"  # registros antigos sem situação = trata como atraso
+
+    def label_motivo(f) -> Optional[str]:
+        if not f.motivo_atraso:
+            return None
+        if f.motivo_atraso == "Outro" and not agrupar_outros and f.observacao:
+            return f.observacao
+        return f.motivo_atraso
+
+    fups_problema = [f for f in fups if situacao_de(f) in ("atraso", "previsto_atraso")]
+
     motivos_count: dict = {}
-    for f in fups:
-        if f.motivo_atraso:
-            motivos_count[f.motivo_atraso] = motivos_count.get(f.motivo_atraso, 0) + 1
+    for f in fups_problema:
+        label = label_motivo(f)
+        if label:
+            motivos_count[label] = motivos_count.get(label, 0) + 1
     motivos_ordenados = sorted(motivos_count.items(), key=lambda x: x[1], reverse=True)
 
     fup_por_data: dict = {}
@@ -761,10 +871,52 @@ def dashboard_historico(
         fup_por_data[k] = fup_por_data.get(k, 0) + 1
     fup_timeline = sorted(fup_por_data.items())
 
+    # Distribuição por situação (Ok / Previsto atraso / Atraso)
+    distribuicao_situacao: dict = {"ok": 0, "previsto_atraso": 0, "atraso": 0}
+    for f in fups:
+        distribuicao_situacao[situacao_de(f)] = distribuicao_situacao.get(situacao_de(f), 0) + 1
+
+    # Clientes com mais atraso — histórico completo (não é uma foto do momento)
+    cliente_por_pedido = {
+        p.numero_pedido: p.nome_cliente
+        for p in session.exec(select(Pedido)).all()
+    }
+    atraso_por_cliente: dict = {}
+    for f in fups_problema:
+        nome = cliente_por_pedido.get(f.numero_pedido) or "Desconhecido"
+        atraso_por_cliente[nome] = atraso_por_cliente.get(nome, 0) + 1
+    top_clientes_historico = sorted(atraso_por_cliente.items(), key=lambda x: x[1], reverse=True)[:8]
+
+    # Taxa de acerto do "Previsto atraso": de todos os pedidos que alguém
+    # marcou como "vou atrasar", quantos realmente confirmaram o atraso
+    # depois (um FUP de 'atraso' posterior, ou o pedido seguir atrasado hoje)?
+    pedidos_previstos = {f.numero_pedido for f in fups if situacao_de(f) == "previsto_atraso"}
+    pedidos_confirmados = set()
+    for numero in pedidos_previstos:
+        fups_do_pedido = sorted(
+            [f for f in fups if f.numero_pedido == numero],
+            key=lambda f: (f.data_referencia, f.id or 0),
+        )
+        teve_atraso_depois = any(situacao_de(f) == "atraso" for f in fups_do_pedido)
+        pedido = session.get(Pedido, numero)
+        ainda_atrasado = bool(pedido and pedido.atraso_producao)
+        if teve_atraso_depois or ainda_atrasado:
+            pedidos_confirmados.add(numero)
+    taxa_acerto_previsto = (
+        round(100 * len(pedidos_confirmados) / len(pedidos_previstos), 1) if pedidos_previstos else None
+    )
+
     return {
         "motivos_atraso": motivos_ordenados,
         "fup_timeline": fup_timeline,
         "total_fups": len(fups),
+        "distribuicao_situacao": distribuicao_situacao,
+        "top_clientes_atraso_historico": top_clientes_historico,
+        "taxa_acerto_previsto": {
+            "percentual": taxa_acerto_previsto,
+            "total_previstos": len(pedidos_previstos),
+            "total_confirmados": len(pedidos_confirmados),
+        },
     }
 
 
