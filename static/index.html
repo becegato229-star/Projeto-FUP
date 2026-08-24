@@ -1758,13 +1758,11 @@ function renderStatsCobranca(lista){
   const emAberto = lista.filter(b => b.status === 'Em aberto');
   const pago = lista.filter(b => b.status === 'Pago');
   const somaEmAberto = emAberto.reduce((soma, b) => soma + (b.valor_titulo || 0), 0);
-  const reapareceram = lista.filter(b => b.reapareceu).length;
 
   document.getElementById('statsCobranca').innerHTML = `
     <div class="stat atraso"><div class="n">${emAberto.length}</div><div class="l">Boletos em aberto</div></div>
     <div class="stat"><div class="n">${pago.length}</div><div class="l">Boletos pagos</div></div>
     <div class="stat atraso"><div class="n">${fmtMoeda(somaEmAberto)}</div><div class="l">Soma em aberto</div></div>
-    ${reapareceram > 0 ? `<div class="stat atraso"><div class="n">${reapareceram}</div><div class="l">Reapareceram</div></div>` : ''}
   `;
 }
 
