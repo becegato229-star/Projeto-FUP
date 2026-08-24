@@ -46,7 +46,8 @@ class FupRegistro(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     numero_pedido: str = Field(index=True, foreign_key="pedido.numero_pedido")
     data_referencia: date = Field(default_factory=date.today)
-    previsao_atraso: bool = False
+    previsao_atraso: bool = False  # mantido por compatibilidade com registros antigos; não usado mais
+    situacao: Optional[str] = None  # "ok" | "previsto_atraso" | "atraso" — None = registro antigo (trata como "atraso")
     motivo_atraso: Optional[str] = None
     observacao: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -58,9 +59,20 @@ class FupRegistroCreate(SQLModel):
     convertidas corretamente de string para date antes do INSERT."""
     numero_pedido: str
     data_referencia: date = Field(default_factory=date.today)
-    previsao_atraso: bool = False
+    situacao: str  # "ok" | "previsto_atraso" | "atraso"
     motivo_atraso: Optional[str] = None
     observacao: Optional[str] = None
+
+
+class MotivoFup(SQLModel, table=True):
+    """Lista de motivos de atraso, gerenciável pelo próprio usuário (adicionar,
+    editar, apagar) — substitui a lista fixa que só eu conseguia mudar."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    texto: str = Field(unique=True)
+
+
+class MotivoFupCreate(SQLModel):
+    texto: str
 
 
 class AvisoRegistro(SQLModel, table=True):
