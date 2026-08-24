@@ -380,12 +380,19 @@
     <div class="form-card-body">
       <label>Nº do pedido<input type="text" id="fup_pedido" placeholder="ex: 20233"></label>
       <label>Data<input type="date" id="fup_data"></label>
-      <label>Motivo
+      <label>Situação
+        <select id="fup_situacao" onchange="atualizarVisibilidadeMotivoFup()">
+          <option value="ok">✓ Ok</option>
+          <option value="previsto_atraso">⚠ Previsto atraso</option>
+          <option value="atraso" selected>✗ Atraso</option>
+        </select>
+      </label>
+      <label id="fup_motivo_wrap">Motivo
         <select id="fup_motivo"></select>
       </label>
       <label class="grow">Observação<input type="text" id="fup_obs"></label>
-      <label class="chk"><input type="checkbox" id="fup_previsao"> Previsão de atraso</label>
       <button class="primary" onclick="salvarFup()">Registrar FUP</button>
+      <button class="ghost" onclick="abrirGerenciarMotivos()" title="Adicionar, editar ou apagar motivos">⚙ Motivos</button>
     </div>
   </div>
 
@@ -425,6 +432,14 @@
       <table>
         <thead><tr><th>Pedido</th><th>Cliente</th><th class="col-secondary">Faturamento</th><th>Entrega original</th><th>Dias s/ canhoto</th><th>Último motivo</th><th class="col-secondary">Próxima verificação</th><th></th></tr></thead>
         <tbody id="tbodyAvisosTratados"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">📖 Histórico (todos os pedidos que já tiveram aviso, mesmo Encerrados)</div>
+    <div class="table-scroll" id="scrollAvisosHistorico" style="max-height:320px;">
+      <table>
+        <thead><tr><th>Pedido</th><th>Cliente</th><th>Status atual</th><th class="col-secondary">Entrega original</th><th></th></tr></thead>
+        <tbody id="tbodyAvisosHistorico"></tbody>
       </table>
     </div>
   </div>
@@ -562,15 +577,7 @@
 
 <div id="monitoramento">
   <main>
-    <div class="section-title" style="margin-top:16px">📍 Momento atual</div>
-    <div class="stats" id="monitorStatsAtual"></div>
-    <div class="charts-grid">
-      <div class="chart-card"><h4>Status dos pedidos</h4><canvas id="chartStatus"></canvas></div>
-      <div class="chart-card"><h4>Avisos por tipo de entrega</h4><canvas id="chartTipoEntrega"></canvas></div>
-      <div class="chart-card" style="grid-column:1/-1"><h4>Clientes com mais pedidos atrasados</h4><canvas id="chartClientes"></canvas></div>
-    </div>
-
-    <div class="hist-divider">
+    <div class="hist-divider" style="margin-top:16px; border-top:none; padding-top:0;">
       <div class="section-title" style="margin:0">📊 Histórico permanente (nunca perde dado)</div>
       <div class="hist-filters">
         <label>Data de<input type="date" id="hist_data_de" onchange="loadHistorico()"></label>
@@ -580,8 +587,23 @@
     </div>
     <div class="stats" id="monitorStatsHistorico"></div>
     <div class="charts-grid">
-      <div class="chart-card"><h4>Motivos de atraso mais frequentes (FUP)</h4><canvas id="chartMotivos"></canvas></div>
+      <div class="chart-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <h4 style="margin:0;">Motivos de atraso mais frequentes</h4>
+          <div class="subtabs" style="transform:scale(0.85); transform-origin:right;">
+            <button class="active" id="btnAgruparOutros" onclick="setAgruparOutros(true)">Agrupar "Outros"</button>
+            <button id="btnMostrarTudo" onclick="setAgruparOutros(false)">Mostrar tudo</button>
+          </div>
+        </div>
+        <canvas id="chartMotivos"></canvas>
+      </div>
       <div class="chart-card"><h4>Registros de FUP ao longo do tempo</h4><canvas id="chartTimeline"></canvas></div>
+      <div class="chart-card"><h4>Situação dos acompanhamentos (Ok / Previsto / Atraso)</h4><canvas id="chartSituacao"></canvas></div>
+      <div class="chart-card">
+        <h4>Taxa de acerto do "Previsto atraso"</h4>
+        <div id="taxaAcertoTexto" style="padding:20px 0; text-align:center;"></div>
+      </div>
+      <div class="chart-card" style="grid-column:1/-1"><h4>Clientes com mais atraso (histórico completo)</h4><canvas id="chartClientesHistorico"></canvas></div>
     </div>
   </main>
 </div>
@@ -615,14 +637,34 @@
   <div class="modal">
     <h3>Editar FUP — pedido <span id="editarFupPedidoNum"></span></h3>
     <label>Data<input type="date" id="editar_fup_data"></label>
-    <label style="flex-direction:row; align-items:center; gap:8px;"><input type="checkbox" id="editar_fup_previsao" style="width:auto"> Previsão de atraso</label>
-    <label>Motivo
+    <label>Situação
+      <select id="editar_fup_situacao" style="background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;" onchange="atualizarVisibilidadeMotivo('editar_fup_situacao','editar_fup_motivo_wrap')">
+        <option value="ok">✓ Ok</option>
+        <option value="previsto_atraso">⚠ Previsto atraso</option>
+        <option value="atraso">✗ Atraso</option>
+      </select>
+    </label>
+    <label id="editar_fup_motivo_wrap">Motivo
       <select id="editar_fup_motivo" style="background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;"></select>
     </label>
     <label>Observação<input type="text" id="editar_fup_obs"></label>
     <div class="actions">
       <button class="ghost" onclick="fecharEditarFup()">Cancelar</button>
       <button class="primary" onclick="salvarEdicaoFup()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="gerenciarMotivosOverlay">
+  <div class="modal" style="width:420px; max-height:80vh; overflow-y:auto;">
+    <h3>Gerenciar motivos de FUP</h3>
+    <div id="listaMotivos" style="margin-bottom:14px;"></div>
+    <div style="display:flex; gap:8px;">
+      <input type="text" id="novo_motivo_texto" placeholder="ex: Zincagem" style="flex:1; background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;">
+      <button class="primary" onclick="adicionarNovoMotivo()">+ Adicionar</button>
+    </div>
+    <div class="actions">
+      <button class="ghost" onclick="fecharGerenciarMotivos()">Fechar</button>
     </div>
   </div>
 </div>
@@ -774,6 +816,7 @@ const vtPedidos = new VirtualTable('scrollTabela', 'tbody', 44, 10);
 const vtFupPendentes = new VirtualTable('scrollFupPendentes', 'tbodyFupPendentes', 44, 10);
 const vtAvisos = new VirtualTable('scrollAvisos', 'tbodyAvisos', 44, 10);
 const vtAvisosTratados = new VirtualTable('scrollAvisosTratados', 'tbodyAvisosTratados', 44, 10);
+const vtAvisosHistorico = new VirtualTable('scrollAvisosHistorico', 'tbodyAvisosHistorico', 44, 10);
 let debounceTimer;
 let charts = {};
 
@@ -1013,12 +1056,18 @@ function linhaFupPendente(p){
     </tr>
   `;
 }
+function badgeSituacaoFup(situacao){
+  const s = situacao || 'atraso';
+  if(s === 'ok') return '<span class="badge Encerrado">✓ Ok</span>';
+  if(s === 'previsto_atraso') return '<span class="badge Aprovado">⚠ Previsto</span>';
+  return '<span class="badge Cancelado">✗ Atraso</span>';
+}
 function linhaFupHistorico(f){
   return `
     <tr>
       <td style="font-family:var(--mono)">${f.numero_pedido}</td>
       <td>${fmtDate(f.data_referencia)}</td>
-      <td class="col-secondary">${f.previsao_atraso ? '<span class="atraso-tag">Sim</span>' : 'Não'}</td>
+      <td>${badgeSituacaoFup(f.situacao)}</td>
       <td>${textoMotivo(f.motivo_atraso, f.observacao) || '—'}</td>
       <td class="col-secondary">${f.observacao || '—'}</td>
       <td style="white-space:nowrap">
@@ -1055,7 +1104,7 @@ async function loadFupTab(){
     <div class="stat"><div class="n">${pendentes.length}</div><div class="l">Pedidos no filtro atual</div></div>
   `;
   document.getElementById('thead').innerHTML = `
-    <th>Pedido</th><th>Data</th><th class="col-secondary">Previsão de atraso</th><th>Motivo</th><th class="col-secondary">Observação</th><th></th>
+    <th>Pedido</th><th>Data</th><th>Situação</th><th>Motivo</th><th class="col-secondary">Observação</th><th></th>
   `;
   document.getElementById('empty').style.display = fups.length ? 'none' : 'block';
   document.getElementById('empty').innerHTML = 'Nenhum FUP registrado ainda. Use a tabela acima ou o formulário para registrar o primeiro.';
@@ -1117,10 +1166,27 @@ async function loadAvisosTab(){
   if(!data.tratados.length){
     document.getElementById('tbodyAvisosTratados').innerHTML = `<tr><td colspan="8" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido em acompanhamento no momento.</td></tr>`;
   }
+  vtAvisosHistorico.setData(data.historico, linhaAvisoHistorico, 5);
+  if(!data.historico.length){
+    document.getElementById('tbodyAvisosHistorico').innerHTML = `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido teve aviso registrado ainda.</td></tr>`;
+  }
 
   document.getElementById('stats').innerHTML = `
     <div class="stat atraso"><div class="n">${data.avisos.length}</div><div class="l">Avisos pendentes</div></div>
     <div class="stat"><div class="n">${data.tratados.length}</div><div class="l">Em acompanhamento (tratados)</div></div>
+    <div class="stat"><div class="n">${data.historico.length}</div><div class="l">Total no histórico</div></div>
+  `;
+}
+
+function linhaAvisoHistorico(p){
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
+      <td class="col-secondary">${fmtDate(p.data_entrega_prevista)}</td>
+      <td><button class="small-action fup" onclick="abrirHistoricoAviso('${p.numero_pedido}')" title="Ver histórico de avisos">📋</button></td>
+    </tr>
   `;
 }
 
@@ -1921,15 +1987,12 @@ async function abrirEditarFup(id){
   fupEmEdicaoId = id;
   document.getElementById('editarFupPedidoNum').textContent = '#' + f.numero_pedido;
   document.getElementById('editar_fup_data').value = f.data_referencia;
-  document.getElementById('editar_fup_previsao').checked = f.previsao_atraso;
+  document.getElementById('editar_fup_situacao').value = f.situacao || 'atraso';
   document.getElementById('editar_fup_obs').value = f.observacao || '';
 
-  if(!document.getElementById('editar_fup_motivo').options.length){
-    const res = await fetch('/api/fup/motivos');
-    const motivos = await res.json();
-    document.getElementById('editar_fup_motivo').innerHTML = motivos.map(m => `<option value="${m}">${m}</option>`).join('');
-  }
+  await carregarOpcoesMotivo('editar_fup_motivo');
   document.getElementById('editar_fup_motivo').value = f.motivo_atraso || '';
+  atualizarVisibilidadeMotivo('editar_fup_situacao', 'editar_fup_motivo_wrap');
 
   document.getElementById('editarFupOverlay').classList.add('show');
 }
@@ -1940,13 +2003,15 @@ function fecharEditarFup(){
 async function salvarEdicaoFup(){
   const f = (window.fupsCache || []).find(x => x.id === fupEmEdicaoId);
   if(!f) return;
+  const situacao = document.getElementById('editar_fup_situacao').value;
   const body = {
     numero_pedido: f.numero_pedido,
     data_referencia: document.getElementById('editar_fup_data').value,
-    previsao_atraso: document.getElementById('editar_fup_previsao').checked,
-    motivo_atraso: document.getElementById('editar_fup_motivo').value,
+    situacao: situacao,
+    motivo_atraso: situacao === 'ok' ? null : document.getElementById('editar_fup_motivo').value,
     observacao: document.getElementById('editar_fup_obs').value,
   };
+  if(situacao !== 'ok' && !body.motivo_atraso){ toast('Escolha um motivo', true); return; }
   if(body.motivo_atraso === 'Outro' && !body.observacao.trim()){ toast('Observação é obrigatória quando o motivo é "Outro"', true); return; }
   try{
     const res = await fetch(`/api/fup/${fupEmEdicaoId}`, {
@@ -1975,22 +2040,37 @@ async function confirmarApagarFup(id){
   }
 }
 
-async function carregarMotivos(){
+async function carregarOpcoesMotivo(idSelect){
   const res = await fetch('/api/fup/motivos');
   const motivos = await res.json();
-  document.getElementById('fup_motivo').innerHTML =
-    motivos.map(m => `<option value="${m}">${m}</option>`).join('');
+  window.motivosFupCache = motivos;
+  document.getElementById(idSelect).innerHTML =
+    motivos.map(m => `<option value="${m.texto}">${m.texto}</option>`).join('');
+}
+
+async function carregarMotivos(){
+  await carregarOpcoesMotivo('fup_motivo');
+}
+
+function atualizarVisibilidadeMotivo(idSituacao, idMotivoWrap){
+  const situacao = document.getElementById(idSituacao).value;
+  document.getElementById(idMotivoWrap).style.display = situacao === 'ok' ? 'none' : 'flex';
+}
+function atualizarVisibilidadeMotivoFup(){
+  atualizarVisibilidadeMotivo('fup_situacao', 'fup_motivo_wrap');
 }
 
 async function salvarFup(){
+  const situacao = document.getElementById('fup_situacao').value;
   const body = {
     numero_pedido: document.getElementById('fup_pedido').value.trim(),
     data_referencia: document.getElementById('fup_data').value || new Date().toISOString().slice(0,10),
-    previsao_atraso: document.getElementById('fup_previsao').checked,
-    motivo_atraso: document.getElementById('fup_motivo').value,
+    situacao: situacao,
+    motivo_atraso: situacao === 'ok' ? null : document.getElementById('fup_motivo').value,
     observacao: document.getElementById('fup_obs').value,
   };
   if(!body.numero_pedido){ toast('Informe o número do pedido', true); return; }
+  if(situacao !== 'ok' && !body.motivo_atraso){ toast('Escolha um motivo', true); return; }
   if(body.motivo_atraso === 'Outro' && !body.observacao.trim()){ toast('Observação é obrigatória quando o motivo é "Outro"', true); return; }
   try{
     const res = await fetch('/api/fup', {
@@ -2005,6 +2085,71 @@ async function salvarFup(){
   }catch(e){
     toast('Erro: ' + e.message, true);
   }
+}
+
+// ---------------- Gerenciar motivos (CRUD) ----------------
+async function abrirGerenciarMotivos(){
+  document.getElementById('gerenciarMotivosOverlay').classList.add('show');
+  await renderizarListaMotivos();
+}
+function fecharGerenciarMotivos(){
+  document.getElementById('gerenciarMotivosOverlay').classList.remove('show');
+}
+async function renderizarListaMotivos(){
+  const res = await fetch('/api/fup/motivos');
+  const motivos = await res.json();
+  window.motivosFupCache = motivos;
+  document.getElementById('listaMotivos').innerHTML = motivos.map(m => `
+    <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border);">
+      <span id="motivo_texto_${m.id}" style="flex:1;">${m.texto}</span>
+      <input type="text" id="motivo_edit_${m.id}" value="${m.texto}" style="display:none; flex:1; background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:6px 8px; border-radius:6px;">
+      <button class="small-action fup" id="motivo_btn_editar_${m.id}" onclick="iniciarEdicaoMotivo(${m.id})">✎</button>
+      <button class="small-action fup" id="motivo_btn_salvar_${m.id}" style="display:none" onclick="salvarEdicaoMotivo(${m.id})">✓</button>
+      <button class="small-action" onclick="apagarMotivoFup(${m.id})">🗑</button>
+    </div>
+  `).join('');
+}
+function iniciarEdicaoMotivo(id){
+  document.getElementById(`motivo_texto_${id}`).style.display = 'none';
+  document.getElementById(`motivo_edit_${id}`).style.display = 'block';
+  document.getElementById(`motivo_btn_editar_${id}`).style.display = 'none';
+  document.getElementById(`motivo_btn_salvar_${id}`).style.display = 'inline-block';
+}
+async function salvarEdicaoMotivo(id){
+  const texto = document.getElementById(`motivo_edit_${id}`).value.trim();
+  if(!texto){ toast('Informe o texto do motivo', true); return; }
+  try{
+    const res = await fetch(`/api/fup/motivos/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({texto})});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Motivo atualizado');
+    await renderizarListaMotivos();
+    await carregarOpcoesMotivo('fup_motivo');
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function apagarMotivoFup(id){
+  if(!confirm('Apagar esse motivo? Registros de FUP já feitos com ele mantêm o texto, só some da lista pra escolher em novos registros.')) return;
+  try{
+    const res = await fetch(`/api/fup/motivos/${id}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Motivo apagado');
+    await renderizarListaMotivos();
+    await carregarOpcoesMotivo('fup_motivo');
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function adicionarNovoMotivo(){
+  const texto = document.getElementById('novo_motivo_texto').value.trim();
+  if(!texto){ toast('Digite o texto do motivo novo', true); return; }
+  try{
+    const res = await fetch('/api/fup/motivos', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({texto})});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao adicionar');
+    toast('Motivo adicionado');
+    document.getElementById('novo_motivo_texto').value = '';
+    await renderizarListaMotivos();
+    await carregarOpcoesMotivo('fup_motivo');
+  }catch(e){ toast('Erro: ' + e.message, true); }
 }
 
 // ---------------- Painel de detalhes (mobile) ----------------
@@ -2129,7 +2274,7 @@ function toggleMonitoramento(){
   const showing = document.getElementById('monitoramento').classList.toggle('show');
   document.getElementById('appMain').classList.toggle('hide', showing);
   document.getElementById('btnMonitor').classList.toggle('active', showing);
-  if(showing){ loadAtual(); loadHistorico(); }
+  if(showing){ loadHistorico(); }
 }
 
 const palette = ['#ff7a1a','#5bb8e8','#3ecf8e','#ffb020','#ff5252','#b48cff','#4dd0e1','#f06292'];
@@ -2140,40 +2285,12 @@ const chartOpts = {responsive:true, plugins:{legend:{labels:{color:'#e7ebee'}}},
 
 function destroyChart(id){ if(charts[id]) { charts[id].destroy(); charts[id] = null; } }
 
-async function loadAtual(){
-  const res = await fetch('/api/dashboard/atual');
-  const d = await res.json();
-
-  document.getElementById('monitorStatsAtual').innerHTML = `
-    <div class="stat"><div class="n">${d.total_pedidos}</div><div class="l">Total de pedidos</div></div>
-    <div class="stat atraso"><div class="n">${d.atraso_producao_n}</div><div class="l">Atraso de produção</div></div>
-    <div class="stat atraso"><div class="n">${d.aviso_entrega_n}</div><div class="l">Avisos (sem canhoto)</div></div>
-    <div class="stat"><div class="n">${d.media_atraso_producao}d</div><div class="l">Média dias atraso produção</div></div>
-    <div class="stat"><div class="n">${d.media_dias_aviso}d</div><div class="l">Média dias sem canhoto (avisos)</div></div>
-  `;
-
-  destroyChart('status');
-  charts.status = new Chart(document.getElementById('chartStatus'), {
-    type:'bar',
-    data:{labels:Object.keys(d.status_count), datasets:[{data:Object.values(d.status_count), backgroundColor:palette}]},
-    options:{...chartOpts, plugins:{legend:{display:false}}}
-  });
-
-  destroyChart('tipo');
-  charts.tipo = new Chart(document.getElementById('chartTipoEntrega'), {
-    type:'doughnut',
-    data:{labels:Object.keys(d.aviso_por_tipo), datasets:[{data:Object.values(d.aviso_por_tipo), backgroundColor:palette}]},
-    options:{responsive:true, plugins:{legend:{labels:{color:'#e7ebee'}}}}
-  });
-
-  const clientesLabels = d.top_clientes_atraso.map(x => x[0].length > 30 ? x[0].slice(0,30)+'…' : x[0]);
-  const clientesValues = d.top_clientes_atraso.map(x => x[1]);
-  destroyChart('clientes');
-  charts.clientes = new Chart(document.getElementById('chartClientes'), {
-    type:'bar',
-    data:{labels:clientesLabels, datasets:[{data:clientesValues, backgroundColor:'#5bb8e8'}]},
-    options:{...chartOpts, indexAxis:'y', plugins:{legend:{display:false}}}
-  });
+let agruparOutrosMotivos = true;
+function setAgruparOutros(agrupar){
+  agruparOutrosMotivos = agrupar;
+  document.getElementById('btnAgruparOutros').classList.toggle('active', agrupar);
+  document.getElementById('btnMostrarTudo').classList.toggle('active', !agrupar);
+  loadHistorico();
 }
 
 async function loadHistorico(){
@@ -2182,15 +2299,19 @@ async function loadHistorico(){
   const ate = document.getElementById('hist_data_ate').value;
   if(de) params.set('data_de', de);
   if(ate) params.set('data_ate', ate);
+  params.set('agrupar_outros', agruparOutrosMotivos ? 'true' : 'false');
 
   const res = await fetch('/api/dashboard/historico?' + params.toString());
   const d = await res.json();
 
   document.getElementById('monitorStatsHistorico').innerHTML = `
     <div class="stat"><div class="n">${d.total_fups}</div><div class="l">Registros de FUP no período</div></div>
+    <div class="stat"><div class="n">${d.distribuicao_situacao.ok}</div><div class="l">✓ Ok</div></div>
+    <div class="stat atraso"><div class="n">${d.distribuicao_situacao.previsto_atraso}</div><div class="l">⚠ Previsto atraso</div></div>
+    <div class="stat atraso"><div class="n">${d.distribuicao_situacao.atraso}</div><div class="l">✗ Atraso</div></div>
   `;
 
-  const motivosLabels = d.motivos_atraso.map(x => x[0]);
+  const motivosLabels = d.motivos_atraso.map(x => x[0].length > 40 ? x[0].slice(0,40)+'…' : x[0]);
   const motivosValues = d.motivos_atraso.map(x => x[1]);
   destroyChart('motivos');
   charts.motivos = new Chart(document.getElementById('chartMotivos'), {
@@ -2207,6 +2328,36 @@ async function loadHistorico(){
     data:{labels:timelineLabels, datasets:[{data:timelineValues, borderColor:'#3ecf8e', backgroundColor:'#3ecf8e33', fill:true, tension:.3}]},
     options:{...chartOpts, plugins:{legend:{display:false}}}
   });
+
+  destroyChart('situacao');
+  charts.situacao = new Chart(document.getElementById('chartSituacao'), {
+    type:'doughnut',
+    data:{
+      labels:['✓ Ok', '⚠ Previsto atraso', '✗ Atraso'],
+      datasets:[{data:[d.distribuicao_situacao.ok, d.distribuicao_situacao.previsto_atraso, d.distribuicao_situacao.atraso], backgroundColor:['#3ecf8e','#ffb020','#ff5252']}]
+    },
+    options:{responsive:true, plugins:{legend:{labels:{color:'#e7ebee'}}}}
+  });
+
+  const taxa = d.taxa_acerto_previsto;
+  const taxaDiv = document.getElementById('taxaAcertoTexto');
+  if(taxa.total_previstos === 0){
+    taxaDiv.innerHTML = `<div style="color:var(--text-dim)">Nenhum "Previsto atraso" registrado ainda nesse período.</div>`;
+  }else{
+    taxaDiv.innerHTML = `
+      <div style="font-size:42px; font-weight:700; color:${taxa.percentual >= 50 ? 'var(--warn)' : 'var(--ok)'};">${taxa.percentual}%</div>
+      <div style="color:var(--text-dim); margin-top:6px; font-size:12.5px;">${taxa.total_confirmados} de ${taxa.total_previstos} pedidos previstos como atraso realmente atrasaram</div>
+    `;
+  }
+
+  const clientesLabels = d.top_clientes_atraso_historico.map(x => x[0].length > 30 ? x[0].slice(0,30)+'…' : x[0]);
+  const clientesValues = d.top_clientes_atraso_historico.map(x => x[1]);
+  destroyChart('clientesHistorico');
+  charts.clientesHistorico = new Chart(document.getElementById('chartClientesHistorico'), {
+    type:'bar',
+    data:{labels:clientesLabels, datasets:[{data:clientesValues, backgroundColor:'#5bb8e8'}]},
+    options:{...chartOpts, indexAxis:'y', plugins:{legend:{display:false}}}
+  });
 }
 
 document.getElementById('fup_data').value = new Date().toISOString().slice(0,10);
@@ -2217,6 +2368,7 @@ document.getElementById('cob_data').value = new Date().toISOString().slice(0,10)
 document.getElementById('fupPendentesWrap').style.display = 'none';
 carregarMotivos();
 atualizarBadgeCobranca();
+atualizarVisibilidadeMotivoFup();
 load();
 </script>
 
