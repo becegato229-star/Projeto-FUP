@@ -4,25 +4,33 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FlowLog — Acompanhamento de Pedidos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
 <script src="/static/chart.umd.js"></script>
 <style>
   :root{
-    --bg: #14181c;
-    --panel: #1c2126;
-    --panel-2: #232a31;
-    --border: #2e363e;
-    --text: #e7ebee;
-    --text-dim: #8b969f;
-    --accent: #ff7a1a;
-    --ok: #3ecf8e;
+    --bg: #17191a;
+    --panel: #1d2021;
+    --panel-2: #262929;
+    --border: #33373a;
+    --text: #eef1ef;
+    --text-dim: #8f9a96;
+    --accent: #48d597;
+    --accent-contrast: #08130e;
+    --ok: #48d597;
     --warn: #ffb020;
     --danger: #ff5252;
     --mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
   }
   *{box-sizing:border-box;}
+  button, .upload-btn, .th-ordenavel{
+    transition: transform .08s ease, background-color .15s ease, color .15s ease, border-color .15s ease;
+  }
+  button:active, .upload-btn:active{ transform: scale(0.96); }
   body{
     margin:0; background:var(--bg); color:var(--text);
-    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-family: "DM Sans", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     font-size:14px;
   }
   header{
@@ -30,11 +38,10 @@
     display:flex; align-items:center; justify-content:space-between;
     background:var(--panel);
   }
-  header h1{
-    font-size:17px; margin:0; letter-spacing:0.02em; font-weight:700;
-    display:flex; align-items:center; gap:10px;
-  }
-  header h1 .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block;}
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-logo{ height:26px; width:auto; display:block; }
+  .brand-divider{ width:1px; height:20px; background:var(--border); }
+  .brand-product{ font-size:15px; font-weight:600; letter-spacing:0.02em; color:var(--text-dim); }
   .header-right{display:flex; align-items:center; gap:10px;}
   .upload-group{display:flex; gap:8px;}
   .upload-btn{
@@ -81,7 +88,7 @@
     background:var(--panel-2); border:1px solid var(--border); color:var(--text-dim);
     padding:8px 16px; font-size:12.5px; cursor:pointer; font-weight:600; border-radius:6px;
   }
-  .subtabs button.active{color:#1a1200; background:var(--accent); border-color:var(--accent);}
+  .subtabs button.active{color:var(--accent-contrast); background:var(--accent); border-color:var(--accent);}
 
   .toolbar-top{
     display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;
@@ -115,11 +122,11 @@
   }
   .pill:hover{border-color:var(--text-dim); color:var(--text);}
   .pill.active{background:var(--text); color:#14181c; border-color:var(--text);}
-  .pill.active.all{background:var(--accent); border-color:var(--accent); color:#1a1200;}
+  .pill.active.all{background:var(--accent); border-color:var(--accent); color:var(--accent-contrast);}
   .pill.danger.active{background:var(--danger); border-color:var(--danger); color:#fff;}
   .spacer{flex:1;}
   button.primary{
-    background:var(--accent); border:none; color:#1a1200; font-weight:700;
+    background:var(--accent); border:none; color:var(--accent-contrast); font-weight:700;
     padding:9px 16px; border-radius:6px; cursor:pointer; font-size:12.5px;
   }
   button.ghost{
@@ -135,6 +142,12 @@
   button.small-action.fup:hover{border-color:var(--accent); color:var(--accent);}
 
   main{padding:0 24px 40px;}
+  @keyframes fadeSlideIn{
+    from{ opacity:0; transform:translateY(6px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+  .tab-fade{ animation: fadeSlideIn .22s ease; }
+
   .stats{display:flex; gap:14px; padding:16px 0; flex-wrap:wrap;}
   .stat{
     background:var(--panel); border:1px solid var(--border); border-radius:8px;
@@ -163,6 +176,7 @@
     padding:10px 12px; border-bottom:1px solid #20262c; font-size:13px;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px;
   }
+  tbody tr{ transition: background-color .12s ease; }
   tbody tr:hover{background:var(--panel);}
   .badge{
     display:inline-block; padding:3px 8px; border-radius:5px; font-size:11px; font-weight:700;
@@ -205,18 +219,25 @@
 
   #toast{
     position:fixed; bottom:20px; right:20px; background:var(--panel-2); border:1px solid var(--border);
-    padding:12px 18px; border-radius:8px; font-size:13px; display:none; max-width:340px; z-index:50;
+    padding:12px 18px; border-radius:8px; font-size:13px; max-width:340px; z-index:50;
+    opacity:0; visibility:hidden; transform:translateY(8px);
+    transition:opacity .22s ease, transform .22s ease;
   }
+  #toast.show{ opacity:1; visibility:visible; transform:translateY(0); }
 
   .overlay{
-    position:fixed; inset:0; background:rgba(0,0,0,.6); display:none;
+    position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex;
     align-items:center; justify-content:center; z-index:100;
+    opacity:0; visibility:hidden; pointer-events:none;
+    transition:opacity .18s ease;
   }
-  .overlay.show{display:flex;}
+  .overlay.show{ opacity:1; visibility:visible; pointer-events:auto; }
   .modal{
     background:var(--panel); border:1px solid var(--border); border-radius:10px;
     padding:22px; width:360px;
+    transform:scale(.96); transition:transform .18s ease;
   }
+  .overlay.show .modal{ transform:scale(1); }
   .modal h3{margin:0 0 14px; font-size:15px;}
   .modal label{display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--text-dim); margin-bottom:12px;}
   .modal input{background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;}
@@ -270,6 +291,8 @@
 
     header{ padding:12px 14px; flex-wrap:wrap; gap:10px; }
     header h1{ font-size:15px; }
+    .brand-logo{ height:20px; }
+    .brand-product{ font-size:13px; }
     .upload-group{ flex-wrap:wrap; gap:6px; }
     .upload-btn{ padding:7px 10px; font-size:11.5px; flex:1; text-align:center; min-width:0; }
 
@@ -303,7 +326,11 @@
 <body>
 
 <header>
-  <h1><span class="dot"></span> FlowLog</h1>
+  <div class="brand">
+    <img src="/static/mubec-logo.svg" alt="Mubec" class="brand-logo">
+    <span class="brand-divider"></span>
+    <span class="brand-product">FlowLog</span>
+  </div>
   <div class="header-right">
     <div class="upload-group">
       <label class="upload-btn">📄 Follow up de vendas<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
@@ -861,6 +888,14 @@ function resetPillGroup(rowId){
   row.querySelector('.pill.all').classList.add('active');
 }
 
+function animarTrocaDeTela(seletor){
+  const el = document.querySelector(seletor);
+  if(!el) return;
+  el.classList.remove('tab-fade');
+  void el.offsetWidth; // força o navegador a "esquecer" a animação anterior, pra poder tocar de novo
+  el.classList.add('tab-fade');
+}
+
 function setTab(tab, btn){
   currentTab = tab;
   document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
@@ -874,6 +909,7 @@ function setTab(tab, btn){
   document.getElementById('stats').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
   document.getElementById('filtrosPanel').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
   document.querySelector('.filtros-toggle').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
+  animarTrocaDeTela('#appMain main');
   load();
 }
 
@@ -891,9 +927,10 @@ function limparFiltros(){
 function toast(msg, isError=false){
   const t = document.getElementById('toast');
   t.textContent = msg;
-  t.style.display = 'block';
   t.style.borderColor = isError ? 'var(--danger)' : 'var(--border)';
-  setTimeout(() => t.style.display = 'none', 4000);
+  t.classList.add('show');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => t.classList.remove('show'), 4000);
 }
 
 let uploadEmAndamento = false;
@@ -2338,7 +2375,7 @@ function toggleMonitoramento(){
   const showing = document.getElementById('monitoramento').classList.toggle('show');
   document.getElementById('appMain').classList.toggle('hide', showing);
   document.getElementById('btnMonitor').classList.toggle('active', showing);
-  if(showing){ loadHistorico(); }
+  if(showing){ animarTrocaDeTela('#monitoramento main'); loadHistorico(); }
 }
 
 const palette = ['#ff7a1a','#5bb8e8','#3ecf8e','#ffb020','#ff5252','#b48cff','#4dd0e1','#f06292'];
