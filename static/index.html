@@ -143,6 +143,13 @@
     padding:9px 14px; border-radius:6px; cursor:pointer; font-size:12.5px;
   }
   button.ghost:hover{color:var(--text); border-color:var(--text-dim);}
+  .upload-btn-light{
+    position:relative; overflow:hidden; background:transparent; border:1px solid var(--border);
+    color:var(--text-dim); padding:9px 14px; border-radius:6px; cursor:pointer; font-size:12.5px;
+    transition:.15s;
+  }
+  .upload-btn-light:hover{color:var(--text); border-color:var(--text-dim);}
+  .upload-btn-light input{position:absolute; inset:0; opacity:0; cursor:pointer;}
   button.small-action{
     background:transparent; border:1px solid var(--border); color:var(--text-dim);
     padding:4px 9px; border-radius:5px; cursor:pointer; font-size:11px;
@@ -391,6 +398,10 @@
   <div class="spacer"></div>
   <button class="ghost" onclick="limparFiltros()">✕ Limpar filtros</button>
   <button class="ghost" onclick="load()">↻ Atualizar</button>
+  <label class="upload-btn-light hide-mobile" title="Reimporta a planilha exportada com as colunas 'Situação FUP' / 'FUP' / 'Nova Data de Entrega' preenchidas">
+    ↑ Importar FUP em lote
+    <input type="file" accept=".xlsx,.xls" onchange="importarFupLote(this)">
+  </label>
   <button class="primary hide-mobile" onclick="exportar()">⬇ Exportar Excel</button>
 </div>
 
@@ -467,7 +478,7 @@
     <div class="section-title">⚠ Avisos (precisam de atenção)</div>
     <div class="table-scroll" id="scrollAvisos" style="max-height:320px;">
       <table>
-        <thead><tr><th>Pedido</th><th>Cliente</th><th>Tipo</th><th class="col-secondary">Faturamento</th><th>Entrega original</th><th>Dias s/ canhoto</th><th class="col-secondary">NF</th><th></th></tr></thead>
+        <thead><tr id="theadAvisos"></tr></thead>
         <tbody id="tbodyAvisos"></tbody>
       </table>
     </div>
@@ -475,7 +486,7 @@
     <div class="section-title">✓ Tratados (em acompanhamento)</div>
     <div class="table-scroll" id="scrollAvisosTratados" style="max-height:320px;">
       <table>
-        <thead><tr><th>Pedido</th><th>Cliente</th><th class="col-secondary">Faturamento</th><th>Entrega original</th><th>Dias s/ canhoto</th><th>Último motivo</th><th class="col-secondary">Próxima verificação</th><th></th></tr></thead>
+        <thead><tr id="theadAvisosTratados"></tr></thead>
         <tbody id="tbodyAvisosTratados"></tbody>
       </table>
     </div>
@@ -483,7 +494,7 @@
     <div class="section-title">📖 Histórico (todos os pedidos que já tiveram aviso, mesmo Encerrados)</div>
     <div class="table-scroll" id="scrollAvisosHistorico" style="max-height:320px;">
       <table>
-        <thead><tr><th>Pedido</th><th>Cliente</th><th>Status atual</th><th class="col-secondary">Entrega original</th><th></th></tr></thead>
+        <thead><tr id="theadAvisosHistorico"></tr></thead>
         <tbody id="tbodyAvisosHistorico"></tbody>
       </table>
     </div>
@@ -999,6 +1010,17 @@ function buildParams(){
   return params;
 }
 
+// Usado pra carregar as tabelas na tela: NÃO manda a busca pro servidor —
+// a busca é feita no navegador (com tolerância a erro de digitação, tipo
+// a aba Cobrança). O buildParams() original continua igual, com a busca
+// exata do servidor, só pra exportação (o Excel gerado precisa de um
+// filtro determinístico, sem "achismo" de correção automática).
+function buildParamsSemBusca(){
+  const params = buildParams();
+  params.delete('busca');
+  return params;
+}
+
 async function load(){
   if(currentTab === 'fup'){
     await loadFupTab();
@@ -1016,9 +1038,12 @@ async function load(){
     await loadCobrancaTab();
     return;
   }
-  const params = buildParams();
+  const params = buildParamsSemBusca();
   const res = await fetch('/api/pedidos?' + params.toString());
-  const pedidos = await res.json();
+  let pedidos = await res.json();
+  const busca = document.getElementById('f_busca').value;
+  pedidos = filtrarPorBusca(pedidos, busca, ['numero_pedido', 'numero_oe', 'nf', 'cod_cliente'], ['nome_cliente']);
+  pedidos = ordenarLista(pedidos, 'pedidos', valorOrdenacaoPedido);
   renderStats(pedidos);
   renderTabelaPedidos(pedidos);
 }
@@ -1082,12 +1107,113 @@ function linhaPedido(p){
   `;
 }
 
+// ---- Ordenação de coluna genérica (clique no cabeçalho), reutilizada nas
+// tabelas de Todos, FUP e Avisos — mesmo espírito da aba Cobrança. Cada
+// tabela guarda seu próprio estado (campo + direção), pra não interferir
+// nas outras.
+const ordenacaoEstado = {};
+
+function ordenarPorColuna(tabela, campo){
+  const estado = ordenacaoEstado[tabela] || (ordenacaoEstado[tabela] = {campo: null, direcao: 'asc'});
+  if(estado.campo === campo){
+    estado.direcao = estado.direcao === 'asc' ? 'desc' : 'asc';
+  }else{
+    estado.campo = campo;
+    estado.direcao = 'asc';
+  }
+  load();
+}
+
+function ordenarLista(lista, tabela, valorFn){
+  const estado = ordenacaoEstado[tabela];
+  if(!estado || !estado.campo) return lista;
+  const dir = estado.direcao === 'asc' ? 1 : -1;
+  return [...lista].sort((a, b) => {
+    const va = valorFn(a, estado.campo);
+    const vb = valorFn(b, estado.campo);
+    if(va < vb) return -1 * dir;
+    if(va > vb) return 1 * dir;
+    return 0;
+  });
+}
+
+function thOrdenavelGenerico(tabela, campo, label, extraClass){
+  const estado = ordenacaoEstado[tabela];
+  const ativo = estado && estado.campo === campo;
+  const seta = ativo ? (estado.direcao === 'asc' ? ' ▲' : ' ▼') : '';
+  return `<th class="th-ordenavel ${extraClass || ''}" onclick="ordenarPorColuna('${tabela}', '${campo}')">${label}${seta}</th>`;
+}
+
+function valorOrdenacaoPedido(p, campo){
+  switch(campo){
+    case 'numero_pedido': return p.numero_pedido || '';
+    case 'nome_cliente': return (p.nome_cliente || '').toLowerCase();
+    case 'data_emissao': return p.data_emissao || '';
+    case 'data_entrega_prevista': return p.data_entrega_prevista || '';
+    case 'nova_data_entrega': return p.nova_data_entrega || '';
+    case 'data_entrega_real': return p.data_entrega_real || '';
+    case 'tipo_entrega': return p.tipo_entrega || '';
+    case 'status': return p.status || '';
+    case 'atraso': return p.dias_atraso_producao || (p.aviso_entrega ? p.dias_uteis_desde_faturamento : 0) || 0;
+    case 'numero_oe': return p.numero_oe || '';
+    case 'nf': return p.nf || '';
+    case 'motivo_atraso_fup': return (p.motivo_atraso_fup || '').toLowerCase();
+    default: return '';
+  }
+}
+
+function valorOrdenacaoFup(f, campo){
+  switch(campo){
+    case 'numero_pedido': return f.numero_pedido || '';
+    case 'data_referencia': return f.data_referencia || '';
+    case 'situacao': return f.situacao || 'atraso';
+    case 'motivo': return (textoMotivo(f.motivo_atraso, f.observacao) || '').toLowerCase();
+    case 'observacao': return (f.observacao || '').toLowerCase();
+    default: return '';
+  }
+}
+
+function ultimoRegistroAviso(numero_pedido){
+  return (window.avisosRegistrosCache || []).filter(a => a.numero_pedido === numero_pedido)
+    .sort((a,b) => (b.data_registro > a.data_registro ? 1 : -1))[0];
+}
+function valorOrdenacaoAviso(p, campo){
+  switch(campo){
+    case 'numero_pedido': return p.numero_pedido || '';
+    case 'nome_cliente': return (p.nome_cliente || '').toLowerCase();
+    case 'tipo_entrega': return p.tipo_entrega || '';
+    case 'data_faturamento': return p.data_faturamento || '';
+    case 'data_entrega_prevista': return p.data_entrega_prevista || '';
+    case 'dias_uteis_desde_faturamento': return p.dias_uteis_desde_faturamento || 0;
+    case 'nf': return p.nf || '';
+    case 'status': return p.status || '';
+    default: return '';
+  }
+}
+function valorOrdenacaoAvisoTratado(p, campo){
+  if(campo === 'ultimo_motivo' || campo === 'proxima_data_limite'){
+    const u = ultimoRegistroAviso(p.numero_pedido);
+    if(campo === 'ultimo_motivo') return (u ? u.motivo : '').toLowerCase();
+    return (u && u.proxima_data_limite) || '';
+  }
+  return valorOrdenacaoAviso(p, campo);
+}
+
 function renderTabelaPedidos(pedidos){
   document.getElementById('thead').innerHTML = `
-    <th>Pedido</th><th>Cliente</th><th class="col-secondary">Emissão</th><th class="col-secondary">Entrega original</th>
-    <th class="col-secondary">Nova data</th><th class="col-secondary">Entrega efetiva</th>
-    <th class="col-secondary">Tipo</th><th>Status</th><th>Atraso</th>
-    <th class="col-secondary">OE</th><th class="col-secondary">NF</th><th class="col-secondary">Motivo (FUP)</th><th></th>
+    ${thOrdenavelGenerico('pedidos', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('pedidos', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('pedidos', 'data_emissao', 'Emissão', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'data_entrega_prevista', 'Entrega original', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'nova_data_entrega', 'Nova data', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'data_entrega_real', 'Entrega efetiva', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'tipo_entrega', 'Tipo', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'status', 'Status')}
+    ${thOrdenavelGenerico('pedidos', 'atraso', 'Atraso')}
+    ${thOrdenavelGenerico('pedidos', 'numero_oe', 'OE', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'nf', 'NF', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'motivo_atraso_fup', 'Motivo (FUP)', 'col-secondary')}
+    <th></th>
   `;
   document.getElementById('empty').style.display = pedidos.length ? 'none' : 'block';
   document.getElementById('empty').innerHTML = 'Nenhum pedido encontrado com esses filtros.<br><b>Importe as planilhas</b> pelos botões no topo para começar (ou ajuste/limpe os filtros).';
@@ -1135,9 +1261,12 @@ function linhaFupHistorico(f){
 
 async function loadFupTab(){
   // lista de pedidos respeitando os filtros aplicados no topo (inclusive a pílula "Atrasados", se marcada)
-  const params = buildParams();
+  const params = buildParamsSemBusca();
+  const busca = document.getElementById('f_busca').value;
   const resPend = await fetch('/api/pedidos?' + params.toString());
-  const pendentes = await resPend.json();
+  let pendentes = await resPend.json();
+  pendentes = filtrarPorBusca(pendentes, busca, ['numero_pedido', 'numero_oe', 'nf', 'cod_cliente'], ['nome_cliente']);
+  pendentes = ordenarLista(pendentes, 'fupPendentes', valorOrdenacaoPedido);
   vtFupPendentes.setData(pendentes, linhaFupPendente, 6);
   if(!pendentes.length){
     document.getElementById('tbodyFupPendentes').innerHTML = `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido encontrado com esses filtros.</td></tr>`;
@@ -1149,17 +1278,23 @@ async function loadFupTab(){
   // aplica os mesmos filtros (status/tipo/busca/datas/atraso) ao histórico de FUPs,
   // cruzando com a lista de pedidos que batem no filtro atual
   const pedidosValidos = new Set(pendentes.map(p => p.numero_pedido));
-  const algumFiltroAtivo = [...params.keys()].some(k => k !== 'aba' && k !== 'campo_data');
+  const algumFiltroAtivo = [...params.keys()].some(k => k !== 'aba' && k !== 'campo_data') || !!busca;
   if(algumFiltroAtivo){
     fups = fups.filter(f => pedidosValidos.has(f.numero_pedido));
   }
+  fups = ordenarLista(fups, 'fupHistorico', valorOrdenacaoFup);
 
   document.getElementById('stats').innerHTML = `
     <div class="stat"><div class="n">${fups.length}</div><div class="l">Registros de FUP</div></div>
     <div class="stat"><div class="n">${pendentes.length}</div><div class="l">Pedidos no filtro atual</div></div>
   `;
   document.getElementById('thead').innerHTML = `
-    <th>Pedido</th><th>Data</th><th>Situação</th><th>Motivo</th><th class="col-secondary">Observação</th><th></th>
+    ${thOrdenavelGenerico('fupHistorico', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('fupHistorico', 'data_referencia', 'Data')}
+    ${thOrdenavelGenerico('fupHistorico', 'situacao', 'Situação')}
+    ${thOrdenavelGenerico('fupHistorico', 'motivo', 'Motivo')}
+    ${thOrdenavelGenerico('fupHistorico', 'observacao', 'Observação', 'col-secondary')}
+    <th></th>
   `;
   document.getElementById('empty').style.display = fups.length ? 'none' : 'block';
   document.getElementById('empty').innerHTML = 'Nenhum FUP registrado ainda. Use a tabela acima ou o formulário para registrar o primeiro.';
@@ -1206,30 +1341,68 @@ function linhaAvisoTratado(p){
 }
 
 async function loadAvisosTab(){
-  const params = buildParams();
+  const params = buildParamsSemBusca();
+  const busca = document.getElementById('f_busca').value;
   const res = await fetch('/api/avisos?' + params.toString());
   const data = await res.json();
 
   const resRegistros = await fetch('/api/avisos/registros');
   window.avisosRegistrosCache = await resRegistros.json();
 
-  vtAvisos.setData(data.avisos, linhaAviso, 8);
-  if(!data.avisos.length){
+  let avisos = filtrarPorBusca(data.avisos, busca, ['numero_pedido', 'nf'], ['nome_cliente']);
+  let tratados = filtrarPorBusca(data.tratados, busca, ['numero_pedido', 'nf'], ['nome_cliente']);
+  let historico = filtrarPorBusca(data.historico, busca, ['numero_pedido'], ['nome_cliente']);
+
+  avisos = ordenarLista(avisos, 'avisos', valorOrdenacaoAviso);
+  tratados = ordenarLista(tratados, 'avisosTratados', valorOrdenacaoAvisoTratado);
+  historico = ordenarLista(historico, 'avisosHistorico', valorOrdenacaoAviso);
+
+  document.getElementById('theadAvisos').innerHTML = `
+    ${thOrdenavelGenerico('avisos', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('avisos', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('avisos', 'tipo_entrega', 'Tipo')}
+    ${thOrdenavelGenerico('avisos', 'data_faturamento', 'Faturamento', 'col-secondary')}
+    ${thOrdenavelGenerico('avisos', 'data_entrega_prevista', 'Entrega original')}
+    ${thOrdenavelGenerico('avisos', 'dias_uteis_desde_faturamento', 'Dias s/ canhoto')}
+    ${thOrdenavelGenerico('avisos', 'nf', 'NF', 'col-secondary')}
+    <th></th>
+  `;
+  vtAvisos.setData(avisos, linhaAviso, 8);
+  if(!avisos.length){
     document.getElementById('tbodyAvisos').innerHTML = `<tr><td colspan="8" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum aviso pendente 🎉</td></tr>`;
   }
-  vtAvisosTratados.setData(data.tratados, linhaAvisoTratado, 8);
-  if(!data.tratados.length){
+
+  document.getElementById('theadAvisosTratados').innerHTML = `
+    ${thOrdenavelGenerico('avisosTratados', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('avisosTratados', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('avisosTratados', 'data_faturamento', 'Faturamento', 'col-secondary')}
+    ${thOrdenavelGenerico('avisosTratados', 'data_entrega_prevista', 'Entrega original')}
+    ${thOrdenavelGenerico('avisosTratados', 'dias_uteis_desde_faturamento', 'Dias s/ canhoto')}
+    ${thOrdenavelGenerico('avisosTratados', 'ultimo_motivo', 'Último motivo')}
+    ${thOrdenavelGenerico('avisosTratados', 'proxima_data_limite', 'Próxima verificação', 'col-secondary')}
+    <th></th>
+  `;
+  vtAvisosTratados.setData(tratados, linhaAvisoTratado, 8);
+  if(!tratados.length){
     document.getElementById('tbodyAvisosTratados').innerHTML = `<tr><td colspan="8" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido em acompanhamento no momento.</td></tr>`;
   }
-  vtAvisosHistorico.setData(data.historico, linhaAvisoHistorico, 5);
-  if(!data.historico.length){
+
+  document.getElementById('theadAvisosHistorico').innerHTML = `
+    ${thOrdenavelGenerico('avisosHistorico', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('avisosHistorico', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('avisosHistorico', 'status', 'Status atual')}
+    ${thOrdenavelGenerico('avisosHistorico', 'data_entrega_prevista', 'Entrega original', 'col-secondary')}
+    <th></th>
+  `;
+  vtAvisosHistorico.setData(historico, linhaAvisoHistorico, 5);
+  if(!historico.length){
     document.getElementById('tbodyAvisosHistorico').innerHTML = `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido teve aviso registrado ainda.</td></tr>`;
   }
 
   document.getElementById('stats').innerHTML = `
-    <div class="stat atraso"><div class="n">${data.avisos.length}</div><div class="l">Avisos pendentes</div></div>
-    <div class="stat"><div class="n">${data.tratados.length}</div><div class="l">Em acompanhamento (tratados)</div></div>
-    <div class="stat"><div class="n">${data.historico.length}</div><div class="l">Total no histórico</div></div>
+    <div class="stat atraso"><div class="n">${avisos.length}</div><div class="l">Avisos pendentes</div></div>
+    <div class="stat"><div class="n">${tratados.length}</div><div class="l">Em acompanhamento (tratados)</div></div>
+    <div class="stat"><div class="n">${historico.length}</div><div class="l">Total no histórico</div></div>
   `;
 }
 
@@ -1771,6 +1944,23 @@ function contemAproximado(textoAlvo, consulta){
     }
   }
   return false;
+}
+
+// Filtro de busca genérico, reutilizável em qualquer lista de objetos:
+// campos em camposExatos exigem correspondência exata (bom pra números/IDs,
+// evita "25391" encontrar "25392" por engano); camposFuzzy toleram erro de
+// digitação (bom pra nomes, tipo cliente).
+function filtrarPorBusca(lista, busca, camposExatos, camposFuzzy){
+  if(!busca || !busca.trim()) return lista;
+  const buscaNorm = busca.trim().toLowerCase();
+  return lista.filter(item => {
+    const bateExato = (camposExatos || []).some(campo => {
+      const v = item[campo];
+      return v !== null && v !== undefined && String(v).toLowerCase().includes(buscaNorm);
+    });
+    if(bateExato) return true;
+    return (camposFuzzy || []).some(campo => contemAproximado(item[campo], busca));
+  });
 }
 
 let cobrancaOrdenacao = { campo: null, direcao: 'asc' };
@@ -2383,6 +2573,26 @@ async function confirmarCancelamento(){
 function exportar(){
   const params = buildParams();
   window.location = '/api/exportar?' + params.toString();
+}
+
+async function importarFupLote(input){
+  const file = input.files[0];
+  if(!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try{
+    const res = await fetch('/api/importar-fup-lote', {method:'POST', body: formData});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao importar');
+    let msg = `${data.fups_criados} FUP(s) criado(s)`;
+    if(data.datas_atualizadas > 0) msg += `, ${data.datas_atualizadas} data(s) atualizada(s)`;
+    if(data.pedidos_nao_encontrados.length > 0) msg += ` — ${data.pedidos_nao_encontrados.length} pedido(s) não encontrado(s): ${data.pedidos_nao_encontrados.slice(0,5).join(', ')}${data.pedidos_nao_encontrados.length > 5 ? '...' : ''}`;
+    toast(msg, data.pedidos_nao_encontrados.length > 0);
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+  input.value = '';
 }
 
 // ---------------- Monitoramento ----------------
