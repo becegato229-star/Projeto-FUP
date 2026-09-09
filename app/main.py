@@ -18,6 +18,7 @@ from .models import (
     Boleto, BoletoEditar, CobrancaRegistro, CobrancaRegistroCreate,
 )
 from .importer import importar_planilha, recalcular_status_e_atrasos
+from .fup_lote import importar_fup_em_lote
 from .terceirizacao import extrair_numero_nota_saida, montar_pares
 from .cobranca import importar_boletos
 
@@ -719,6 +720,32 @@ def editar_nota_retorno(numero_nota_atual: str, dados: NotaRetornoEditar, sessio
 
 
 # ---------------------------------------------------------------------
+# Importação em lote de FUP — reimporta a planilha exportada e preenchida
+# (colunas "Situação FUP" / "FUP" / "Nova Data de Entrega"), criando os
+# registros de uma vez. Nunca mexe em campos que vêm do ERP.
+# ---------------------------------------------------------------------
+@app.post("/api/importar-fup-lote")
+async def importar_fup_lote_endpoint(file: UploadFile = File(...), session: Session = Depends(get_session)):
+    if not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Envie um arquivo Excel (.xlsx ou .xls)")
+    content = await file.read()
+    try:
+        resultado = importar_fup_em_lote(io.BytesIO(content), session)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            409,
+            "Conflito ao salvar os dados — provavelmente duas ações "
+            "aconteceram ao mesmo tempo. Aguarde um instante e tente de novo.",
+        )
+    for numero in resultado.get("pedidos_com_fup_novo", []):
+        _recalcular_motivo_espelhado(numero, session)
+    return resultado
+
+
+# ---------------------------------------------------------------------
 # Exportação para Excel — exporta exatamente o que está filtrado na tela,
 # com colunas de FUP dinâmicas (FUP 1, FUP 2, ...) quando houver histórico
 # ---------------------------------------------------------------------
@@ -770,6 +797,11 @@ def exportar_excel(
         for i in range(max_fups):
             coluna = f"FUP {i+1}"
             linha[coluna] = _texto_motivo_exibicao(fups_desse_pedido[i].motivo_atraso, fups_desse_pedido[i].observacao) if i < len(fups_desse_pedido) else ""
+        # Colunas em branco, propositalmente — preencha e reimporte pela tela
+        # (botão "Importar FUP em lote") pra criar um novo registro de FUP
+        # pra cada pedido de uma vez, sem precisar fazer um por um.
+        linha["Situação FUP"] = ""
+        linha["FUP"] = ""
         linhas.append(linha)
 
     df = pd.DataFrame(linhas)
