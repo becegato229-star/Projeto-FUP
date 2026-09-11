@@ -63,7 +63,7 @@ def _to_date(value) -> date | None:
     if isinstance(value, date):
         return value
     try:
-        return pd.to_datetime(value).date()
+        return pd.to_datetime(value, dayfirst=True).date()
     except Exception:
         return None
 
