@@ -275,6 +275,20 @@ def _texto_situacao_exibicao(situacao: Optional[str], motivo: Optional[str], obs
     return texto_motivo  # situacao == "atraso"
 
 
+def _texto_situacao_excel(situacao: Optional[str], motivo: Optional[str], observacao: Optional[str]) -> Optional[str]:
+    """Mesma lógica de _texto_situacao_exibicao, mas com texto simples pra
+    planilha (sem os símbolos ✓/⚠ usados só na tela) — inclusive pra manter
+    compatível com a própria reimportação de FUP em lote, que reconhece
+    'Ok' como texto puro."""
+    situacao = situacao or "atraso"
+    if situacao == "ok":
+        return f"Ok - {observacao}" if observacao else "Ok"
+    texto_motivo = _texto_motivo_exibicao(motivo, observacao)
+    if situacao == "previsto_atraso":
+        return f"Previsto atraso - {texto_motivo}" if texto_motivo else "Previsto atraso"
+    return texto_motivo  # situacao == "atraso"
+
+
 def _recalcular_motivo_espelhado(numero_pedido: str, session: Session):
     """Depois de editar/apagar um FUP, atualiza o motivo mais recente
     espelhado no pedido (usado nas colunas/filtros da tela principal)."""
@@ -796,7 +810,7 @@ def exportar_excel(
         fups_desse_pedido = fups_por_pedido.get(p.numero_pedido, [])
         for i in range(max_fups):
             coluna = f"FUP {i+1}"
-            linha[coluna] = _texto_motivo_exibicao(fups_desse_pedido[i].motivo_atraso, fups_desse_pedido[i].observacao) if i < len(fups_desse_pedido) else ""
+            linha[coluna] = _texto_situacao_excel(fups_desse_pedido[i].situacao, fups_desse_pedido[i].motivo_atraso, fups_desse_pedido[i].observacao) if i < len(fups_desse_pedido) else ""
         # Colunas em branco, propositalmente — preencha e reimporte pela tela
         # (botão "Importar FUP em lote") pra criar um novo registro de FUP
         # pra cada pedido de uma vez, sem precisar fazer um por um.
