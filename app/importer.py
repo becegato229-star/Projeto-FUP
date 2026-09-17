@@ -10,6 +10,7 @@ import pandas as pd
 from sqlmodel import Session, select
 
 from .models import Pedido
+from .fuso import hoje_brasil
 
 # Dias úteis desde o faturamento a partir dos quais aparece um "Aviso"
 # (pedido faturado, sem canhoto, além do prazo esperado pro tipo de entrega).
@@ -222,7 +223,7 @@ def _dias_uteis_entre(d1: date, d2: date) -> int:
 
 
 def recalcular_status_e_atrasos(session: Session) -> None:
-    hoje = date.today()
+    hoje = hoje_brasil()
     pedidos = session.exec(select(Pedido)).all()
 
     for p in pedidos:
