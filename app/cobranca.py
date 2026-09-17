@@ -21,6 +21,7 @@ import pandas as pd
 from sqlmodel import Session, select
 
 from .models import Boleto
+from .fuso import hoje_brasil
 
 COLUNAS_ESPERADAS = {"Pagador", "Seu Número", "Data Vencimento"}
 
@@ -84,7 +85,7 @@ def importar_boletos(file_bytes, session: Session) -> dict:
             "faltam as colunas: " + ", ".join(faltando)
         )
 
-    hoje = date.today()
+    hoje = hoje_brasil()
     numeros_na_planilha = set()
     novos = 0
     atualizados = 0
