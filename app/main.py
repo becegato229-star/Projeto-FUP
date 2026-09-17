@@ -1,3 +1,4 @@
+import asyncio
 import io
 import time
 from datetime import date
@@ -16,9 +17,12 @@ from .models import (
     AvisoRegistro, AvisoRegistroCreate,
     NotaSaida, NotaSaidaCreate, NotaSaidaEditar, NotaRetorno, NotaRetornoCreate, NotaRetornoEditar,
     Boleto, BoletoEditar, CobrancaRegistro, CobrancaRegistroCreate,
+    SnapshotPedidoDiario,
 )
 from .importer import importar_planilha, recalcular_status_e_atrasos
 from .fup_lote import importar_fup_em_lote
+from .fuso import hoje_brasil
+from .snapshot import capturar_snapshot_do_dia, loop_captura_diaria
 from .terceirizacao import extrair_numero_nota_saida, montar_pares
 from .cobranca import importar_boletos
 
@@ -54,7 +58,7 @@ async def erro_inesperado_handler(request, exc: Exception):
 
 
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     init_db()
     with Session(engine) as session:
         # recalcula status/atraso de todos os pedidos com a lógica mais recente
@@ -72,6 +76,14 @@ def on_startup():
             for texto in MOTIVOS_ATRASO_PADRAO:
                 session.add(MotivoFup(texto=texto))
             session.commit()
+
+        # rede de segurança: se o servidor reiniciou perto da meia-noite e
+        # perdeu o horário de captura de ontem/hoje, tira o retrato agora
+        capturar_snapshot_do_dia(session)
+
+    # tarefa em segundo plano que tira o retrato diário sozinha, sem
+    # depender de nenhuma ferramenta externa (n8n, cron, etc)
+    asyncio.create_task(loop_captura_diaria(engine))
 
 
 # ---------------------------------------------------------------------
@@ -448,7 +460,7 @@ def _estado_aviso(numero_pedido: str, session: Session) -> str:
         .where(AvisoRegistro.numero_pedido == numero_pedido)
         .order_by(AvisoRegistro.data_registro.desc(), AvisoRegistro.id.desc())
     ).first()
-    if ultimo and (ultimo.proxima_data_limite is None or ultimo.proxima_data_limite > date.today()):
+    if ultimo and (ultimo.proxima_data_limite is None or ultimo.proxima_data_limite > hoje_brasil()):
         return "tratado"
     return "aviso"
 
@@ -823,7 +835,7 @@ def exportar_excel(
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Pedidos")
     buffer.seek(0)
-    filename = f"flowlog_{aba}_{date.today().isoformat()}.xlsx"
+    filename = f"flowlog_{aba}_{hoje_brasil().isoformat()}.xlsx"
     return StreamingResponse(
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -873,6 +885,28 @@ def dashboard_atual(session: Session = Depends(get_session)):
         "media_dias_aviso": media_dias_aviso,
         "top_clientes_atraso": top_clientes,
         "total_pedidos": len(pedidos),
+    }
+
+
+# ---------------------------------------------------------------------
+# Snapshot diário — diagnóstico, pra conferir se a captura automática
+# está funcionando sem precisar esperar meses de dado acumulado.
+# ---------------------------------------------------------------------
+@app.get("/api/snapshot/status")
+def snapshot_status(session: Session = Depends(get_session)):
+    dias = session.exec(
+        select(SnapshotPedidoDiario.data).distinct().order_by(SnapshotPedidoDiario.data.desc())
+    ).all()
+    hoje = hoje_brasil()
+    total_hoje = len(session.exec(
+        select(SnapshotPedidoDiario).where(SnapshotPedidoDiario.data == hoje)
+    ).all()) if dias and dias[0] == hoje else 0
+    return {
+        "hoje_no_fuso_brasil": hoje.isoformat(),
+        "capturado_hoje": bool(dias and dias[0] == hoje),
+        "total_pedidos_capturados_hoje": total_hoje,
+        "dias_com_captura": [d.isoformat() for d in dias],
+        "proximo_horario_captura_agendado": "23:50 (horário de Brasília), todo dia",
     }
 
 
@@ -1018,7 +1052,7 @@ def contar_cobrancas_pendentes(session: Session = Depends(get_session)):
     pra ligar de novo — usado pro sininho/contador na aba. Precisa vir
     ANTES da rota /api/cobranca/{seu_numero} nesse arquivo, senão
     "pendentes-contagem" seria interpretado como um número de boleto."""
-    hoje = date.today()
+    hoje = hoje_brasil()
     boletos = session.exec(select(Boleto).where(Boleto.status == "Em aberto")).all()
     pendentes = sum(1 for b in boletos if b.proxima_cobranca and b.proxima_cobranca <= hoje)
     return {"pendentes": pendentes}
@@ -1050,7 +1084,7 @@ def editar_boleto(seu_numero: str, dados: BoletoEditar, session: Session = Depen
     if dados.valor_pago is not None:
         boleto.valor_pago = dados.valor_pago
     if dados.status == "Pago":
-        boleto.data_pago_sistema = dados.data_pago_sistema or boleto.data_pago_sistema or date.today()
+        boleto.data_pago_sistema = dados.data_pago_sistema or boleto.data_pago_sistema or hoje_brasil()
         boleto.reapareceu = False
     else:
         boleto.data_pago_sistema = None
