@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from .fuso import hoje_brasil
 from typing import Optional
 from sqlmodel import SQLModel, Field
 
@@ -45,7 +46,7 @@ class Pedido(SQLModel, table=True):
 class FupRegistro(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     numero_pedido: str = Field(index=True, foreign_key="pedido.numero_pedido")
-    data_referencia: date = Field(default_factory=date.today)
+    data_referencia: date = Field(default_factory=hoje_brasil)
     previsao_atraso: bool = False  # mantido por compatibilidade com registros antigos; não usado mais
     situacao: Optional[str] = None  # "ok" | "previsto_atraso" | "atraso" — None = registro antigo (trata como "atraso")
     motivo_atraso: Optional[str] = None
@@ -58,7 +59,7 @@ class FupRegistroCreate(SQLModel):
     um bug do SQLModel/FastAPI onde datas recebidas via JSON não são
     convertidas corretamente de string para date antes do INSERT."""
     numero_pedido: str
-    data_referencia: date = Field(default_factory=date.today)
+    data_referencia: date = Field(default_factory=hoje_brasil)
     situacao: str  # "ok" | "previsto_atraso" | "atraso"
     motivo_atraso: Optional[str] = None
     observacao: Optional[str] = None
@@ -82,7 +83,7 @@ class AvisoRegistro(SQLModel, table=True):
     pós-faturamento."""
     id: Optional[int] = Field(default=None, primary_key=True)
     numero_pedido: str = Field(index=True, foreign_key="pedido.numero_pedido")
-    data_registro: date = Field(default_factory=date.today)
+    data_registro: date = Field(default_factory=hoje_brasil)
     motivo: str                                  # texto livre, ex: "liguei pra transportadora, falou X"
     proxima_data_limite: Optional[date] = None    # "soneca": se passar sem canhoto, volta pra lista de Avisos
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -91,7 +92,7 @@ class AvisoRegistro(SQLModel, table=True):
 class AvisoRegistroCreate(SQLModel):
     """Schema de entrada — mesmo motivo do FupRegistroCreate (bug de data)."""
     numero_pedido: str
-    data_registro: date = Field(default_factory=date.today)
+    data_registro: date = Field(default_factory=hoje_brasil)
     motivo: str
     proxima_data_limite: Optional[date] = None
 
@@ -215,7 +216,7 @@ class CobrancaRegistro(SQLModel, table=True):
     específico do contexto de boletos vencidos."""
     id: Optional[int] = Field(default=None, primary_key=True)
     seu_numero: str = Field(index=True, foreign_key="boleto.seu_numero")
-    data_registro: date = Field(default_factory=date.today)
+    data_registro: date = Field(default_factory=hoje_brasil)
     motivo: str  # texto livre, ex: "liguei, cliente disse que paga sexta"
     proxima_data_cobranca: Optional[date] = None  # quando ligar de novo, se souber
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -223,6 +224,23 @@ class CobrancaRegistro(SQLModel, table=True):
 
 class CobrancaRegistroCreate(SQLModel):
     seu_numero: str
-    data_registro: date = Field(default_factory=date.today)
+    data_registro: date = Field(default_factory=hoje_brasil)
     motivo: str
     proxima_data_cobranca: Optional[date] = None
+
+
+# =======================================================================
+# Snapshot diário — retrato de cada pedido ativo, guardado uma vez por dia.
+# Existe porque o estado atual do pedido (status, atraso_producao, etc) é
+# sempre recalculado por cima do valor anterior — sem isso, não tem como
+# reconstruir "como estava a operação há 2 meses", só o momento atual.
+# =======================================================================
+class SnapshotPedidoDiario(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    data: date = Field(index=True)
+    numero_pedido: str = Field(index=True)
+    status: Optional[str] = None
+    atraso_producao: bool = False
+    dias_atraso_producao: int = 0
+    tipo_entrega: Optional[str] = None
+    nome_cliente: Optional[str] = None
