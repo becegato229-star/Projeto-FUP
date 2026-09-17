@@ -26,7 +26,7 @@ COLUNAS_ESPERADAS = {"Pagador", "Seu Número", "Data Vencimento"}
 
 
 def _to_date(value) -> Optional[date]:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None or pd.isna(value):
         return None
     if isinstance(value, datetime):
         return value.date()
