@@ -21,6 +21,7 @@ import pandas as pd
 from sqlmodel import Session
 
 from .models import Pedido, FupRegistro
+from .fuso import hoje_brasil
 
 
 def _normalizar_cabecalho(texto: str) -> str:
@@ -140,7 +141,7 @@ def importar_fup_em_lote(file_bytes, session: Session) -> dict:
 
         fup = FupRegistro(
             numero_pedido=numero_pedido,
-            data_referencia=date.today(),
+            data_referencia=hoje_brasil(),
             situacao=situacao,
             motivo_atraso=motivo_atraso,
             observacao=texto_fup,
