@@ -1190,6 +1190,11 @@ def apagar_boleto(seu_numero: str, session: Session = Depends(get_session)):
     boleto = session.get(Boleto, seu_numero)
     if not boleto:
         raise HTTPException(404, "Boleto não encontrado")
+    # apaga o histórico de cobrança junto — senão fica órfão, apontando pra
+    # um "Seu Número" que pode um dia ser reaproveitado por outro boleto
+    registros = session.exec(select(CobrancaRegistro).where(CobrancaRegistro.seu_numero == seu_numero)).all()
+    for registro in registros:
+        session.delete(registro)
     session.delete(boleto)
     session.commit()
     return {"ok": True}
