@@ -18,6 +18,7 @@ from .models import (
     NotaSaida, NotaSaidaCreate, NotaSaidaEditar, NotaRetorno, NotaRetornoCreate, NotaRetornoEditar,
     Boleto, BoletoEditar, CobrancaRegistro, CobrancaRegistroCreate,
     SnapshotPedidoDiario,
+    TransportadoraRegistro, TransportadoraRegistroCreate,
 )
 from .importer import importar_planilha, recalcular_status_e_atrasos
 from .fup_lote import importar_fup_em_lote
@@ -541,6 +542,96 @@ def apagar_aviso_registro(registro_id: int, session: Session = Depends(get_sessi
     registro = session.get(AvisoRegistro, registro_id)
     if not registro:
         raise HTTPException(404, "Registro de aviso não encontrado")
+    session.delete(registro)
+    session.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------
+# Verificação de transportadora — controle independente do Aviso de
+# canhoto: assim que um pedido Transportadora vira Faturado, precisa de
+# confirmação manual de que a coleta foi chamada, sem esperar dia nenhum.
+# Quando o canhoto chega, o pedido já vira Encerrado sozinho (lógica que
+# já existe) e sai da lista de "Faturado" — não precisa de nenhuma regra
+# extra ligando "tem canhoto" a "foi chamado".
+# ---------------------------------------------------------------------
+def _transportadora_confirmada(numero_pedido: str, session: Session) -> bool:
+    return session.exec(
+        select(TransportadoraRegistro)
+        .where(TransportadoraRegistro.numero_pedido == numero_pedido, TransportadoraRegistro.chamado == True)  # noqa: E712
+    ).first() is not None
+
+
+@app.get("/api/transportadora")
+def listar_transportadora(
+    data_de: Optional[date] = None,
+    data_ate: Optional[date] = None,
+    campo_data: str = Query("entrega"),
+    busca: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    _recalcular_se_necessario(session)
+    pedidos = listar_pedidos(
+        aba="todos", tipo_entrega="Transportadora", status="Faturado", apenas_atrasados=False,
+        data_de=data_de, data_ate=data_ate, campo_data=campo_data, cliente=None, busca=busca, session=session,
+    )  # type: ignore
+
+    pendentes, confirmados = [], []
+    for p in pedidos:
+        if _transportadora_confirmada(p.numero_pedido, session):
+            confirmados.append(p)
+        else:
+            pendentes.append(p)
+
+    # histórico: todo pedido que já teve algum registro, mesmo depois de
+    # virar Encerrado — mesmo espírito do histórico de Avisos
+    numeros_com_historico = session.exec(select(TransportadoraRegistro.numero_pedido).distinct()).all()
+    historico = []
+    for numero in numeros_com_historico:
+        p = session.get(Pedido, numero)
+        if p:
+            historico.append(p)
+    historico.sort(key=lambda p: p.data_emissao or date.min, reverse=True)
+
+    return {"pendentes": pendentes, "confirmados": confirmados, "historico": historico}
+
+
+@app.get("/api/transportadora/registros")
+def listar_transportadora_registros(session: Session = Depends(get_session)):
+    return session.exec(select(TransportadoraRegistro).order_by(TransportadoraRegistro.data_registro.desc())).all()
+
+
+@app.post("/api/transportadora/registros")
+def criar_transportadora_registro(dados: TransportadoraRegistroCreate, session: Session = Depends(get_session)):
+    if not session.get(Pedido, dados.numero_pedido):
+        raise HTTPException(404, "Pedido não encontrado")
+    registro = TransportadoraRegistro(**dados.dict())
+    session.add(registro)
+    session.commit()
+    session.refresh(registro)
+    return registro
+
+
+@app.put("/api/transportadora/registros/{registro_id}")
+def editar_transportadora_registro(registro_id: int, dados: TransportadoraRegistroCreate, session: Session = Depends(get_session)):
+    registro = session.get(TransportadoraRegistro, registro_id)
+    if not registro:
+        raise HTTPException(404, "Registro de transportadora não encontrado")
+    registro.data_registro = dados.data_registro
+    registro.chamado = dados.chamado
+    registro.quem_chamou = dados.quem_chamou
+    registro.observacao = dados.observacao
+    session.add(registro)
+    session.commit()
+    session.refresh(registro)
+    return registro
+
+
+@app.delete("/api/transportadora/registros/{registro_id}")
+def apagar_transportadora_registro(registro_id: int, session: Session = Depends(get_session)):
+    registro = session.get(TransportadoraRegistro, registro_id)
+    if not registro:
+        raise HTTPException(404, "Registro de transportadora não encontrado")
     session.delete(registro)
     session.commit()
     return {"ok": True}
