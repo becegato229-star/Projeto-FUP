@@ -388,21 +388,22 @@
   </div>
   <label>Data de<input type="date" id="f_data_de" onchange="load()"></label>
   <label>Data até<input type="date" id="f_data_ate" onchange="load()"></label>
-  <label>Filtrar por
+  <label id="f_campo_data_wrap">Filtrar por
     <select id="f_campo_data" onchange="load()">
       <option value="entrega" selected>Data de entrega</option>
       <option value="emissao">Data de emissão</option>
       <option value="entrega_efetiva">Data efetiva de entrega</option>
+      <option value="faturamento">Data de faturamento</option>
     </select>
   </label>
   <div class="spacer"></div>
   <button class="ghost" onclick="limparFiltros()">✕ Limpar filtros</button>
   <button class="ghost" onclick="load()">↻ Atualizar</button>
-  <label class="upload-btn-light hide-mobile" title="Reimporta a planilha exportada com as colunas 'Situação FUP' / 'FUP' / 'Nova Data de Entrega' preenchidas">
+  <label class="upload-btn-light hide-mobile" id="upload_fup_lote_wrap" title="Reimporta a planilha exportada com as colunas 'Situação FUP' / 'FUP' / 'Nova Data de Entrega' preenchidas">
     ↑ Importar FUP em lote
     <input type="file" accept=".xlsx,.xls" onchange="importarFupLote(this)">
   </label>
-  <button class="primary hide-mobile" onclick="exportar()">⬇ Exportar Excel</button>
+  <button class="primary hide-mobile" id="btn_exportar_excel" onclick="exportar()">⬇ Exportar Excel</button>
 </div>
 
 <div class="pill-rows">
@@ -507,21 +508,8 @@
     </div>
 
     <div id="avisosTransportadoraWrap" style="display:none; margin-top:14px;">
-      <div class="form-card">
-        <div class="form-card-title">🚚 Registrar tentativa de contato</div>
-        <div class="form-card-body">
-          <label>Nº do pedido<input type="text" id="transp_pedido" placeholder="ex: 20233"></label>
-          <label>Data<input type="date" id="transp_data"></label>
-          <label>Conseguiu chamar?
-            <select id="transp_chamado" onchange="toggleTranspQuemChamou()">
-              <option value="nao">Não</option>
-              <option value="sim">Sim</option>
-            </select>
-          </label>
-          <label id="transp_quem_chamou_wrap" style="display:none;">Quem chamou<input type="text" id="transp_quem_chamou" placeholder="ex: Rian"></label>
-          <label class="grow">Observação (opcional)<input type="text" id="transp_observacao" placeholder="ex: confirmou coleta pra amanhã"></label>
-          <button class="primary" onclick="salvarTransportadora()">Registrar</button>
-        </div>
+      <div style="font-size:12.5px; color:var(--text-dim); margin-bottom:10px;">
+        Dê um duplo clique em qualquer pedido da lista (ou use o botão "Registrar") para abrir o registro de contato.
       </div>
 
       <div class="section-title">🚚 Pendentes (precisa verificar)</div>
@@ -821,6 +809,26 @@
   </div>
 </div>
 
+<div class="overlay" id="transportadoraOverlay">
+  <div class="modal">
+    <h3>Verificar transportadora — pedido <span id="transpModalPedidoNum"></span></h3>
+    <div id="transpModalContexto" style="font-size:12.5px; color:var(--text-dim); margin-bottom:14px;"></div>
+    <label>Data<input type="date" id="transp_data"></label>
+    <label>Conseguiu chamar?
+      <select id="transp_chamado" onchange="toggleTranspQuemChamou()">
+        <option value="sim" selected>Sim</option>
+        <option value="nao">Não</option>
+      </select>
+    </label>
+    <label id="transp_quem_chamou_wrap">Quem chamou<input type="text" id="transp_quem_chamou" placeholder="ex: Rian"></label>
+    <label>Observação (opcional)<input type="text" id="transp_observacao" placeholder="ex: confirmou coleta pra amanhã"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharTransportadoraModal()">Cancelar</button>
+      <button class="primary" onclick="salvarTransportadora()">Registrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="editarBoletoOverlay">
   <div class="modal">
     <h3>Editar boleto — <span id="editarBoletoNum"></span></h3>
@@ -989,6 +997,20 @@ function setTab(tab, btn){
   document.getElementById('stats').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
   document.getElementById('filtrosPanel').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
   document.querySelector('.filtros-toggle').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
+  if(tab === 'avisos'){
+    // reaplica o estado de filtros/estatisticas da sub-aba que estiver ativa
+    // (canhoto por padrao, na primeira visita)
+    const subtabAtivo = document.querySelector('#avisosWrap .subtabs button.active')?.dataset.avisosSubtab || 'canhoto';
+    setAvisosSubtab(subtabAtivo, document.querySelector(`#avisosWrap .subtabs button[data-avisos-subtab="${subtabAtivo}"]`));
+  }else{
+    // sai da aba Avisos: garante que nenhum filtro fique escondido pras outras abas
+    document.getElementById('pills_tipo').style.display = '';
+    document.getElementById('pills_atraso').style.display = '';
+    document.getElementById('pills_status').style.display = '';
+    document.getElementById('f_campo_data_wrap').style.display = '';
+    document.getElementById('upload_fup_lote_wrap').style.display = '';
+    document.getElementById('btn_exportar_excel').style.display = '';
+  }
   animarTrocaDeTela('#appMain main');
   load();
 }
@@ -1453,11 +1475,7 @@ async function loadAvisosTab(){
     document.getElementById('tbodyAvisosHistorico').innerHTML = `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido teve aviso registrado ainda.</td></tr>`;
   }
 
-  document.getElementById('stats').innerHTML = `
-    <div class="stat atraso"><div class="n">${avisos.length}</div><div class="l">Avisos pendentes</div></div>
-    <div class="stat"><div class="n">${tratados.length}</div><div class="l">Em acompanhamento (tratados)</div></div>
-    <div class="stat"><div class="n">${historico.length}</div><div class="l">Total no histórico</div></div>
-  `;
+  window.avisosStatsCache = {avisos: avisos.length, tratados: tratados.length, historico: historico.length};
 
   // --- sub-aba Transportadora ---
   const resTransp = await fetch('/api/transportadora?' + params.toString());
@@ -1511,6 +1529,12 @@ async function loadAvisosTab(){
   if(!transpHistorico.length){
     document.getElementById('tbodyTransportadoraHistorico').innerHTML = `<tr><td colspan="4" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido teve verificação registrada ainda.</td></tr>`;
   }
+
+  window.transportadoraPedidosCache = [...transpPendentes, ...transpConfirmados, ...transpHistorico];
+  window.transportadoraStatsCache = {pendentes: transpPendentes.length, confirmados: transpConfirmados.length, historico: transpHistorico.length};
+
+  const subtabAtivo = document.querySelector('#avisosWrap .subtabs button.active')?.dataset.avisosSubtab || 'canhoto';
+  renderStatsAvisos(subtabAtivo);
 }
 
 function linhaAvisoHistorico(p){
@@ -1529,13 +1553,13 @@ function linhaTransportadora(p){
   const ultimo = (window.transportadoraRegistrosCache || []).filter(r => r.numero_pedido === p.numero_pedido)
     .sort((a,b) => (b.data_registro > a.data_registro ? 1 : (a.data_registro > b.data_registro ? -1 : b.id - a.id)))[0];
   return `
-    <tr>
+    <tr ondblclick="abrirTransportadoraModal('${p.numero_pedido}')" style="cursor:pointer;">
       <td style="font-family:var(--mono)">${p.numero_pedido}</td>
       <td>${p.nome_cliente || '—'}</td>
       <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
       <td class="col-secondary">${p.nf || '—'}</td>
       <td>${ultimo ? (ultimo.observacao || 'Tentou, não atendeu') : '—'}</td>
-      <td><button class="small-action fup" onclick="preencherTransportadora('${p.numero_pedido}')">Registrar</button></td>
+      <td><button class="small-action fup" onclick="abrirTransportadoraModal('${p.numero_pedido}')">Registrar</button></td>
     </tr>
   `;
 }
@@ -1543,14 +1567,14 @@ function linhaTransportadoraConfirmado(p){
   const ultimo = (window.transportadoraRegistrosCache || []).filter(r => r.numero_pedido === p.numero_pedido && r.chamado)
     .sort((a,b) => (b.data_registro > a.data_registro ? 1 : (a.data_registro > b.data_registro ? -1 : b.id - a.id)))[0];
   return `
-    <tr>
+    <tr ondblclick="abrirTransportadoraModal('${p.numero_pedido}')" style="cursor:pointer;">
       <td style="font-family:var(--mono)">${p.numero_pedido}</td>
       <td>${p.nome_cliente || '—'}</td>
       <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
       <td class="col-secondary">${p.nf || '—'}</td>
       <td>${ultimo ? (ultimo.quem_chamou || '—') : '—'}</td>
       <td class="col-secondary">${ultimo ? fmtDate(ultimo.data_registro) : '—'}</td>
-      <td><button class="small-action fup" onclick="preencherTransportadora('${p.numero_pedido}')">Nova tentativa</button></td>
+      <td><button class="small-action fup" onclick="abrirTransportadoraModal('${p.numero_pedido}')">Nova tentativa</button></td>
     </tr>
   `;
 }
@@ -1601,6 +1625,44 @@ function setAvisosSubtab(subtab, btn){
   btn.classList.add('active');
   document.getElementById('avisosCanhotoWrap').style.display = (subtab === 'canhoto') ? 'block' : 'none';
   document.getElementById('avisosTransportadoraWrap').style.display = (subtab === 'transportadora') ? 'block' : 'none';
+
+  const transportadoraAtiva = subtab === 'transportadora';
+  // filtros de tipo/status/atraso e as acoes de importar/exportar nao fazem
+  // sentido pra essa sub-aba: a lista ja e sempre Transportadora+Faturado
+  document.getElementById('pills_tipo').style.display = transportadoraAtiva ? 'none' : '';
+  document.getElementById('pills_atraso').style.display = transportadoraAtiva ? 'none' : '';
+  document.getElementById('pills_status').style.display = transportadoraAtiva ? 'none' : '';
+  document.getElementById('f_campo_data_wrap').style.display = transportadoraAtiva ? 'none' : '';
+  document.getElementById('upload_fup_lote_wrap').style.display = transportadoraAtiva ? 'none' : '';
+  document.getElementById('btn_exportar_excel').style.display = transportadoraAtiva ? 'none' : '';
+  if(transportadoraAtiva){
+    resetPillGroup('pills_tipo');
+    resetPillGroup('pills_atraso');
+    resetPillGroup('pills_status');
+    document.getElementById('f_campo_data').value = 'faturamento';
+  }else{
+    document.getElementById('f_campo_data').value = 'entrega';
+  }
+  renderStatsAvisos(subtab);
+  load();
+}
+
+function renderStatsAvisos(subtab){
+  if(subtab === 'transportadora'){
+    const s = window.transportadoraStatsCache || {pendentes:0, confirmados:0, historico:0};
+    document.getElementById('stats').innerHTML = `
+      <div class="stat atraso"><div class="n">${s.pendentes}</div><div class="l">Pendentes de verificar</div></div>
+      <div class="stat"><div class="n">${s.confirmados}</div><div class="l">Confirmados</div></div>
+      <div class="stat"><div class="n">${s.historico}</div><div class="l">Total no histórico</div></div>
+    `;
+  }else{
+    const s = window.avisosStatsCache || {avisos:0, tratados:0, historico:0};
+    document.getElementById('stats').innerHTML = `
+      <div class="stat atraso"><div class="n">${s.avisos}</div><div class="l">Avisos pendentes</div></div>
+      <div class="stat"><div class="n">${s.tratados}</div><div class="l">Em acompanhamento (tratados)</div></div>
+      <div class="stat"><div class="n">${s.historico}</div><div class="l">Total no histórico</div></div>
+    `;
+  }
 }
 
 function toggleTranspQuemChamou(){
@@ -1608,23 +1670,36 @@ function toggleTranspQuemChamou(){
   document.getElementById('transp_quem_chamou_wrap').style.display = chamado ? 'flex' : 'none';
 }
 
-function preencherTransportadora(numeroPedido){
-  document.querySelector('#avisosWrap .subtabs button[data-avisos-subtab="transportadora"]').click();
-  document.getElementById('transp_pedido').value = numeroPedido;
-  document.getElementById('transp_pedido').scrollIntoView({behavior:'smooth', block:'center'});
-  document.getElementById('transp_pedido').focus();
+let transpModalPedido = null;
+function abrirTransportadoraModal(numeroPedido){
+  transpModalPedido = numeroPedido;
+  const p = (window.transportadoraPedidosCache || []).find(x => x.numero_pedido === numeroPedido);
+  document.getElementById('transpModalPedidoNum').textContent = '#' + numeroPedido;
+  document.getElementById('transpModalContexto').textContent = p
+    ? `${p.nome_cliente || '—'} · Faturado em ${fmtDate(p.data_faturamento)} · NF ${p.nf || '—'}`
+    : '';
+  document.getElementById('transp_data').value = new Date().toISOString().slice(0,10);
+  document.getElementById('transp_chamado').value = 'sim';
+  document.getElementById('transp_quem_chamou').value = '';
+  document.getElementById('transp_observacao').value = '';
+  toggleTranspQuemChamou();
+  document.getElementById('transportadoraOverlay').classList.add('show');
+}
+function fecharTransportadoraModal(){
+  document.getElementById('transportadoraOverlay').classList.remove('show');
+  transpModalPedido = null;
 }
 
 async function salvarTransportadora(){
   const chamado = document.getElementById('transp_chamado').value === 'sim';
   const body = {
-    numero_pedido: document.getElementById('transp_pedido').value.trim(),
+    numero_pedido: transpModalPedido,
     data_registro: document.getElementById('transp_data').value || new Date().toISOString().slice(0,10),
     chamado: chamado,
     quem_chamou: chamado ? document.getElementById('transp_quem_chamou').value.trim() || null : null,
     observacao: document.getElementById('transp_observacao').value.trim() || null,
   };
-  if(!body.numero_pedido){ toast('Informe o número do pedido', true); return; }
+  if(!body.numero_pedido){ toast('Nenhum pedido selecionado', true); return; }
   if(chamado && !body.quem_chamou){ toast('Informe quem chamou', true); return; }
   try{
     const res = await fetch('/api/transportadora/registros', {
@@ -1633,11 +1708,7 @@ async function salvarTransportadora(){
     const data = await res.json();
     if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
     toast(chamado ? 'Transportadora confirmada' : 'Tentativa registrada');
-    document.getElementById('transp_pedido').value = '';
-    document.getElementById('transp_chamado').value = 'nao';
-    document.getElementById('transp_quem_chamou').value = '';
-    document.getElementById('transp_observacao').value = '';
-    toggleTranspQuemChamou();
+    fecharTransportadoraModal();
     load();
   }catch(e){
     toast('Erro: ' + e.message, true);
