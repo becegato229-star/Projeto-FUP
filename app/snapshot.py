@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, select
 
 from .fuso import agora_brasil, hoje_brasil
-from .models import Pedido, SnapshotPedidoDiario
+from .models import FupRegistro, Pedido, SnapshotPedidoDiario
 
 HORARIO_CAPTURA = (23, 50)  # hora, minuto — sempre no fuso do Brasil
 
@@ -33,6 +33,33 @@ def ja_capturou_hoje(session: Session) -> bool:
         select(SnapshotPedidoDiario).where(SnapshotPedidoDiario.data == hoje)
     ).first()
     return existe is not None
+
+
+def _atrasado_para_snapshot(numero_pedido: str, session: Session) -> bool:
+    """Se o pedido conta como 'atrasado' no retrato diário — critério
+    DIFERENTE do usado nos filtros normais da tela. Aqui, quem decide é a
+    situação do ÚLTIMO registro de FUP, uma revisão manual, não o cálculo
+    automático de calendário:
+
+    - Sem nenhum FUP registrado -> Ok (não atrasado)
+    - Último FUP com situação "Ok" -> Ok (não atrasado), mesmo que a data
+      já tenha passado
+    - Último FUP "Previsto atraso" ou "Atraso" -> atrasado
+    - Registro antigo sem 'situacao' salva -> trata como atraso (mesma
+      regra usada em outros lugares do sistema pra manter compatibilidade)
+
+    Os filtros normais (aba Todos, "Atrasados", etc) continuam usando
+    Pedido.atraso_producao/dias_atraso_producao sem nenhuma mudança — essa
+    função só afeta o que fica gravado no histórico diário."""
+    ultimo_fup = session.exec(
+        select(FupRegistro)
+        .where(FupRegistro.numero_pedido == numero_pedido)
+        .order_by(FupRegistro.data_referencia.desc(), FupRegistro.id.desc())
+    ).first()
+    if ultimo_fup is None:
+        return False
+    situacao = ultimo_fup.situacao or "atraso"
+    return situacao in ("previsto_atraso", "atraso")
 
 
 def capturar_snapshot_do_dia(session: Session) -> int:
@@ -52,7 +79,9 @@ def capturar_snapshot_do_dia(session: Session) -> int:
             data=hoje,
             numero_pedido=p.numero_pedido,
             status=p.status,
-            atraso_producao=p.atraso_producao,
+            atraso_producao=_atrasado_para_snapshot(p.numero_pedido, session),
+            # dias_atraso_producao continua sendo o cálculo de calendário puro,
+            # só informativo aqui — não é o que decide se conta como atraso
             dias_atraso_producao=p.dias_atraso_producao,
             tipo_entrega=p.tipo_entrega,
             nome_cliente=p.nome_cliente,
