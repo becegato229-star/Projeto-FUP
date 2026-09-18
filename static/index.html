@@ -1512,11 +1512,12 @@ async function loadAvisosTab(){
     ${thOrdenavelGenerico('transportadoraConfirmados', 'nf', 'NF', 'col-secondary')}
     <th>Quem chamou</th>
     <th class="col-secondary">Quando</th>
+    <th>Observação</th>
     <th></th>
   `;
-  vtTransportadoraConfirmados.setData(transpConfirmados, linhaTransportadoraConfirmado, 7);
+  vtTransportadoraConfirmados.setData(transpConfirmados, linhaTransportadoraConfirmado, 8);
   if(!transpConfirmados.length){
-    document.getElementById('tbodyTransportadoraConfirmados').innerHTML = `<tr><td colspan="7" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido confirmado ainda.</td></tr>`;
+    document.getElementById('tbodyTransportadoraConfirmados').innerHTML = `<tr><td colspan="8" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido confirmado ainda.</td></tr>`;
   }
 
   document.getElementById('theadTransportadoraHistorico').innerHTML = `
@@ -1524,10 +1525,11 @@ async function loadAvisosTab(){
     ${thOrdenavelGenerico('transportadoraHistorico', 'nome_cliente', 'Cliente')}
     ${thOrdenavelGenerico('transportadoraHistorico', 'status', 'Status atual')}
     ${thOrdenavelGenerico('transportadoraHistorico', 'data_faturamento', 'Faturamento', 'col-secondary')}
+    <th>Última observação</th>
   `;
-  vtTransportadoraHistorico.setData(transpHistorico, linhaTransportadoraHistorico, 4);
+  vtTransportadoraHistorico.setData(transpHistorico, linhaTransportadoraHistorico, 5);
   if(!transpHistorico.length){
-    document.getElementById('tbodyTransportadoraHistorico').innerHTML = `<tr><td colspan="4" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido teve verificação registrada ainda.</td></tr>`;
+    document.getElementById('tbodyTransportadoraHistorico').innerHTML = `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido teve verificação registrada ainda.</td></tr>`;
   }
 
   window.transportadoraPedidosCache = [...transpPendentes, ...transpConfirmados, ...transpHistorico];
@@ -1574,17 +1576,21 @@ function linhaTransportadoraConfirmado(p){
       <td class="col-secondary">${p.nf || '—'}</td>
       <td>${ultimo ? (ultimo.quem_chamou || '—') : '—'}</td>
       <td class="col-secondary">${ultimo ? fmtDate(ultimo.data_registro) : '—'}</td>
+      <td>${ultimo ? (ultimo.observacao || '—') : '—'}</td>
       <td><button class="small-action fup" onclick="abrirTransportadoraModal('${p.numero_pedido}')">Nova tentativa</button></td>
     </tr>
   `;
 }
 function linhaTransportadoraHistorico(p){
+  const ultimo = (window.transportadoraRegistrosCache || []).filter(r => r.numero_pedido === p.numero_pedido)
+    .sort((a,b) => (b.data_registro > a.data_registro ? 1 : (a.data_registro > b.data_registro ? -1 : b.id - a.id)))[0];
   return `
     <tr>
       <td style="font-family:var(--mono)">${p.numero_pedido}</td>
       <td>${p.nome_cliente || '—'}</td>
       <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
       <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
+      <td>${ultimo ? (ultimo.observacao || (ultimo.chamado ? (ultimo.quem_chamou || 'Confirmado') : 'Tentou, não atendeu')) : '—'}</td>
     </tr>
   `;
 }
