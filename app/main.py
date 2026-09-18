@@ -175,6 +175,7 @@ def listar_pedidos(
         "entrega": "data_entrega_prevista",
         "emissao": "data_emissao",
         "entrega_efetiva": "data_entrega_real",
+        "faturamento": "data_faturamento",
     }
     atributo_data = campo_data_map.get(campo_data, "data_entrega_prevista")
 
