@@ -464,41 +464,92 @@
   </div>
 
   <div id="avisosWrap" style="display:none">
-    <div class="form-card">
-      <div class="form-card-title">⚠ Registrar novo aviso</div>
-      <div class="form-card-body">
-        <label>Nº do pedido<input type="text" id="aviso_pedido" placeholder="ex: 20233"></label>
-        <label>Data<input type="date" id="aviso_data"></label>
-        <label class="grow">Motivo (texto livre)<input type="text" id="aviso_motivo" placeholder="ex: liguei pra transportadora, falou que..."></label>
-        <label>Próxima verificação (opcional)<input type="date" id="aviso_proxima_data"></label>
-        <button class="primary" onclick="salvarAviso()">Registrar aviso</button>
+    <div class="subtabs" style="margin-top:10px;">
+      <button class="active" data-avisos-subtab="canhoto" onclick="setAvisosSubtab('canhoto', this)">📦 Canhoto</button>
+      <button data-avisos-subtab="transportadora" onclick="setAvisosSubtab('transportadora', this)">🚚 Transportadora</button>
+    </div>
+
+    <div id="avisosCanhotoWrap" style="margin-top:14px;">
+      <div class="form-card">
+        <div class="form-card-title">⚠ Registrar novo aviso</div>
+        <div class="form-card-body">
+          <label>Nº do pedido<input type="text" id="aviso_pedido" placeholder="ex: 20233"></label>
+          <label>Data<input type="date" id="aviso_data"></label>
+          <label class="grow">Motivo (texto livre)<input type="text" id="aviso_motivo" placeholder="ex: liguei pra transportadora, falou que..."></label>
+          <label>Próxima verificação (opcional)<input type="date" id="aviso_proxima_data"></label>
+          <button class="primary" onclick="salvarAviso()">Registrar aviso</button>
+        </div>
+      </div>
+
+      <div class="section-title">⚠ Avisos (precisam de atenção)</div>
+      <div class="table-scroll" id="scrollAvisos" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadAvisos"></tr></thead>
+          <tbody id="tbodyAvisos"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">✓ Tratados (em acompanhamento)</div>
+      <div class="table-scroll" id="scrollAvisosTratados" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadAvisosTratados"></tr></thead>
+          <tbody id="tbodyAvisosTratados"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">📖 Histórico (todos os pedidos que já tiveram aviso, mesmo Encerrados)</div>
+      <div class="table-scroll" id="scrollAvisosHistorico" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadAvisosHistorico"></tr></thead>
+          <tbody id="tbodyAvisosHistorico"></tbody>
+        </table>
       </div>
     </div>
 
-    <div class="section-title">⚠ Avisos (precisam de atenção)</div>
-    <div class="table-scroll" id="scrollAvisos" style="max-height:320px;">
-      <table>
-        <thead><tr id="theadAvisos"></tr></thead>
-        <tbody id="tbodyAvisos"></tbody>
-      </table>
-    </div>
+    <div id="avisosTransportadoraWrap" style="display:none; margin-top:14px;">
+      <div class="form-card">
+        <div class="form-card-title">🚚 Registrar tentativa de contato</div>
+        <div class="form-card-body">
+          <label>Nº do pedido<input type="text" id="transp_pedido" placeholder="ex: 20233"></label>
+          <label>Data<input type="date" id="transp_data"></label>
+          <label>Conseguiu chamar?
+            <select id="transp_chamado" onchange="toggleTranspQuemChamou()">
+              <option value="nao">Não</option>
+              <option value="sim">Sim</option>
+            </select>
+          </label>
+          <label id="transp_quem_chamou_wrap" style="display:none;">Quem chamou<input type="text" id="transp_quem_chamou" placeholder="ex: Rian"></label>
+          <label class="grow">Observação (opcional)<input type="text" id="transp_observacao" placeholder="ex: confirmou coleta pra amanhã"></label>
+          <button class="primary" onclick="salvarTransportadora()">Registrar</button>
+        </div>
+      </div>
 
-    <div class="section-title">✓ Tratados (em acompanhamento)</div>
-    <div class="table-scroll" id="scrollAvisosTratados" style="max-height:320px;">
-      <table>
-        <thead><tr id="theadAvisosTratados"></tr></thead>
-        <tbody id="tbodyAvisosTratados"></tbody>
-      </table>
-    </div>
+      <div class="section-title">🚚 Pendentes (precisa verificar)</div>
+      <div class="table-scroll" id="scrollTransportadora" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadTransportadora"></tr></thead>
+          <tbody id="tbodyTransportadora"></tbody>
+        </table>
+      </div>
 
-    <div class="section-title">📖 Histórico (todos os pedidos que já tiveram aviso, mesmo Encerrados)</div>
-    <div class="table-scroll" id="scrollAvisosHistorico" style="max-height:320px;">
-      <table>
-        <thead><tr id="theadAvisosHistorico"></tr></thead>
-        <tbody id="tbodyAvisosHistorico"></tbody>
-      </table>
+      <div class="section-title">✓ Confirmados</div>
+      <div class="table-scroll" id="scrollTransportadoraConfirmados" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadTransportadoraConfirmados"></tr></thead>
+          <tbody id="tbodyTransportadoraConfirmados"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">📖 Histórico (todo pedido que já teve tentativa registrada, mesmo Encerrado)</div>
+      <div class="table-scroll" id="scrollTransportadoraHistorico" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadTransportadoraHistorico"></tr></thead>
+          <tbody id="tbodyTransportadoraHistorico"></tbody>
+        </table>
+      </div>
     </div>
   </div>
+
 
   <div id="terceirizacaoWrap" style="display:none">
     <div class="toolbar-top" style="padding:14px 0;">
@@ -873,6 +924,9 @@ const vtFupPendentes = new VirtualTable('scrollFupPendentes', 'tbodyFupPendentes
 const vtAvisos = new VirtualTable('scrollAvisos', 'tbodyAvisos', 44, 10);
 const vtAvisosTratados = new VirtualTable('scrollAvisosTratados', 'tbodyAvisosTratados', 44, 10);
 const vtAvisosHistorico = new VirtualTable('scrollAvisosHistorico', 'tbodyAvisosHistorico', 44, 10);
+const vtTransportadora = new VirtualTable('scrollTransportadora', 'tbodyTransportadora', 44, 10);
+const vtTransportadoraConfirmados = new VirtualTable('scrollTransportadoraConfirmados', 'tbodyTransportadoraConfirmados', 44, 10);
+const vtTransportadoraHistorico = new VirtualTable('scrollTransportadoraHistorico', 'tbodyTransportadoraHistorico', 44, 10);
 let debounceTimer;
 let charts = {};
 
@@ -1404,6 +1458,59 @@ async function loadAvisosTab(){
     <div class="stat"><div class="n">${tratados.length}</div><div class="l">Em acompanhamento (tratados)</div></div>
     <div class="stat"><div class="n">${historico.length}</div><div class="l">Total no histórico</div></div>
   `;
+
+  // --- sub-aba Transportadora ---
+  const resTransp = await fetch('/api/transportadora?' + params.toString());
+  const dataTransp = await resTransp.json();
+
+  const resTranspRegistros = await fetch('/api/transportadora/registros');
+  window.transportadoraRegistrosCache = await resTranspRegistros.json();
+
+  let transpPendentes = filtrarPorBusca(dataTransp.pendentes, busca, ['numero_pedido', 'nf'], ['nome_cliente']);
+  let transpConfirmados = filtrarPorBusca(dataTransp.confirmados, busca, ['numero_pedido', 'nf'], ['nome_cliente']);
+  let transpHistorico = filtrarPorBusca(dataTransp.historico, busca, ['numero_pedido'], ['nome_cliente']);
+
+  transpPendentes = ordenarLista(transpPendentes, 'transportadora', valorOrdenacaoAviso);
+  transpConfirmados = ordenarLista(transpConfirmados, 'transportadoraConfirmados', valorOrdenacaoAviso);
+  transpHistorico = ordenarLista(transpHistorico, 'transportadoraHistorico', valorOrdenacaoAviso);
+
+  document.getElementById('theadTransportadora').innerHTML = `
+    ${thOrdenavelGenerico('transportadora', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('transportadora', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('transportadora', 'data_faturamento', 'Faturamento', 'col-secondary')}
+    ${thOrdenavelGenerico('transportadora', 'nf', 'NF', 'col-secondary')}
+    <th>Última tentativa</th>
+    <th></th>
+  `;
+  vtTransportadora.setData(transpPendentes, linhaTransportadora, 6);
+  if(!transpPendentes.length){
+    document.getElementById('tbodyTransportadora').innerHTML = `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido pendente de verificação 🎉</td></tr>`;
+  }
+
+  document.getElementById('theadTransportadoraConfirmados').innerHTML = `
+    ${thOrdenavelGenerico('transportadoraConfirmados', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('transportadoraConfirmados', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('transportadoraConfirmados', 'data_faturamento', 'Faturamento', 'col-secondary')}
+    ${thOrdenavelGenerico('transportadoraConfirmados', 'nf', 'NF', 'col-secondary')}
+    <th>Quem chamou</th>
+    <th class="col-secondary">Quando</th>
+    <th></th>
+  `;
+  vtTransportadoraConfirmados.setData(transpConfirmados, linhaTransportadoraConfirmado, 7);
+  if(!transpConfirmados.length){
+    document.getElementById('tbodyTransportadoraConfirmados').innerHTML = `<tr><td colspan="7" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido confirmado ainda.</td></tr>`;
+  }
+
+  document.getElementById('theadTransportadoraHistorico').innerHTML = `
+    ${thOrdenavelGenerico('transportadoraHistorico', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('transportadoraHistorico', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('transportadoraHistorico', 'status', 'Status atual')}
+    ${thOrdenavelGenerico('transportadoraHistorico', 'data_faturamento', 'Faturamento', 'col-secondary')}
+  `;
+  vtTransportadoraHistorico.setData(transpHistorico, linhaTransportadoraHistorico, 4);
+  if(!transpHistorico.length){
+    document.getElementById('tbodyTransportadoraHistorico').innerHTML = `<tr><td colspan="4" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido teve verificação registrada ainda.</td></tr>`;
+  }
 }
 
 function linhaAvisoHistorico(p){
@@ -1414,6 +1521,46 @@ function linhaAvisoHistorico(p){
       <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
       <td class="col-secondary">${fmtDate(p.data_entrega_prevista)}</td>
       <td><button class="small-action fup" onclick="abrirHistoricoAviso('${p.numero_pedido}')" title="Ver histórico de avisos">📋</button></td>
+    </tr>
+  `;
+}
+
+function linhaTransportadora(p){
+  const ultimo = (window.transportadoraRegistrosCache || []).filter(r => r.numero_pedido === p.numero_pedido)
+    .sort((a,b) => (b.data_registro > a.data_registro ? 1 : (a.data_registro > b.data_registro ? -1 : b.id - a.id)))[0];
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
+      <td class="col-secondary">${p.nf || '—'}</td>
+      <td>${ultimo ? (ultimo.observacao || 'Tentou, não atendeu') : '—'}</td>
+      <td><button class="small-action fup" onclick="preencherTransportadora('${p.numero_pedido}')">Registrar</button></td>
+    </tr>
+  `;
+}
+function linhaTransportadoraConfirmado(p){
+  const ultimo = (window.transportadoraRegistrosCache || []).filter(r => r.numero_pedido === p.numero_pedido && r.chamado)
+    .sort((a,b) => (b.data_registro > a.data_registro ? 1 : (a.data_registro > b.data_registro ? -1 : b.id - a.id)))[0];
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
+      <td class="col-secondary">${p.nf || '—'}</td>
+      <td>${ultimo ? (ultimo.quem_chamou || '—') : '—'}</td>
+      <td class="col-secondary">${ultimo ? fmtDate(ultimo.data_registro) : '—'}</td>
+      <td><button class="small-action fup" onclick="preencherTransportadora('${p.numero_pedido}')">Nova tentativa</button></td>
+    </tr>
+  `;
+}
+function linhaTransportadoraHistorico(p){
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
+      <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
     </tr>
   `;
 }
@@ -1443,6 +1590,54 @@ async function salvarAviso(){
     document.getElementById('aviso_pedido').value = '';
     document.getElementById('aviso_motivo').value = '';
     document.getElementById('aviso_proxima_data').value = '';
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+function setAvisosSubtab(subtab, btn){
+  document.querySelectorAll('#avisosWrap .subtabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('avisosCanhotoWrap').style.display = (subtab === 'canhoto') ? 'block' : 'none';
+  document.getElementById('avisosTransportadoraWrap').style.display = (subtab === 'transportadora') ? 'block' : 'none';
+}
+
+function toggleTranspQuemChamou(){
+  const chamado = document.getElementById('transp_chamado').value === 'sim';
+  document.getElementById('transp_quem_chamou_wrap').style.display = chamado ? 'flex' : 'none';
+}
+
+function preencherTransportadora(numeroPedido){
+  document.querySelector('#avisosWrap .subtabs button[data-avisos-subtab="transportadora"]').click();
+  document.getElementById('transp_pedido').value = numeroPedido;
+  document.getElementById('transp_pedido').scrollIntoView({behavior:'smooth', block:'center'});
+  document.getElementById('transp_pedido').focus();
+}
+
+async function salvarTransportadora(){
+  const chamado = document.getElementById('transp_chamado').value === 'sim';
+  const body = {
+    numero_pedido: document.getElementById('transp_pedido').value.trim(),
+    data_registro: document.getElementById('transp_data').value || new Date().toISOString().slice(0,10),
+    chamado: chamado,
+    quem_chamou: chamado ? document.getElementById('transp_quem_chamou').value.trim() || null : null,
+    observacao: document.getElementById('transp_observacao').value.trim() || null,
+  };
+  if(!body.numero_pedido){ toast('Informe o número do pedido', true); return; }
+  if(chamado && !body.quem_chamou){ toast('Informe quem chamou', true); return; }
+  try{
+    const res = await fetch('/api/transportadora/registros', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast(chamado ? 'Transportadora confirmada' : 'Tentativa registrada');
+    document.getElementById('transp_pedido').value = '';
+    document.getElementById('transp_chamado').value = 'nao';
+    document.getElementById('transp_quem_chamou').value = '';
+    document.getElementById('transp_observacao').value = '';
+    toggleTranspQuemChamou();
     load();
   }catch(e){
     toast('Erro: ' + e.message, true);
