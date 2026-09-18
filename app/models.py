@@ -244,3 +244,27 @@ class SnapshotPedidoDiario(SQLModel, table=True):
     dias_atraso_producao: int = 0
     tipo_entrega: Optional[str] = None
     nome_cliente: Optional[str] = None
+
+
+# =======================================================================
+# Verificação de transportadora — controle independente do "Aviso" de
+# canhoto: assim que um pedido Transportadora é Faturado, precisa de
+# confirmação manual de que a coleta foi chamada, sem esperar dia nenhum
+# (diferente do Aviso, que só dispara depois de X dias sem canhoto).
+# =======================================================================
+class TransportadoraRegistro(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    numero_pedido: str = Field(index=True, foreign_key="pedido.numero_pedido")
+    data_registro: date = Field(default_factory=hoje_brasil)
+    chamado: bool = False
+    quem_chamou: Optional[str] = None
+    observacao: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TransportadoraRegistroCreate(SQLModel):
+    numero_pedido: str
+    data_registro: date = Field(default_factory=hoje_brasil)
+    chamado: bool = False
+    quem_chamou: Optional[str] = None
+    observacao: Optional[str] = None
