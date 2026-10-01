@@ -837,6 +837,66 @@ def editar_nota_retorno(numero_nota_atual: str, dados: NotaRetornoEditar, sessio
     return nota
 
 
+@app.get("/api/terceirizacao/exportar")
+def exportar_terceirizacao(
+    fornecedor: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    """Exporta tudo da Terceirização pra um Excel com 3 abas — pares
+    vinculados, notas de saída e notas de retorno (essa última já com o
+    vínculo, pra não precisar abrir a lista de 'sem vínculo' à parte).
+    Respeita o filtro de fornecedor ativo na tela, igual à exportação
+    de Pedidos."""
+    dados = montar_pares(session, fornecedor=fornecedor)
+
+    df_pares = pd.DataFrame([
+        {
+            "Nota de saída": p["nota_saida"],
+            "Data de saída": p["data_saida"].strftime("%d/%m/%Y") if p["data_saida"] else "",
+            "Nota de retorno": p["nota_retorno"],
+            "Data de retorno": p["data_retorno"].strftime("%d/%m/%Y") if p["data_retorno"] else "",
+            "Lead time (dias)": p["dias_lead_time"],
+            "Fornecedor": p["fornecedor"],
+        }
+        for p in dados["pares"]
+    ])
+
+    df_saida = pd.DataFrame([
+        {
+            "Nota de saída": s["numero_nota"],
+            "Data": s["data_nota"].strftime("%d/%m/%Y") if s["data_nota"] else "",
+            "Retornos vinculados": s["retornos_vinculados"],
+            "Fornecedor": s["fornecedor"],
+        }
+        for s in dados["notas_saida"]
+    ])
+
+    df_retorno = pd.DataFrame([
+        {
+            "Nota de retorno": r["numero_nota"],
+            "Data": r["data_nota"].strftime("%d/%m/%Y") if r["data_nota"] else "",
+            "Nota de saída vinculada": r["numero_nota_saida"] or "",
+            "Lead time (dias)": r["dias_lead_time"] if r["dias_lead_time"] is not None else "",
+            "Fornecedor": r["fornecedor"],
+        }
+        for r in dados["notas_retorno"]
+    ])
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        (df_pares if not df_pares.empty else pd.DataFrame(columns=["Nota de saída", "Data de saída", "Nota de retorno", "Data de retorno", "Lead time (dias)", "Fornecedor"])).to_excel(writer, index=False, sheet_name="Pares vinculados")
+        (df_saida if not df_saida.empty else pd.DataFrame(columns=["Nota de saída", "Data", "Retornos vinculados", "Fornecedor"])).to_excel(writer, index=False, sheet_name="Notas de saída")
+        (df_retorno if not df_retorno.empty else pd.DataFrame(columns=["Nota de retorno", "Data", "Nota de saída vinculada", "Lead time (dias)", "Fornecedor"])).to_excel(writer, index=False, sheet_name="Notas de retorno")
+    buffer.seek(0)
+
+    filename = f"flowlog_terceirizacao_{hoje_brasil().isoformat()}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 # ---------------------------------------------------------------------
 # Importação em lote de FUP — reimporta a planilha exportada e preenchida
 # (colunas "Situação FUP" / "FUP" / "Nova Data de Entrega"), criando os
