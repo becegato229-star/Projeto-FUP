@@ -541,16 +541,38 @@
 
   <div id="terceirizacaoWrap" style="display:none">
     <div class="toolbar-top" style="padding:14px 0;">
-      <label class="grow">Fornecedor
-        <input type="text" id="terc_fornecedor_filtro" list="terc_fornecedores_datalist" value="JJ LESTE GALVANIZACAO LTDA" onchange="loadTerceirizacaoTab()">
-        <datalist id="terc_fornecedores_datalist"></datalist>
+      <label>Fornecedor
+        <select id="terc_fornecedor_filtro" onchange="loadTerceirizacaoTab()">
+          <option value="">Todos os fornecedores</option>
+        </select>
       </label>
+      <div class="search-wrap" style="max-width:320px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" id="terc_busca" placeholder="Buscar por número de nota ou fornecedor..." oninput="renderTercSubtabAtiva()">
+      </div>
+      <button class="primary hide-mobile" onclick="exportarTerceirizacao()">⬇ Exportar Excel</button>
     </div>
 
     <div class="stats" id="statsTerc"></div>
 
-    <div style="display:flex; gap:16px; flex-wrap:wrap; margin:16px 0;">
-      <div class="form-card" style="flex:1; min-width:280px;">
+    <div class="subtabs" style="margin-top:10px;">
+      <button class="active" data-terc-subtab="ligacao" onclick="setTercSubtab('ligacao', this)">🔗 Ligação</button>
+      <button data-terc-subtab="saida" onclick="setTercSubtab('saida', this)">📤 Notas de saída</button>
+      <button data-terc-subtab="entrada" onclick="setTercSubtab('entrada', this)">📥 Notas de entrada</button>
+    </div>
+
+    <div id="tercLigacaoWrap" style="margin-top:10px;">
+      <div class="section-title">🔗 Pares vinculados</div>
+      <div class="table-scroll" id="scrollTercPares" style="max-height:480px;">
+        <table>
+          <thead><tr id="theadTercPares"></tr></thead>
+          <tbody id="tbodyTercPares"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tercSaidaWrap" style="display:none; margin-top:10px;">
+      <div class="form-card">
         <div class="form-card-title">📤 Registrar nota de saída</div>
         <div class="form-card-body">
           <label>Número da nota<input type="text" id="terc_saida_numero" placeholder="ex: 116858"></label>
@@ -560,7 +582,17 @@
         </div>
       </div>
 
-      <div class="form-card" style="flex:1; min-width:280px;">
+      <div class="section-title">📤 Notas de saída</div>
+      <div class="table-scroll" id="scrollTercAguardando" style="max-height:480px;">
+        <table>
+          <thead><tr id="theadTercSaida"></tr></thead>
+          <tbody id="tbodyTercAguardando"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tercEntradaWrap" style="display:none; margin-top:10px;">
+      <div class="form-card">
         <div class="form-card-title">📥 Registrar nota de retorno</div>
         <div class="form-card-body">
           <label>Número da nota<input type="text" id="terc_retorno_numero" placeholder="ex: 9186"></label>
@@ -578,39 +610,25 @@
           <button class="primary" onclick="salvarNotaRetorno()">Registrar retorno</button>
         </div>
       </div>
+
+      <div class="section-title">⚠ Sem vínculo encontrado (precisa de atenção)</div>
+      <div class="table-scroll" id="scrollTercSemVinculo" style="max-height:260px;">
+        <table>
+          <thead><tr id="theadTercSemVinculo"></tr></thead>
+          <tbody id="tbodyTercSemVinculo"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">📥 Notas de retorno</div>
+      <div class="table-scroll" id="scrollTercRetorno" style="max-height:480px;">
+        <table>
+          <thead><tr id="theadTercRetorno"></tr></thead>
+          <tbody id="tbodyTercRetorno"></tbody>
+        </table>
+      </div>
     </div>
 
-    <div class="section-title">🔗 Pares vinculados</div>
-    <div class="table-scroll" id="scrollTercPares" style="max-height:320px;">
-      <table>
-        <thead><tr><th>Nota saída</th><th>Data saída</th><th>Nota retorno</th><th>Data retorno</th><th>Lead time</th><th class="col-secondary">Fornecedor</th><th></th></tr></thead>
-        <tbody id="tbodyTercPares"></tbody>
-      </table>
-    </div>
-
-    <div class="section-title">📤 Notas de saída</div>
-    <div class="table-scroll" id="scrollTercAguardando" style="max-height:260px;">
-      <table>
-        <thead><tr><th>Nota saída</th><th>Data</th><th>Retornos vinculados</th><th class="col-secondary">Fornecedor</th><th></th></tr></thead>
-        <tbody id="tbodyTercAguardando"></tbody>
-      </table>
-    </div>
-
-    <div class="section-title">⚠ Sem vínculo encontrado (precisa de atenção)</div>
-    <div class="table-scroll" id="scrollTercSemVinculo" style="max-height:260px;">
-      <table>
-        <thead><tr><th>Nota retorno</th><th>Data</th><th class="col-secondary">Texto colado</th><th></th></tr></thead>
-        <tbody id="tbodyTercSemVinculo"></tbody>
-      </table>
-    </div>
-
-    <div class="section-title">📥 Notas de retorno</div>
-    <div class="table-scroll" id="scrollTercRetorno" style="max-height:320px;">
-      <table>
-        <thead><tr><th>Nota retorno</th><th>Data</th><th>Vínculo (saída)</th><th>Lead time</th><th class="col-secondary">Fornecedor</th><th></th></tr></thead>
-        <tbody id="tbodyTercRetorno"></tbody>
-      </table>
-    </div>
+    <datalist id="terc_fornecedores_datalist"></datalist>
   </div>
 
   <div id="cobrancaWrap" style="display:none">
@@ -1827,7 +1845,58 @@ async function carregarFornecedoresDatalist(){
     const fornecedores = await res.json();
     document.getElementById('terc_fornecedores_datalist').innerHTML =
       fornecedores.map(f => `<option value="${f}"></option>`).join('');
+    const select = document.getElementById('terc_fornecedor_filtro');
+    const valorAtual = select.value;
+    select.innerHTML = '<option value="">Todos os fornecedores</option>' +
+      fornecedores.map(f => `<option value="${f}">${f}</option>`).join('');
+    select.value = valorAtual; // mantém a seleção ao recarregar
   }catch(e){}
+}
+
+function setTercSubtab(subtab, btn){
+  document.querySelectorAll('#terceirizacaoWrap .subtabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tercLigacaoWrap').style.display = (subtab === 'ligacao') ? 'block' : 'none';
+  document.getElementById('tercSaidaWrap').style.display = (subtab === 'saida') ? 'block' : 'none';
+  document.getElementById('tercEntradaWrap').style.display = (subtab === 'entrada') ? 'block' : 'none';
+}
+
+function valorOrdenacaoTercPar(p, campo){
+  switch(campo){
+    case 'nota_saida': return p.nota_saida || '';
+    case 'data_saida': return p.data_saida || '';
+    case 'nota_retorno': return p.nota_retorno || '';
+    case 'data_retorno': return p.data_retorno || '';
+    case 'dias_lead_time': return p.dias_lead_time || 0;
+    case 'fornecedor': return (p.fornecedor || '').toLowerCase();
+    default: return '';
+  }
+}
+function valorOrdenacaoTercSaida(s, campo){
+  switch(campo){
+    case 'numero_nota': return s.numero_nota || '';
+    case 'data_nota': return s.data_nota || '';
+    case 'retornos_vinculados': return s.retornos_vinculados || 0;
+    case 'fornecedor': return (s.fornecedor || '').toLowerCase();
+    default: return '';
+  }
+}
+function valorOrdenacaoTercSemVinculo(r, campo){
+  switch(campo){
+    case 'numero_nota': return r.numero_nota || '';
+    case 'data_nota': return r.data_nota || '';
+    default: return '';
+  }
+}
+function valorOrdenacaoTercRetorno(r, campo){
+  switch(campo){
+    case 'numero_nota': return r.numero_nota || '';
+    case 'data_nota': return r.data_nota || '';
+    case 'numero_nota_saida': return r.numero_nota_saida || '';
+    case 'dias_lead_time': return r.dias_lead_time ?? -1;
+    case 'fornecedor': return (r.fornecedor || '').toLowerCase();
+    default: return '';
+  }
 }
 
 function linhaTercPar(p){
@@ -1919,27 +1988,80 @@ async function loadTerceirizacaoTab(){
     <div class="stat atraso"><div class="n">${data.stats.sem_vinculo_n}</div><div class="l">Sem vínculo</div></div>
   `;
 
-  document.getElementById('tbodyTercPares').innerHTML = data.pares.length
-    ? data.pares.map(linhaTercPar).join('')
-    : `<tr><td colspan="7" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum par vinculado ainda.</td></tr>`;
-
-  document.getElementById('tbodyTercAguardando').innerHTML = data.notas_saida.length
-    ? data.notas_saida.map(linhaTercSaida).join('')
-    : `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de saída registrada ainda.</td></tr>`;
-
-  document.getElementById('tbodyTercSemVinculo').innerHTML = data.sem_vinculo.length
-    ? data.sem_vinculo.map(linhaTercSemVinculo).join('')
-    : `<tr><td colspan="4" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma pendência de vínculo 🎉</td></tr>`;
-
-  document.getElementById('tbodyTercRetorno').innerHTML = data.notas_retorno.length
-    ? data.notas_retorno.map(linhaTercRetorno).join('')
-    : `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de retorno registrada ainda.</td></tr>`;
-
   const opcoesSaida = data.notas_saida.map(s => `<option value="${s.numero_nota}">${s.numero_nota} (${fmtDate(s.data_nota)})</option>`).join('');
   document.getElementById('terc_retorno_saida_manual').innerHTML =
     '<option value="">— nenhuma (deixar a extração automática decidir) —</option>' + opcoesSaida;
   document.getElementById('editar_retorno_saida_vinculo').innerHTML =
     '<option value="">— sem vínculo —</option>' + opcoesSaida;
+
+  renderTercSubtabAtiva();
+}
+
+// Re-renderiza as 4 tabelas a partir do cache (sem recarregar da API) —
+// usado tanto depois de um load() quanto a cada tecla digitada na busca,
+// pra não esperar o servidor só pra filtrar o que já está na tela.
+function renderTercSubtabAtiva(){
+  const busca = document.getElementById('terc_busca').value;
+
+  let pares = filtrarPorBusca(window.tercParesCache || [], busca, ['nota_saida', 'nota_retorno'], ['fornecedor']);
+  pares = ordenarLista(pares, 'tercPares', valorOrdenacaoTercPar);
+  document.getElementById('theadTercPares').innerHTML = `
+    ${thOrdenavelGenerico('tercPares', 'nota_saida', 'Nota saída')}
+    ${thOrdenavelGenerico('tercPares', 'data_saida', 'Data saída')}
+    ${thOrdenavelGenerico('tercPares', 'nota_retorno', 'Nota retorno')}
+    ${thOrdenavelGenerico('tercPares', 'data_retorno', 'Data retorno')}
+    ${thOrdenavelGenerico('tercPares', 'dias_lead_time', 'Lead time')}
+    ${thOrdenavelGenerico('tercPares', 'fornecedor', 'Fornecedor', 'col-secondary')}
+    <th></th>
+  `;
+  document.getElementById('tbodyTercPares').innerHTML = pares.length
+    ? pares.map(linhaTercPar).join('')
+    : `<tr><td colspan="7" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum par vinculado encontrado.</td></tr>`;
+
+  let notasSaida = filtrarPorBusca(window.tercNotasSaidaCache || [], busca, ['numero_nota'], ['fornecedor']);
+  notasSaida = ordenarLista(notasSaida, 'tercSaida', valorOrdenacaoTercSaida);
+  document.getElementById('theadTercSaida').innerHTML = `
+    ${thOrdenavelGenerico('tercSaida', 'numero_nota', 'Nota saída')}
+    ${thOrdenavelGenerico('tercSaida', 'data_nota', 'Data')}
+    ${thOrdenavelGenerico('tercSaida', 'retornos_vinculados', 'Retornos vinculados')}
+    ${thOrdenavelGenerico('tercSaida', 'fornecedor', 'Fornecedor', 'col-secondary')}
+    <th></th>
+  `;
+  document.getElementById('tbodyTercAguardando').innerHTML = notasSaida.length
+    ? notasSaida.map(linhaTercSaida).join('')
+    : `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de saída encontrada.</td></tr>`;
+
+  let semVinculo = filtrarPorBusca(window.tercSemVinculoCache || [], busca, ['numero_nota'], []);
+  semVinculo = ordenarLista(semVinculo, 'tercSemVinculo', valorOrdenacaoTercSemVinculo);
+  document.getElementById('theadTercSemVinculo').innerHTML = `
+    ${thOrdenavelGenerico('tercSemVinculo', 'numero_nota', 'Nota retorno')}
+    ${thOrdenavelGenerico('tercSemVinculo', 'data_nota', 'Data')}
+    <th class="col-secondary">Texto colado</th>
+    <th></th>
+  `;
+  document.getElementById('tbodyTercSemVinculo').innerHTML = semVinculo.length
+    ? semVinculo.map(linhaTercSemVinculo).join('')
+    : `<tr><td colspan="4" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma pendência de vínculo 🎉</td></tr>`;
+
+  let notasRetorno = filtrarPorBusca(window.tercNotasRetornoCache || [], busca, ['numero_nota', 'numero_nota_saida'], ['fornecedor']);
+  notasRetorno = ordenarLista(notasRetorno, 'tercRetorno', valorOrdenacaoTercRetorno);
+  document.getElementById('theadTercRetorno').innerHTML = `
+    ${thOrdenavelGenerico('tercRetorno', 'numero_nota', 'Nota retorno')}
+    ${thOrdenavelGenerico('tercRetorno', 'data_nota', 'Data')}
+    ${thOrdenavelGenerico('tercRetorno', 'numero_nota_saida', 'Vínculo (saída)')}
+    ${thOrdenavelGenerico('tercRetorno', 'dias_lead_time', 'Lead time')}
+    ${thOrdenavelGenerico('tercRetorno', 'fornecedor', 'Fornecedor', 'col-secondary')}
+    <th></th>
+  `;
+  document.getElementById('tbodyTercRetorno').innerHTML = notasRetorno.length
+    ? notasRetorno.map(linhaTercRetorno).join('')
+    : `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de retorno encontrada.</td></tr>`;
+}
+
+function exportarTerceirizacao(){
+  const fornecedor = document.getElementById('terc_fornecedor_filtro').value.trim();
+  const params = fornecedor ? new URLSearchParams({fornecedor}) : new URLSearchParams();
+  window.location = '/api/terceirizacao/exportar?' + params.toString();
 }
 
 async function salvarNotaSaida(){
