@@ -550,6 +550,10 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         <input type="text" id="terc_busca" placeholder="Buscar por número de nota ou fornecedor..." oninput="renderTercSubtabAtiva()">
       </div>
+      <label class="upload-btn" style="display:inline-flex; align-items:center;">
+        ⬆ Importar catálogo (Gd_Produtos.xlsx)
+        <input type="file" accept=".xlsx,.xls" onchange="importarCatalogoProdutos(this)" style="position:absolute; inset:0; opacity:0; cursor:pointer;">
+      </label>
       <button class="primary hide-mobile" onclick="exportarTerceirizacao()">⬇ Exportar Excel</button>
     </div>
 
@@ -575,9 +579,14 @@
       <div class="form-card">
         <div class="form-card-title">📤 Registrar nota de saída</div>
         <div class="form-card-body">
+          <label class="upload-btn" style="display:inline-flex; align-items:center;">
+            📎 Importar nota (PDF)
+            <input type="file" accept=".pdf" onchange="importarPdfNota(this, 'saida')" style="position:absolute; inset:0; opacity:0; cursor:pointer;">
+          </label>
           <label>Número da nota<input type="text" id="terc_saida_numero" placeholder="ex: 116858"></label>
           <label>Data<input type="date" id="terc_saida_data"></label>
           <label class="grow">Fornecedor<input type="text" id="terc_saida_fornecedor" list="terc_fornecedores_datalist" value="JJ LESTE GALVANIZACAO LTDA"></label>
+          <div id="terc_saida_resumo_pdf" style="font-size:12px; width:100%;"></div>
           <button class="primary" onclick="salvarNotaSaida()">Registrar saída</button>
         </div>
       </div>
@@ -595,6 +604,10 @@
       <div class="form-card">
         <div class="form-card-title">📥 Registrar nota de retorno</div>
         <div class="form-card-body">
+          <label class="upload-btn" style="display:inline-flex; align-items:center;">
+            📎 Importar nota (PDF)
+            <input type="file" accept=".pdf" onchange="importarPdfNota(this, 'retorno')" style="position:absolute; inset:0; opacity:0; cursor:pointer;">
+          </label>
           <label>Número da nota<input type="text" id="terc_retorno_numero" placeholder="ex: 9186"></label>
           <label>Data<input type="date" id="terc_retorno_data"></label>
           <label class="grow">Fornecedor<input type="text" id="terc_retorno_fornecedor" list="terc_fornecedores_datalist" value="JJ LESTE GALVANIZACAO LTDA"></label>
@@ -607,6 +620,7 @@
               <option value="">— nenhuma (deixar a extração automática decidir) —</option>
             </select>
           </label>
+          <div id="terc_retorno_resumo_pdf" style="font-size:12px; width:100%;"></div>
           <button class="primary" onclick="salvarNotaRetorno()">Registrar retorno</button>
         </div>
       </div>
@@ -2064,43 +2078,153 @@ function exportarTerceirizacao(){
   window.location = '/api/terceirizacao/exportar?' + params.toString();
 }
 
-async function salvarNotaSaida(){
-  const body = {
-    numero_nota: document.getElementById('terc_saida_numero').value.trim(),
-    data_nota: document.getElementById('terc_saida_data').value,
-    fornecedor: document.getElementById('terc_saida_fornecedor').value.trim() || 'JJ LESTE GALVANIZACAO LTDA',
-  };
-  if(!body.numero_nota || !body.data_nota){ toast('Preencha número e data da nota', true); return; }
+// ---- Importação de notas por PDF (DANFE) ----
+// Guarda o payload lido do PDF até o usuário revisar e clicar em
+// "Registrar" — nada é salvo no banco antes disso (fluxo de 2 passos).
+let pdfPendente = { saida: null, retorno: null };
+
+async function importarCatalogoProdutos(input){
+  const file = input.files[0];
+  if(!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
   try{
-    const res = await fetch('/api/terceirizacao/saida', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const res = await fetch('/api/terceirizacao/catalogo/importar', {method:'POST', body: formData});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao importar catálogo');
+    toast(`Catálogo importado: ${data.criados} novo(s), ${data.atualizados} atualizado(s)${data.ignorados ? `, ${data.ignorados} ignorado(s)` : ''}`);
+  }catch(e){ toast('Erro: ' + e.message, true); }
+  finally{ input.value = ''; }
+}
+
+function pdfPendenteLimpar(tipo){
+  pdfPendente[tipo] = null;
+  const el = document.getElementById(`terc_${tipo}_resumo_pdf`);
+  if(el) el.innerHTML = '';
+}
+
+async function importarPdfNota(input, tipo){
+  const file = input.files[0];
+  if(!file) return;
+  const resumoEl = document.getElementById(`terc_${tipo}_resumo_pdf`);
+  resumoEl.innerHTML = '⏳ Lendo o PDF...';
+  const formData = new FormData();
+  formData.append('file', file);
+  try{
+    const res = await fetch(`/api/terceirizacao/${tipo}/importar-pdf`, {method:'POST', body: formData});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao ler o PDF');
+
+    if(data.status === 'erro_leitura'){
+      pdfPendente[tipo] = null;
+      resumoEl.innerHTML = `<div style="color:#e55">⚠ ${data.mensagem}</div>`;
+      return;
+    }
+
+    pdfPendente[tipo] = data.dados;
+    document.getElementById(`terc_${tipo}_numero`).value = data.dados.numero_nota || '';
+    document.getElementById(`terc_${tipo}_data`).value = data.dados.data_nota || '';
+    if(data.dados.fornecedor) document.getElementById(`terc_${tipo}_fornecedor`).value = data.dados.fornecedor;
+
+    const avisos = [];
+    if(data.status === 'duplicado') avisos.push(`🚫 ${data.mensagem}`);
+    else if(data.status === 'enriquecer') avisos.push('ℹ️ Já existe um registro manual com esse número — os dados do PDF vão completá-lo ao registrar.');
+    else avisos.push('✅ Nota nova, pronta para registrar.');
+    if(data.aviso_direcao) avisos.push(`⚠ ${data.aviso_direcao}`);
+
+    if(tipo === 'retorno'){
+      const select = document.getElementById('terc_retorno_saida_manual');
+      if(data.dados.numero_nota_saida){
+        if(select) select.value = data.dados.numero_nota_saida;
+        avisos.push(`🔗 Vínculo detectado automaticamente: nota de saída ${data.dados.numero_nota_saida}`);
+      } else if(select){
+        select.value = '';
+      }
+      if(data.aviso_vinculo) avisos.push(`⚠ ${data.aviso_vinculo} (use o campo "escolher a nota de saída manualmente" abaixo)`);
+    }
+
+    const detalhes = [
+      data.dados.peso_bruto != null ? `Peso bruto: ${data.dados.peso_bruto} kg` : null,
+      data.dados.valor_total_nota != null ? `Valor: R$ ${Number(data.dados.valor_total_nota).toFixed(2)}` : null,
+      data.dados.itens ? `${data.dados.itens.length} item(ns)` : null,
+    ].filter(Boolean).join(' · ');
+
+    resumoEl.innerHTML = avisos.map(a => `<div>${a}</div>`).join('')
+      + (detalhes ? `<div style="color:var(--text-dim)">${detalhes}</div>` : '')
+      + `<div><a href="#" onclick="pdfPendenteLimpar('${tipo}'); return false;">✖ cancelar importação</a></div>`;
+  }catch(e){
+    pdfPendente[tipo] = null;
+    resumoEl.innerHTML = `<div style="color:#e55">⚠ Erro: ${e.message}</div>`;
+  }finally{
+    input.value = '';
+  }
+}
+
+async function salvarNotaSaida(){
+  const numero = document.getElementById('terc_saida_numero').value.trim();
+  const dataNota = document.getElementById('terc_saida_data').value;
+  const fornecedor = document.getElementById('terc_saida_fornecedor').value.trim() || 'JJ LESTE GALVANIZACAO LTDA';
+  if(!numero || !dataNota){ toast('Preencha número e data da nota', true); return; }
+
+  const pendente = pdfPendente.saida;
+  const usaPdf = pendente && pendente.numero_nota === numero;
+  try{
+    let res;
+    if(usaPdf){
+      const payload = {...pendente, numero_nota: numero, data_nota: dataNota, fornecedor};
+      res = await fetch('/api/terceirizacao/saida/confirmar-importacao', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    } else {
+      res = await fetch('/api/terceirizacao/saida', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({numero_nota: numero, data_nota: dataNota, fornecedor})});
+    }
     const data = await res.json();
     if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
-    toast('Nota de saída registrada');
+    toast(usaPdf ? 'Nota de saída importada do PDF' : 'Nota de saída registrada');
     document.getElementById('terc_saida_numero').value = '';
     document.getElementById('terc_saida_data').value = '';
+    document.getElementById('terc_saida_resumo_pdf').innerHTML = '';
+    pdfPendente.saida = null;
     load();
   }catch(e){ toast('Erro: ' + e.message, true); }
 }
 
 async function salvarNotaRetorno(){
-  const body = {
-    numero_nota: document.getElementById('terc_retorno_numero').value.trim(),
-    data_nota: document.getElementById('terc_retorno_data').value,
-    fornecedor: document.getElementById('terc_retorno_fornecedor').value.trim() || 'JJ LESTE GALVANIZACAO LTDA',
-    informacoes_adicionais: document.getElementById('terc_retorno_info').value.trim() || null,
-    numero_nota_saida: document.getElementById('terc_retorno_saida_manual').value || null,
-  };
-  if(!body.numero_nota || !body.data_nota){ toast('Preencha número e data da nota', true); return; }
+  const numero = document.getElementById('terc_retorno_numero').value.trim();
+  const dataNota = document.getElementById('terc_retorno_data').value;
+  const fornecedor = document.getElementById('terc_retorno_fornecedor').value.trim() || 'JJ LESTE GALVANIZACAO LTDA';
+  const infoAdicional = document.getElementById('terc_retorno_info').value.trim() || null;
+  const vinculoManualSelect = document.getElementById('terc_retorno_saida_manual').value || null;
+  if(!numero || !dataNota){ toast('Preencha número e data da nota', true); return; }
+
+  const pendente = pdfPendente.retorno;
+  const usaPdf = pendente && pendente.numero_nota === numero;
   try{
-    const res = await fetch('/api/terceirizacao/retorno', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    let res;
+    if(usaPdf){
+      const payload = {
+        ...pendente,
+        numero_nota: numero,
+        data_nota: dataNota,
+        fornecedor,
+        numero_nota_saida: vinculoManualSelect || pendente.numero_nota_saida || null,
+      };
+      res = await fetch('/api/terceirizacao/retorno/confirmar-importacao', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    } else {
+      res = await fetch('/api/terceirizacao/retorno', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+        numero_nota: numero, data_nota: dataNota, fornecedor,
+        informacoes_adicionais: infoAdicional, numero_nota_saida: vinculoManualSelect,
+      })});
+    }
     const data = await res.json();
     if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
-    toast(data.numero_nota_saida ? `Retorno registrado e vinculado à nota ${data.numero_nota_saida}` : 'Retorno registrado, sem vínculo encontrado ainda');
+    const numeroVinculado = usaPdf ? (data.nota && data.nota.numero_nota_saida) : data.numero_nota_saida;
+    toast(numeroVinculado ? `Retorno registrado e vinculado à nota ${numeroVinculado}` : 'Retorno registrado, sem vínculo encontrado ainda');
     document.getElementById('terc_retorno_numero').value = '';
     document.getElementById('terc_retorno_data').value = '';
     document.getElementById('terc_retorno_info').value = '';
     document.getElementById('terc_vinculo_preview').innerHTML = '';
     document.getElementById('terc_retorno_saida_manual').value = '';
+    document.getElementById('terc_retorno_resumo_pdf').innerHTML = '';
+    pdfPendente.retorno = null;
     load();
   }catch(e){ toast('Erro: ' + e.message, true); }
 }
