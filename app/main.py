@@ -913,6 +913,28 @@ def _resolver_pesos_itens(itens: List[NotaPdfItemPayload], session: Session) -> 
     return resolvidos
 
 
+def _recalcular_pesos_itens_existentes(session: Session) -> int:
+    """Recalcula peso_unitario/peso_total de TODOS os itens já salvos no
+    banco, cruzando de novo com o catálogo atual. Roda automaticamente
+    sempre que o catálogo é (re)importado — cobre tanto o caso de notas
+    importadas ANTES do catálogo existir (ficaram sem peso) quanto o
+    catálogo tendo mudado depois (peso antigo desatualizado). Não precisa
+    reimportar PDF nenhum pra isso. Retorna quantos itens mudaram."""
+    itens = session.exec(select(NotaItem)).all()
+    atualizados = 0
+    for item in itens:
+        produto = session.get(ProdutoCatalogo, item.codigo_produto)
+        peso_unitario = produto.peso_liquido if produto else None
+        peso_total = (peso_unitario * item.quantidade) if (peso_unitario is not None and item.quantidade is not None) else None
+        if item.peso_unitario != peso_unitario or item.peso_total != peso_total:
+            item.peso_unitario = peso_unitario
+            item.peso_total = peso_total
+            session.add(item)
+            atualizados += 1
+    session.commit()
+    return atualizados
+
+
 def _salvar_itens_da_nota(tipo_nota: str, numero_nota: str, itens: List[NotaPdfItemPayload], session: Session):
     """Substitui os itens de uma nota pelos novos (apaga os antigos primeiro
     — evita duplicar item se a mesma nota for reimportada pra corrigir algo)."""
@@ -1016,7 +1038,11 @@ async def importar_catalogo_produtos(file: UploadFile = File(...), session: Sess
             session.add(ProdutoCatalogo(codigo_item=codigo, **dados_produto))
             criados += 1
     session.commit()
-    return {"ok": True, "criados": criados, "atualizados": atualizados, "ignorados": ignorados}
+    itens_recalculados = _recalcular_pesos_itens_existentes(session)
+    return {
+        "ok": True, "criados": criados, "atualizados": atualizados, "ignorados": ignorados,
+        "itens_recalculados": itens_recalculados,
+    }
 
 
 @app.post("/api/terceirizacao/saida/importar-pdf")
