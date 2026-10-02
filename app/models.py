@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from .fuso import hoje_brasil
-from typing import Optional
+from typing import List, Optional
 from sqlmodel import SQLModel, Field
 
 
@@ -115,7 +115,36 @@ MOTIVOS_ATRASO_PADRAO = [
 # Terceirização — lead time de industrialização (ex: zincagem na JJ Leste)
 # Totalmente independente do fluxo de Pedidos.
 # =======================================================================
-class NotaSaida(SQLModel, table=True):
+class _CamposDanfe(SQLModel):
+    """Campos extraídos do PDF da nota (DANFE) — tudo opcional, porque um
+    registro pode ter sido criado no manual (sem PDF) ou o PDF pode não
+    trazer algum campo específico. Compartilhado entre NotaSaida e
+    NotaRetorno pra não duplicar a lista duas vezes."""
+    chave_acesso: Optional[str] = Field(default=None, index=True)  # 44 dígitos, único por nota — identificador definitivo
+    serie: Optional[str] = None
+    cnpj_fornecedor: Optional[str] = None
+    natureza_operacao: Optional[str] = None
+    protocolo_autorizacao: Optional[str] = None
+    data_autorizacao: Optional[str] = None  # "dd/mm/aaaa hh:mm:ss", só informativo
+    data_saida_entrada: Optional[date] = None
+    hora_saida: Optional[str] = None
+    peso_bruto: Optional[float] = None
+    peso_liquido: Optional[float] = None
+    valor_total_produtos: Optional[float] = None
+    valor_total_nota: Optional[float] = None
+    valor_frete: Optional[float] = None
+    valor_seguro: Optional[float] = None
+    valor_desconto: Optional[float] = None
+    valor_outras_despesas: Optional[float] = None
+    valor_ipi: Optional[float] = None
+    numero_fatura: Optional[str] = None
+    parcelas_json: Optional[str] = None  # lista de {numero, vencimento, valor} serializada
+    transportador_nome: Optional[str] = None
+    transportador_cnpj: Optional[str] = None
+    texto_bruto: Optional[str] = None  # texto completo extraído do PDF — rede de segurança, nada se perde
+
+
+class NotaSaida(_CamposDanfe, table=True):
     """Nota de remessa: material saindo da Mubec pro fornecedor terceirizado."""
     numero_nota: str = Field(primary_key=True, index=True)
     data_nota: date
@@ -138,7 +167,7 @@ class NotaSaidaEditar(SQLModel):
     fornecedor: str
 
 
-class NotaRetorno(SQLModel, table=True):
+class NotaRetorno(_CamposDanfe, table=True):
     """Nota de retorno: material processado voltando do fornecedor pra Mubec."""
     numero_nota: str = Field(primary_key=True, index=True)
     data_nota: date
@@ -165,6 +194,96 @@ class NotaRetornoEditar(SQLModel):
     fornecedor: str
     numero_nota_saida: Optional[str] = None
     informacoes_adicionais: Optional[str] = None
+
+
+class NotaItem(SQLModel, table=True):
+    """Um item de uma nota (saída ou retorno), vindo da leitura do PDF.
+    Não usa chave estrangeira de verdade porque referencia uma de duas
+    tabelas (NotaSaida ou NotaRetorno) dependendo de `tipo_nota` — quem
+    apaga/renomeia uma nota precisa cuidar manualmente de apagar/mover os
+    itens correspondentes (ver apagar_nota_saida/retorno em main.py)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    numero_nota: str = Field(index=True)
+    tipo_nota: str = Field(index=True)  # "saida" ou "retorno"
+    codigo_produto: str = Field(index=True)
+    descricao: Optional[str] = None
+    ncm: Optional[str] = None
+    cst: Optional[str] = None
+    cfop: Optional[str] = None
+    unidade: Optional[str] = None
+    quantidade: Optional[float] = None
+    valor_unitario: Optional[float] = None
+    valor_total: Optional[float] = None
+    base_icms: Optional[float] = None
+    valor_icms: Optional[float] = None
+    valor_ipi: Optional[float] = None
+    peso_unitario: Optional[float] = None  # resolvido do catálogo (ProdutoCatalogo) na hora da importação
+    peso_total: Optional[float] = None  # quantidade * peso_unitario, já calculado
+
+
+class ProdutoCatalogo(SQLModel, table=True):
+    """Catálogo de produtos (peso por unidade), importado da planilha
+    Gd_Produtos do ERP. Reimportável a qualquer momento — cada importação
+    atualiza (upsert) pelo código do item, nunca duplica."""
+    codigo_item: str = Field(primary_key=True)
+    descricao: Optional[str] = None
+    ncm: Optional[str] = None
+    unidade: Optional[str] = None
+    peso_liquido: Optional[float] = None
+    peso_bruto: Optional[float] = None
+    atualizado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+class NotaPdfItemPayload(SQLModel):
+    """Um item, no formato que viaja entre a pré-visualização da leitura do
+    PDF e a confirmação de importação (o usuário pode revisar antes)."""
+    codigo_produto: str
+    descricao: Optional[str] = None
+    ncm: Optional[str] = None
+    cst: Optional[str] = None
+    cfop: Optional[str] = None
+    unidade: Optional[str] = None
+    quantidade: Optional[float] = None
+    valor_unitario: Optional[float] = None
+    valor_total: Optional[float] = None
+    base_icms: Optional[float] = None
+    valor_icms: Optional[float] = None
+    valor_ipi: Optional[float] = None
+
+
+class NotaPdfPayload(SQLModel):
+    """Dados de uma nota lidos do PDF — devolvidos pela pré-visualização
+    (/importar-pdf) e reenviados pra confirmação (/confirmar-importacao),
+    já com qualquer correção que o usuário tenha feito na revisão."""
+    numero_nota: Optional[str] = None
+    data_nota: Optional[date] = None
+    fornecedor: Optional[str] = None
+    serie: Optional[str] = None
+    chave_acesso: Optional[str] = None
+    cnpj_fornecedor: Optional[str] = None
+    natureza_operacao: Optional[str] = None
+    protocolo_autorizacao: Optional[str] = None
+    data_autorizacao: Optional[str] = None
+    data_saida_entrada: Optional[date] = None
+    hora_saida: Optional[str] = None
+    peso_bruto: Optional[float] = None
+    peso_liquido: Optional[float] = None
+    valor_total_produtos: Optional[float] = None
+    valor_total_nota: Optional[float] = None
+    valor_frete: Optional[float] = None
+    valor_seguro: Optional[float] = None
+    valor_desconto: Optional[float] = None
+    valor_outras_despesas: Optional[float] = None
+    valor_ipi: Optional[float] = None
+    numero_fatura: Optional[str] = None
+    parcelas: list = []
+    transportador_nome: Optional[str] = None
+    transportador_cnpj: Optional[str] = None
+    informacoes_complementares: Optional[str] = None
+    numero_nota_saida: Optional[str] = None  # só faz sentido pra retorno; o vínculo final (auto ou corrigido na revisão)
+    vinculo_detectado_automaticamente: Optional[str] = None  # o que a extração achou sozinha, pra comparar
+    texto_bruto: Optional[str] = None
+    itens: List[NotaPdfItemPayload] = []
 
 
 # =======================================================================
