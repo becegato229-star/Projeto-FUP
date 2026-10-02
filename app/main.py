@@ -1,14 +1,15 @@
 import asyncio
 import io
+import json
 import time
-from datetime import date
-from typing import Optional
+from datetime import date, datetime
+from typing import List, Optional
 
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlmodel import Session, select
+from sqlmodel import Session, select, SQLModel
 from sqlalchemy.exc import IntegrityError
 
 from .database import init_db, get_session, engine
@@ -16,6 +17,7 @@ from .models import (
     Pedido, FupRegistro, FupRegistroCreate, MOTIVOS_ATRASO_PADRAO, MotivoFup, MotivoFupCreate,
     AvisoRegistro, AvisoRegistroCreate,
     NotaSaida, NotaSaidaCreate, NotaSaidaEditar, NotaRetorno, NotaRetornoCreate, NotaRetornoEditar,
+    NotaItem, ProdutoCatalogo, NotaPdfPayload, NotaPdfItemPayload,
     Boleto, BoletoEditar, CobrancaRegistro, CobrancaRegistroCreate,
     SnapshotPedidoDiario,
     TransportadoraRegistro, TransportadoraRegistroCreate,
@@ -25,6 +27,7 @@ from .fup_lote import importar_fup_em_lote
 from .fuso import hoje_brasil
 from .snapshot import capturar_snapshot_do_dia, loop_captura_diaria
 from .terceirizacao import extrair_numero_nota_saida, montar_pares
+from .terceirizacao_pdf import parse_danfe_pdf
 from .cobranca import importar_boletos
 
 app = FastAPI(title="FlowLog (self-hosted)")
@@ -691,11 +694,20 @@ def criar_nota_saida(dados: NotaSaidaCreate, session: Session = Depends(get_sess
     return nota
 
 
+def _apagar_itens_da_nota(tipo_nota: str, numero_nota: str, session: Session):
+    itens = session.exec(
+        select(NotaItem).where(NotaItem.tipo_nota == tipo_nota, NotaItem.numero_nota == numero_nota)
+    ).all()
+    for item in itens:
+        session.delete(item)
+
+
 @app.delete("/api/terceirizacao/saida/{numero_nota}")
 def apagar_nota_saida(numero_nota: str, session: Session = Depends(get_session)):
     nota = session.get(NotaSaida, numero_nota)
     if not nota:
         raise HTTPException(404, "Nota de saída não encontrada")
+    _apagar_itens_da_nota("saida", numero_nota, session)  # senão fica item órfão, igual ao bug do boleto/cobrança
     session.delete(nota)
     session.commit()
     return {"ok": True}
@@ -713,11 +725,13 @@ def editar_nota_saida(numero_nota_atual: str, dados: NotaSaidaEditar, session: S
         # pra não perder o vínculo.
         if session.get(NotaSaida, dados.numero_nota):
             raise HTTPException(409, f"Já existe uma nota de saída com o número {dados.numero_nota}")
+        dados_extras = nota.dict(exclude={"numero_nota", "data_nota", "fornecedor", "created_at"})
         nova = NotaSaida(
             numero_nota=dados.numero_nota,
             data_nota=dados.data_nota,
             fornecedor=dados.fornecedor,
             created_at=nota.created_at,
+            **dados_extras,
         )
         session.add(nova)
         retornos_vinculados = session.exec(
@@ -726,14 +740,22 @@ def editar_nota_saida(numero_nota_atual: str, dados: NotaSaidaEditar, session: S
         for r in retornos_vinculados:
             r.numero_nota_saida = dados.numero_nota
             session.add(r)
+        itens = session.exec(
+            select(NotaItem).where(NotaItem.tipo_nota == "saida", NotaItem.numero_nota == numero_nota_atual)
+        ).all()
+        for item in itens:
+            item.numero_nota = dados.numero_nota
+            session.add(item)
         session.delete(nota)
         session.commit()
+        session.refresh(nova)
         return nova
 
     nota.data_nota = dados.data_nota
     nota.fornecedor = dados.fornecedor
     session.add(nota)
     session.commit()
+    session.refresh(nota)
     return nota
 
 
@@ -797,6 +819,7 @@ def apagar_nota_retorno(numero_nota: str, session: Session = Depends(get_session
     nota = session.get(NotaRetorno, numero_nota)
     if not nota:
         raise HTTPException(404, "Nota de retorno não encontrada")
+    _apagar_itens_da_nota("retorno", numero_nota, session)
     session.delete(nota)
     session.commit()
     return {"ok": True}
@@ -813,6 +836,10 @@ def editar_nota_retorno(numero_nota_atual: str, dados: NotaRetornoEditar, sessio
     if dados.numero_nota != numero_nota_atual:
         if session.get(NotaRetorno, dados.numero_nota):
             raise HTTPException(409, f"Já existe uma nota de retorno com o número {dados.numero_nota}")
+        dados_extras = nota.dict(exclude={
+            "numero_nota", "data_nota", "fornecedor", "numero_nota_saida",
+            "informacoes_adicionais", "vinculo_manual", "created_at",
+        })
         nova = NotaRetorno(
             numero_nota=dados.numero_nota,
             data_nota=dados.data_nota,
@@ -821,10 +848,18 @@ def editar_nota_retorno(numero_nota_atual: str, dados: NotaRetornoEditar, sessio
             informacoes_adicionais=dados.informacoes_adicionais,
             vinculo_manual=True,
             created_at=nota.created_at,
+            **dados_extras,
         )
         session.add(nova)
+        itens = session.exec(
+            select(NotaItem).where(NotaItem.tipo_nota == "retorno", NotaItem.numero_nota == numero_nota_atual)
+        ).all()
+        for item in itens:
+            item.numero_nota = dados.numero_nota
+            session.add(item)
         session.delete(nota)
         session.commit()
+        session.refresh(nova)
         return nova
 
     nota.data_nota = dados.data_nota
@@ -834,7 +869,273 @@ def editar_nota_retorno(numero_nota_atual: str, dados: NotaRetornoEditar, sessio
     nota.vinculo_manual = True
     session.add(nota)
     session.commit()
+    session.refresh(nota)
     return nota
+
+
+# ---------------------------------------------------------------------
+# Importar nota por PDF (DANFE) — fluxo em 2 passos:
+#   1) /importar-pdf (preview): lê o PDF, confere duplicidade, NÃO salva
+#      nada — devolve os dados pro usuário revisar/corrigir na tela.
+#   2) /confirmar-importacao: recebe os dados (já revisados) e só então
+#      grava no banco — cria nota nova, OU completa um registro antigo
+#      que já existia sem PDF (backfill), OU recusa se já foi importada.
+# ---------------------------------------------------------------------
+def _status_importacao(Model, numero_nota: Optional[str], chave_acesso: Optional[str], session: Session) -> str:
+    """'novo' | 'enriquecer' | 'duplicado' — ver fluxo acima."""
+    if chave_acesso:
+        existente_por_chave = session.exec(
+            select(Model).where(Model.chave_acesso == chave_acesso)
+        ).first()
+        if existente_por_chave:
+            return "duplicado"
+    if numero_nota:
+        existente_por_numero = session.get(Model, numero_nota)
+        if existente_por_numero:
+            # já tem chave de acesso própria -> já foi importado por PDF antes
+            # (mesmo que uma chave diferente, o que seria uma inconsistência
+            # de dado real que merece uma olhada manual, não uma sobrescrita)
+            return "duplicado" if existente_por_numero.chave_acesso else "enriquecer"
+    return "novo"
+
+
+def _resolver_pesos_itens(itens: List[NotaPdfItemPayload], session: Session) -> list:
+    """Cruza cada item pelo código com o catálogo de produtos (ProdutoCatalogo)
+    e calcula o peso do item na nota (quantidade × peso unitário do catálogo).
+    Item sem código correspondente no catálogo fica sem peso — não impede
+    nada, só essa linha não entra nas análises de peso."""
+    resolvidos = []
+    for item in itens:
+        produto = session.get(ProdutoCatalogo, item.codigo_produto)
+        peso_unitario = produto.peso_liquido if produto else None
+        peso_total = (peso_unitario * item.quantidade) if (peso_unitario is not None and item.quantidade is not None) else None
+        resolvidos.append({**item.dict(), "peso_unitario": peso_unitario, "peso_total": peso_total})
+    return resolvidos
+
+
+def _salvar_itens_da_nota(tipo_nota: str, numero_nota: str, itens: List[NotaPdfItemPayload], session: Session):
+    """Substitui os itens de uma nota pelos novos (apaga os antigos primeiro
+    — evita duplicar item se a mesma nota for reimportada pra corrigir algo)."""
+    _apagar_itens_da_nota(tipo_nota, numero_nota, session)
+    for item_dados in _resolver_pesos_itens(itens, session):
+        session.add(NotaItem(numero_nota=numero_nota, tipo_nota=tipo_nota, **item_dados))
+
+
+def _payload_de_dados_pdf(dados: dict) -> dict:
+    """Converte o dict cru do parser (app/terceirizacao_pdf.py) pro formato
+    do NotaPdfPayload — mapeia nomes (data_emissao -> data_nota, o vínculo
+    detectado -> numero_nota_saida inicial) pra já vir pronto pra revisão."""
+    return {
+        "numero_nota": dados["numero_nota"],
+        "data_nota": dados["data_emissao"],
+        "fornecedor": dados["fornecedor"],
+        "serie": dados["serie"],
+        "chave_acesso": dados["chave_acesso"],
+        "cnpj_fornecedor": dados["cnpj_fornecedor"],
+        "natureza_operacao": dados["natureza_operacao"],
+        "protocolo_autorizacao": dados["protocolo_autorizacao"],
+        "data_autorizacao": dados["data_autorizacao"],
+        "data_saida_entrada": dados["data_saida_entrada"],
+        "hora_saida": dados["hora_saida"],
+        "peso_bruto": dados["peso_bruto"],
+        "peso_liquido": dados["peso_liquido"],
+        "valor_total_produtos": dados["valor_total_produtos"],
+        "valor_total_nota": dados["valor_total_nota"],
+        "valor_frete": dados["valor_frete"],
+        "valor_seguro": dados["valor_seguro"],
+        "valor_desconto": dados["valor_desconto"],
+        "valor_outras_despesas": dados["valor_outras_despesas"],
+        "valor_ipi": dados["valor_ipi"],
+        "numero_fatura": dados["numero_fatura"],
+        "parcelas": dados["parcelas"],
+        "transportador_nome": dados["transportador_nome"],
+        "transportador_cnpj": dados["transportador_cnpj"],
+        "informacoes_complementares": dados["informacoes_complementares"],
+        "numero_nota_saida": dados["vinculo_nota_saida"],
+        "vinculo_detectado_automaticamente": dados["vinculo_nota_saida"],
+        "texto_bruto": dados["texto_bruto"],
+        "itens": dados["itens"],
+    }
+
+
+@app.post("/api/terceirizacao/catalogo/importar")
+async def importar_catalogo_produtos(file: UploadFile = File(...), session: Session = Depends(get_session)):
+    """Importa (upsert, nunca duplica) a planilha Gd_Produtos do ERP —
+    é dela que vem o peso por unidade de cada código de produto, usado
+    pra calcular o peso de cada item das notas de Terceirização."""
+    if not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Envie um arquivo Excel (.xlsx ou .xls)")
+    content = await file.read()
+    try:
+        df = pd.read_excel(io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(400, f"Não consegui ler o Excel: {e}")
+
+    colunas = {c.strip(): c for c in df.columns}
+    col_codigo = colunas.get("Cód.Item")
+    if not col_codigo:
+        raise HTTPException(400, "Essa planilha não tem a coluna 'Cód.Item' esperada (exporte o Gd_Produtos do ERP)")
+    col_desc = colunas.get("Descrição do Grupo")
+    col_ncm = colunas.get("Código NCM")
+    col_unid = colunas.get("Unid.")
+    col_peso_liq = colunas.get("Peso Líquido")
+    col_peso_bru = colunas.get("Peso Bruto")
+
+    def _texto(valor):
+        return str(valor).strip() if pd.notna(valor) else None
+
+    def _numero(valor):
+        return float(valor) if pd.notna(valor) else None
+
+    criados = atualizados = ignorados = 0
+    for _, linha in df.iterrows():
+        bruto = linha.get(col_codigo)
+        if pd.isna(bruto):
+            ignorados += 1
+            continue
+        codigo = str(int(bruto)) if isinstance(bruto, float) and bruto.is_integer() else str(bruto).strip()
+        if not codigo:
+            ignorados += 1
+            continue
+
+        dados_produto = dict(
+            descricao=_texto(linha.get(col_desc)) if col_desc else None,
+            ncm=_texto(linha.get(col_ncm)) if col_ncm else None,
+            unidade=_texto(linha.get(col_unid)) if col_unid else None,
+            peso_liquido=_numero(linha.get(col_peso_liq)) if col_peso_liq else None,
+            peso_bruto=_numero(linha.get(col_peso_bru)) if col_peso_bru else None,
+            atualizado_em=datetime.utcnow(),
+        )
+        existente = session.get(ProdutoCatalogo, codigo)
+        if existente:
+            for campo, valor in dados_produto.items():
+                setattr(existente, campo, valor)
+            session.add(existente)
+            atualizados += 1
+        else:
+            session.add(ProdutoCatalogo(codigo_item=codigo, **dados_produto))
+            criados += 1
+    session.commit()
+    return {"ok": True, "criados": criados, "atualizados": atualizados, "ignorados": ignorados}
+
+
+@app.post("/api/terceirizacao/saida/importar-pdf")
+async def importar_pdf_nota_saida(file: UploadFile = File(...), session: Session = Depends(get_session)):
+    conteudo = await file.read()
+    try:
+        dados = parse_danfe_pdf(conteudo)
+    except Exception as e:
+        raise HTTPException(400, f"Não consegui ler esse PDF: {e}")
+
+    if not dados["numero_nota"]:
+        return {"status": "erro_leitura", "mensagem": "Não consegui identificar o número da nota neste PDF. Preencha manualmente.", "dados": None}
+
+    aviso_direcao = None
+    if dados["direcao"] == "retorno":
+        aviso_direcao = "Pelo CFOP dos itens, este PDF parece ser uma nota de RETORNO, não de saída. Confira antes de importar."
+
+    status = _status_importacao(NotaSaida, dados["numero_nota"], dados["chave_acesso"], session)
+    return {
+        "status": status,
+        "aviso_direcao": aviso_direcao,
+        "mensagem": "Esta nota já foi importada anteriormente." if status == "duplicado" else None,
+        "dados": _payload_de_dados_pdf(dados),
+    }
+
+
+@app.post("/api/terceirizacao/saida/confirmar-importacao")
+def confirmar_importacao_nota_saida(payload: NotaPdfPayload, session: Session = Depends(get_session)):
+    if not payload.numero_nota or not payload.data_nota:
+        raise HTTPException(422, "Número e data da nota são obrigatórios")
+    status = _status_importacao(NotaSaida, payload.numero_nota, payload.chave_acesso, session)
+    if status == "duplicado":
+        raise HTTPException(409, "Esta nota já foi importada anteriormente.")
+
+    campos = payload.dict(exclude={"numero_nota", "numero_nota_saida", "vinculo_detectado_automaticamente", "itens", "informacoes_complementares", "parcelas"})
+    campos["parcelas_json"] = json.dumps(payload.parcelas, ensure_ascii=False) if payload.parcelas else None
+
+    if status == "enriquecer":
+        nota = session.get(NotaSaida, payload.numero_nota)
+        for campo, valor in campos.items():
+            setattr(nota, campo, valor)
+        session.add(nota)
+    else:
+        nota = NotaSaida(numero_nota=payload.numero_nota, **campos)
+        session.add(nota)
+
+    _salvar_itens_da_nota("saida", payload.numero_nota, payload.itens, session)
+    session.commit()
+    session.refresh(nota)
+    return {"status": status, "nota": nota}
+
+
+@app.post("/api/terceirizacao/retorno/importar-pdf")
+async def importar_pdf_nota_retorno(file: UploadFile = File(...), session: Session = Depends(get_session)):
+    conteudo = await file.read()
+    try:
+        dados = parse_danfe_pdf(conteudo)
+    except Exception as e:
+        raise HTTPException(400, f"Não consegui ler esse PDF: {e}")
+
+    if not dados["numero_nota"]:
+        return {"status": "erro_leitura", "mensagem": "Não consegui identificar o número da nota neste PDF. Preencha manualmente.", "dados": None}
+
+    aviso_direcao = None
+    if dados["direcao"] == "saida":
+        aviso_direcao = "Pelo CFOP dos itens, este PDF parece ser uma nota de SAÍDA, não de retorno. Confira antes de importar."
+
+    status = _status_importacao(NotaRetorno, dados["numero_nota"], dados["chave_acesso"], session)
+    payload = _payload_de_dados_pdf(dados)
+    aviso_vinculo = None
+    if not payload["numero_nota_saida"]:
+        aviso_vinculo = "Não encontrei o vínculo com a nota de saída automaticamente — selecione manualmente antes de confirmar, se souber qual é."
+    return {
+        "status": status,
+        "aviso_direcao": aviso_direcao,
+        "aviso_vinculo": aviso_vinculo,
+        "mensagem": "Esta nota já foi importada anteriormente." if status == "duplicado" else None,
+        "dados": payload,
+    }
+
+
+@app.post("/api/terceirizacao/retorno/confirmar-importacao")
+def confirmar_importacao_nota_retorno(payload: NotaPdfPayload, session: Session = Depends(get_session)):
+    if not payload.numero_nota or not payload.data_nota:
+        raise HTTPException(422, "Número e data da nota são obrigatórios")
+    status = _status_importacao(NotaRetorno, payload.numero_nota, payload.chave_acesso, session)
+    if status == "duplicado":
+        raise HTTPException(409, "Esta nota já foi importada anteriormente.")
+
+    vinculo_manual = bool(payload.numero_nota_saida) and (payload.numero_nota_saida != payload.vinculo_detectado_automaticamente)
+    campos = payload.dict(exclude={"numero_nota", "numero_nota_saida", "vinculo_detectado_automaticamente", "itens", "informacoes_complementares", "parcelas"})
+    campos["parcelas_json"] = json.dumps(payload.parcelas, ensure_ascii=False) if payload.parcelas else None
+    campos["informacoes_adicionais"] = payload.informacoes_complementares
+
+    if status == "enriquecer":
+        nota = session.get(NotaRetorno, payload.numero_nota)
+        for campo, valor in campos.items():
+            setattr(nota, campo, valor)
+        if payload.numero_nota_saida:  # só sobrescreve o vínculo se o PDF/revisão trouxe um — nunca apaga um vínculo manual já existente
+            nota.numero_nota_saida = payload.numero_nota_saida
+            nota.vinculo_manual = vinculo_manual
+        session.add(nota)
+    else:
+        nota = NotaRetorno(
+            numero_nota=payload.numero_nota,
+            numero_nota_saida=payload.numero_nota_saida,
+            vinculo_manual=vinculo_manual,
+            **campos,
+        )
+        session.add(nota)
+
+    _salvar_itens_da_nota("retorno", payload.numero_nota, payload.itens, session)
+    session.commit()
+    session.refresh(nota)
+    return {"status": status, "nota": nota}
+
+
+def _fmt_data(d):
+    return d.strftime("%d/%m/%Y") if d else ""
 
 
 @app.get("/api/terceirizacao/exportar")
@@ -842,51 +1143,162 @@ def exportar_terceirizacao(
     fornecedor: Optional[str] = None,
     session: Session = Depends(get_session),
 ):
-    """Exporta tudo da Terceirização pra um Excel com 3 abas — pares
-    vinculados, notas de saída e notas de retorno (essa última já com o
-    vínculo, pra não precisar abrir a lista de 'sem vínculo' à parte).
-    Respeita o filtro de fornecedor ativo na tela, igual à exportação
-    de Pedidos."""
-    dados = montar_pares(session, fornecedor=fornecedor)
+    """Exporta tudo da Terceirização pra um Excel com 5 abas: pares
+    vinculados, notas de saída, notas de retorno, itens detalhados de cada
+    nota, e um resumo por item × fornecedor (lead time médio, mínimo,
+    máximo e ponderado por peso) — a aba pensada pra responder "quais
+    itens demoram mais, com qual fornecedor". Respeita o filtro de
+    fornecedor ativo na tela, igual à exportação de Pedidos."""
+    query_saida = select(NotaSaida)
+    query_retorno = select(NotaRetorno)
+    if fornecedor:
+        query_saida = query_saida.where(NotaSaida.fornecedor == fornecedor)
+        query_retorno = query_retorno.where(NotaRetorno.fornecedor == fornecedor)
+    saidas = session.exec(query_saida).all()
+    retornos = session.exec(query_retorno).all()
+    saidas_por_numero = {s.numero_nota: s for s in saidas}
+
+    pares = []  # (nota_saida, nota_retorno, dias_lead_time)
+    for r in retornos:
+        if r.numero_nota_saida and r.numero_nota_saida in saidas_por_numero:
+            s = saidas_por_numero[r.numero_nota_saida]
+            pares.append((s, r, (r.data_nota - s.data_nota).days))
+
+    todos_itens = session.exec(select(NotaItem)).all()
+    itens_por_nota = {}  # (tipo_nota, numero_nota) -> [NotaItem]
+    for item in todos_itens:
+        itens_por_nota.setdefault((item.tipo_nota, item.numero_nota), []).append(item)
+    # restringe aos itens das notas que sobreviveram ao filtro de fornecedor
+    numeros_saida_filtrados = set(saidas_por_numero)
+    numeros_retorno_filtrados = {r.numero_nota for r in retornos}
 
     df_pares = pd.DataFrame([
         {
-            "Nota de saída": p["nota_saida"],
-            "Data de saída": p["data_saida"].strftime("%d/%m/%Y") if p["data_saida"] else "",
-            "Nota de retorno": p["nota_retorno"],
-            "Data de retorno": p["data_retorno"].strftime("%d/%m/%Y") if p["data_retorno"] else "",
-            "Lead time (dias)": p["dias_lead_time"],
-            "Fornecedor": p["fornecedor"],
+            "Nota de saída": s.numero_nota,
+            "Data de saída": _fmt_data(s.data_nota),
+            "Peso bruto saída (kg)": s.peso_bruto,
+            "Nota de retorno": r.numero_nota,
+            "Data de retorno": _fmt_data(r.data_nota),
+            "Peso bruto retorno (kg)": r.peso_bruto,
+            "Lead time (dias)": dias,
+            "Fornecedor": r.fornecedor,
+            "Valor nota de saída": s.valor_total_nota,
+            "Valor nota de retorno": r.valor_total_nota,
         }
-        for p in dados["pares"]
+        for s, r, dias in pares
     ])
 
     df_saida = pd.DataFrame([
         {
-            "Nota de saída": s["numero_nota"],
-            "Data": s["data_nota"].strftime("%d/%m/%Y") if s["data_nota"] else "",
-            "Retornos vinculados": s["retornos_vinculados"],
-            "Fornecedor": s["fornecedor"],
+            "Nota de saída": s.numero_nota,
+            "Data": _fmt_data(s.data_nota),
+            "Fornecedor": s.fornecedor,
+            "Chave de acesso": s.chave_acesso,
+            "Peso bruto (kg)": s.peso_bruto,
+            "Peso líquido (kg)": s.peso_liquido,
+            "Valor total dos produtos": s.valor_total_produtos,
+            "Valor total da nota": s.valor_total_nota,
+            "Qtd. de itens": len(itens_por_nota.get(("saida", s.numero_nota), [])),
         }
-        for s in dados["notas_saida"]
+        for s in saidas
     ])
 
     df_retorno = pd.DataFrame([
         {
-            "Nota de retorno": r["numero_nota"],
-            "Data": r["data_nota"].strftime("%d/%m/%Y") if r["data_nota"] else "",
-            "Nota de saída vinculada": r["numero_nota_saida"] or "",
-            "Lead time (dias)": r["dias_lead_time"] if r["dias_lead_time"] is not None else "",
-            "Fornecedor": r["fornecedor"],
+            "Nota de retorno": r.numero_nota,
+            "Data": _fmt_data(r.data_nota),
+            "Fornecedor": r.fornecedor,
+            "Nota de saída vinculada": r.numero_nota_saida or "",
+            "Lead time (dias)": (r.data_nota - saidas_por_numero[r.numero_nota_saida].data_nota).days
+                if r.numero_nota_saida in saidas_por_numero else "",
+            "Chave de acesso": r.chave_acesso,
+            "Peso bruto (kg)": r.peso_bruto,
+            "Peso líquido (kg)": r.peso_liquido,
+            "Valor total dos produtos": r.valor_total_produtos,
+            "Valor total da nota": r.valor_total_nota,
+            "Qtd. de itens": len(itens_por_nota.get(("retorno", r.numero_nota), [])),
         }
-        for r in dados["notas_retorno"]
+        for r in retornos
     ])
+
+    linhas_itens = []
+    for (tipo_nota, numero_nota), itens in itens_por_nota.items():
+        if tipo_nota == "saida":
+            if numero_nota not in numeros_saida_filtrados:
+                continue
+            nota_ref = saidas_por_numero[numero_nota]
+        else:
+            if numero_nota not in numeros_retorno_filtrados:
+                continue
+            nota_ref = next((r for r in retornos if r.numero_nota == numero_nota), None)
+            if nota_ref is None:
+                continue
+        for item in itens:
+            linhas_itens.append({
+                "Tipo": "Saída" if tipo_nota == "saida" else "Retorno",
+                "Nota": numero_nota,
+                "Data": _fmt_data(nota_ref.data_nota),
+                "Fornecedor": nota_ref.fornecedor,
+                "Código do produto": item.codigo_produto,
+                "Descrição": item.descricao,
+                "Quantidade": item.quantidade,
+                "Unidade": item.unidade,
+                "Peso unitário (kg)": item.peso_unitario,
+                "Peso total do item (kg)": item.peso_total,
+                "Valor unitário": item.valor_unitario,
+                "Valor total": item.valor_total,
+            })
+    df_itens = pd.DataFrame(linhas_itens)
+
+    # Resumo por item x fornecedor: pra cada par vinculado (lead time
+    # conhecido), explode os itens da nota de saída — o lead time do par
+    # vale pra cada item que viajou dentro dele.
+    agregados = {}
+    for s, r, dias in pares:
+        for item in itens_por_nota.get(("saida", s.numero_nota), []):
+            chave = (item.codigo_produto, s.fornecedor)
+            agg = agregados.setdefault(chave, {"descricao": item.descricao, "pares": 0, "peso_total": 0.0, "dias_lista": [], "peso_dias_soma": 0.0})
+            peso = item.peso_total or 0.0
+            agg["pares"] += 1
+            agg["peso_total"] += peso
+            agg["dias_lista"].append(dias)
+            agg["peso_dias_soma"] += peso * dias
+
+    linhas_resumo = []
+    for (codigo, fornecedor_item), agg in agregados.items():
+        dias_lista = agg["dias_lista"]
+        lead_medio = sum(dias_lista) / len(dias_lista) if dias_lista else None
+        lead_ponderado = (agg["peso_dias_soma"] / agg["peso_total"]) if agg["peso_total"] else None
+        linhas_resumo.append({
+            "Código do produto": codigo,
+            "Descrição": agg["descricao"],
+            "Fornecedor": fornecedor_item,
+            "Nº de remessas (pares)": agg["pares"],
+            "Peso total movimentado (kg)": round(agg["peso_total"], 3) if agg["peso_total"] else None,
+            "Lead time médio (dias)": round(lead_medio, 1) if lead_medio is not None else None,
+            "Lead time mínimo (dias)": min(dias_lista) if dias_lista else None,
+            "Lead time máximo (dias)": max(dias_lista) if dias_lista else None,
+            "Lead time médio ponderado por peso (dias)": round(lead_ponderado, 1) if lead_ponderado is not None else None,
+        })
+    df_resumo = pd.DataFrame(linhas_resumo)
+    if not df_resumo.empty:
+        df_resumo.sort_values("Lead time médio (dias)", ascending=False, inplace=True)
+
+    colunas_vazias = {
+        "pares": ["Nota de saída", "Data de saída", "Peso bruto saída (kg)", "Nota de retorno", "Data de retorno", "Peso bruto retorno (kg)", "Lead time (dias)", "Fornecedor", "Valor nota de saída", "Valor nota de retorno"],
+        "saida": ["Nota de saída", "Data", "Fornecedor", "Chave de acesso", "Peso bruto (kg)", "Peso líquido (kg)", "Valor total dos produtos", "Valor total da nota", "Qtd. de itens"],
+        "retorno": ["Nota de retorno", "Data", "Fornecedor", "Nota de saída vinculada", "Lead time (dias)", "Chave de acesso", "Peso bruto (kg)", "Peso líquido (kg)", "Valor total dos produtos", "Valor total da nota", "Qtd. de itens"],
+        "itens": ["Tipo", "Nota", "Data", "Fornecedor", "Código do produto", "Descrição", "Quantidade", "Unidade", "Peso unitário (kg)", "Peso total do item (kg)", "Valor unitário", "Valor total"],
+        "resumo": ["Código do produto", "Descrição", "Fornecedor", "Nº de remessas (pares)", "Peso total movimentado (kg)", "Lead time médio (dias)", "Lead time mínimo (dias)", "Lead time máximo (dias)", "Lead time médio ponderado por peso (dias)"],
+    }
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        (df_pares if not df_pares.empty else pd.DataFrame(columns=["Nota de saída", "Data de saída", "Nota de retorno", "Data de retorno", "Lead time (dias)", "Fornecedor"])).to_excel(writer, index=False, sheet_name="Pares vinculados")
-        (df_saida if not df_saida.empty else pd.DataFrame(columns=["Nota de saída", "Data", "Retornos vinculados", "Fornecedor"])).to_excel(writer, index=False, sheet_name="Notas de saída")
-        (df_retorno if not df_retorno.empty else pd.DataFrame(columns=["Nota de retorno", "Data", "Nota de saída vinculada", "Lead time (dias)", "Fornecedor"])).to_excel(writer, index=False, sheet_name="Notas de retorno")
+        (df_pares if not df_pares.empty else pd.DataFrame(columns=colunas_vazias["pares"])).to_excel(writer, index=False, sheet_name="Pares vinculados")
+        (df_saida if not df_saida.empty else pd.DataFrame(columns=colunas_vazias["saida"])).to_excel(writer, index=False, sheet_name="Notas de saída")
+        (df_retorno if not df_retorno.empty else pd.DataFrame(columns=colunas_vazias["retorno"])).to_excel(writer, index=False, sheet_name="Notas de retorno")
+        (df_itens if not df_itens.empty else pd.DataFrame(columns=colunas_vazias["itens"])).to_excel(writer, index=False, sheet_name="Itens por nota")
+        (df_resumo if not df_resumo.empty else pd.DataFrame(columns=colunas_vazias["resumo"])).to_excel(writer, index=False, sheet_name="Resumo por item e fornecedor")
     buffer.seek(0)
 
     filename = f"flowlog_terceirizacao_{hoje_brasil().isoformat()}.xlsx"
