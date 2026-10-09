@@ -1,7 +1,11 @@
 import asyncio
 import io
 import json
+import os
+import re
+import shutil
 import time
+import uuid
 from datetime import date, datetime
 from typing import List, Optional
 
@@ -12,12 +16,12 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select, SQLModel
 from sqlalchemy.exc import IntegrityError
 
-from .database import init_db, get_session, engine
+from .database import init_db, get_session, engine, DB_PATH
 from .models import (
     Pedido, FupRegistro, FupRegistroCreate, MOTIVOS_ATRASO_PADRAO, MotivoFup, MotivoFupCreate,
     AvisoRegistro, AvisoRegistroCreate,
     NotaSaida, NotaSaidaCreate, NotaSaidaEditar, NotaRetorno, NotaRetornoCreate, NotaRetornoEditar,
-    NotaItem, ProdutoCatalogo, NotaPdfPayload, NotaPdfItemPayload,
+    NotaItem, ItemAcabamentoPayload, ProdutoCatalogo, NotaPdfPayload, NotaPdfItemPayload,
     Boleto, BoletoEditar, CobrancaRegistro, CobrancaRegistroCreate,
     SnapshotPedidoDiario,
     TransportadoraRegistro, TransportadoraRegistroCreate,
@@ -694,6 +698,74 @@ def criar_nota_saida(dados: NotaSaidaCreate, session: Session = Depends(get_sess
     return nota
 
 
+# ---------------------------------------------------------------------
+# PDF original das notas importadas — guardado em arquivo (pasta "pdfs"
+# ao lado do banco, ou seja, dentro do volume do Railway), nunca no banco.
+# Na pré-visualização o PDF fica numa pasta temporária (token); só vira
+# definitivo quando a importação é confirmada.
+# ---------------------------------------------------------------------
+PASTA_PDFS = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), "pdfs")
+RE_TOKEN_PDF = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _nome_seguro(numero_nota: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]", "_", numero_nota or "")
+
+
+def _caminho_pdf(tipo_nota: str, numero_nota: str) -> str:
+    return os.path.join(PASTA_PDFS, tipo_nota, _nome_seguro(numero_nota) + ".pdf")
+
+
+def _guardar_pdf_temporario(conteudo: bytes) -> Optional[str]:
+    """Guarda o PDF da pré-visualização e devolve um token. Falha aqui nunca
+    atrapalha a importação (o PDF original é um extra) — devolve None."""
+    try:
+        pasta_tmp = os.path.join(PASTA_PDFS, "tmp")
+        os.makedirs(pasta_tmp, exist_ok=True)
+        agora = time.time()
+        for nome in os.listdir(pasta_tmp):  # limpa temporários com mais de 1 dia
+            caminho = os.path.join(pasta_tmp, nome)
+            if agora - os.path.getmtime(caminho) > 86400:
+                os.remove(caminho)
+        token = uuid.uuid4().hex
+        with open(os.path.join(pasta_tmp, token + ".pdf"), "wb") as f:
+            f.write(conteudo)
+        return token
+    except OSError:
+        return None
+
+
+def _fixar_pdf(token: Optional[str], tipo_nota: str, numero_nota: str):
+    """Move o PDF temporário pro lugar definitivo da nota (substitui o anterior)."""
+    if not token or not RE_TOKEN_PDF.match(token):
+        return
+    origem = os.path.join(PASTA_PDFS, "tmp", token + ".pdf")
+    if not os.path.isfile(origem):
+        return
+    try:
+        destino = _caminho_pdf(tipo_nota, numero_nota)
+        os.makedirs(os.path.dirname(destino), exist_ok=True)
+        shutil.move(origem, destino)
+    except OSError:
+        pass
+
+
+def _apagar_pdf_da_nota(tipo_nota: str, numero_nota: str):
+    try:
+        os.remove(_caminho_pdf(tipo_nota, numero_nota))
+    except OSError:
+        pass
+
+
+def _mover_pdf_da_nota(tipo_nota: str, numero_antigo: str, numero_novo: str):
+    origem = _caminho_pdf(tipo_nota, numero_antigo)
+    if os.path.isfile(origem):
+        try:
+            shutil.move(origem, _caminho_pdf(tipo_nota, numero_novo))
+        except OSError:
+            pass
+
+
 def _apagar_itens_da_nota(tipo_nota: str, numero_nota: str, session: Session):
     itens = session.exec(
         select(NotaItem).where(NotaItem.tipo_nota == tipo_nota, NotaItem.numero_nota == numero_nota)
@@ -710,6 +782,7 @@ def apagar_nota_saida(numero_nota: str, session: Session = Depends(get_session))
     _apagar_itens_da_nota("saida", numero_nota, session)  # senão fica item órfão, igual ao bug do boleto/cobrança
     session.delete(nota)
     session.commit()
+    _apagar_pdf_da_nota("saida", numero_nota)
     return {"ok": True}
 
 
@@ -749,6 +822,7 @@ def editar_nota_saida(numero_nota_atual: str, dados: NotaSaidaEditar, session: S
         session.delete(nota)
         session.commit()
         session.refresh(nova)
+        _mover_pdf_da_nota("saida", numero_nota_atual, dados.numero_nota)
         return nova
 
     nota.data_nota = dados.data_nota
@@ -822,6 +896,7 @@ def apagar_nota_retorno(numero_nota: str, session: Session = Depends(get_session
     _apagar_itens_da_nota("retorno", numero_nota, session)
     session.delete(nota)
     session.commit()
+    _apagar_pdf_da_nota("retorno", numero_nota)
     return {"ok": True}
 
 
@@ -860,6 +935,7 @@ def editar_nota_retorno(numero_nota_atual: str, dados: NotaRetornoEditar, sessio
         session.delete(nota)
         session.commit()
         session.refresh(nova)
+        _mover_pdf_da_nota("retorno", numero_nota_atual, dados.numero_nota)
         return nova
 
     nota.data_nota = dados.data_nota
@@ -938,8 +1014,22 @@ def _recalcular_pesos_itens_existentes(session: Session) -> int:
 def _salvar_itens_da_nota(tipo_nota: str, numero_nota: str, itens: List[NotaPdfItemPayload], session: Session):
     """Substitui os itens de uma nota pelos novos (apaga os antigos primeiro
     — evita duplicar item se a mesma nota for reimportada pra corrigir algo)."""
+    # guarda o acabamento (GE/BICRO) já marcado, por código + ordem dentro do código,
+    # pra não perder quando a nota é reimportada
+    antigos = session.exec(
+        select(NotaItem).where(NotaItem.tipo_nota == tipo_nota, NotaItem.numero_nota == numero_nota).order_by(NotaItem.id)
+    ).all()
+    acabamentos = {}
+    for a in antigos:
+        acabamentos.setdefault(a.codigo_produto, []).append(a.acabamento)
     _apagar_itens_da_nota(tipo_nota, numero_nota, session)
+    usados = {}
     for item_dados in _resolver_pesos_itens(itens, session):
+        cod = item_dados["codigo_produto"]
+        pos = usados.get(cod, 0)
+        usados[cod] = pos + 1
+        lista = acabamentos.get(cod, [])
+        item_dados["acabamento"] = lista[pos] if pos < len(lista) else None
         session.add(NotaItem(numero_nota=numero_nota, tipo_nota=tipo_nota, **item_dados))
 
 
@@ -977,6 +1067,7 @@ def _payload_de_dados_pdf(dados: dict) -> dict:
         "vinculo_detectado_automaticamente": dados["vinculo_nota_saida"],
         "texto_bruto": dados["texto_bruto"],
         "itens": dados["itens"],
+        "pdf_token": None,
     }
 
 
@@ -1061,11 +1152,14 @@ async def importar_pdf_nota_saida(file: UploadFile = File(...), session: Session
         aviso_direcao = "Pelo CFOP dos itens, este PDF parece ser uma nota de RETORNO, não de saída. Confira antes de importar."
 
     status = _status_importacao(NotaSaida, dados["numero_nota"], dados["chave_acesso"], session)
+    payload = _payload_de_dados_pdf(dados)
+    if status != "duplicado":
+        payload["pdf_token"] = _guardar_pdf_temporario(conteudo)
     return {
         "status": status,
         "aviso_direcao": aviso_direcao,
         "mensagem": "Esta nota já foi importada anteriormente." if status == "duplicado" else None,
-        "dados": _payload_de_dados_pdf(dados),
+        "dados": payload,
     }
 
 
@@ -1077,7 +1171,7 @@ def confirmar_importacao_nota_saida(payload: NotaPdfPayload, session: Session = 
     if status == "duplicado":
         raise HTTPException(409, "Esta nota já foi importada anteriormente.")
 
-    campos = payload.dict(exclude={"numero_nota", "numero_nota_saida", "vinculo_detectado_automaticamente", "itens", "informacoes_complementares", "parcelas"})
+    campos = payload.dict(exclude={"numero_nota", "numero_nota_saida", "vinculo_detectado_automaticamente", "itens", "informacoes_complementares", "parcelas", "pdf_token"})
     campos["parcelas_json"] = json.dumps(payload.parcelas, ensure_ascii=False) if payload.parcelas else None
 
     if status == "enriquecer":
@@ -1092,6 +1186,7 @@ def confirmar_importacao_nota_saida(payload: NotaPdfPayload, session: Session = 
     _salvar_itens_da_nota("saida", payload.numero_nota, payload.itens, session)
     session.commit()
     session.refresh(nota)
+    _fixar_pdf(payload.pdf_token, "saida", payload.numero_nota)
     return {"status": status, "nota": nota}
 
 
@@ -1112,6 +1207,8 @@ async def importar_pdf_nota_retorno(file: UploadFile = File(...), session: Sessi
 
     status = _status_importacao(NotaRetorno, dados["numero_nota"], dados["chave_acesso"], session)
     payload = _payload_de_dados_pdf(dados)
+    if status != "duplicado":
+        payload["pdf_token"] = _guardar_pdf_temporario(conteudo)
     aviso_vinculo = None
     if not payload["numero_nota_saida"]:
         aviso_vinculo = "Não encontrei o vínculo com a nota de saída automaticamente — selecione manualmente antes de confirmar, se souber qual é."
@@ -1133,7 +1230,7 @@ def confirmar_importacao_nota_retorno(payload: NotaPdfPayload, session: Session 
         raise HTTPException(409, "Esta nota já foi importada anteriormente.")
 
     vinculo_manual = bool(payload.numero_nota_saida) and (payload.numero_nota_saida != payload.vinculo_detectado_automaticamente)
-    campos = payload.dict(exclude={"numero_nota", "numero_nota_saida", "vinculo_detectado_automaticamente", "itens", "informacoes_complementares", "parcelas"})
+    campos = payload.dict(exclude={"numero_nota", "numero_nota_saida", "vinculo_detectado_automaticamente", "itens", "informacoes_complementares", "parcelas", "pdf_token"})
     campos["parcelas_json"] = json.dumps(payload.parcelas, ensure_ascii=False) if payload.parcelas else None
     campos["informacoes_adicionais"] = payload.informacoes_complementares
 
@@ -1157,7 +1254,120 @@ def confirmar_importacao_nota_retorno(payload: NotaPdfPayload, session: Session 
     _salvar_itens_da_nota("retorno", payload.numero_nota, payload.itens, session)
     session.commit()
     session.refresh(nota)
+    _fixar_pdf(payload.pdf_token, "retorno", payload.numero_nota)
     return {"status": status, "nota": nota}
+
+
+@app.put("/api/terceirizacao/item/{item_id}/acabamento")
+def definir_acabamento_item(item_id: int, dados: ItemAcabamentoPayload, session: Session = Depends(get_session)):
+    """Marca como o item de uma nota de SAÍDA deve voltar da galvanização:
+    GE (padrão) ou BICRO. Cada linha da nota é um item — se o mesmo código
+    vai metade GE e metade BICRO, a nota já tem duas linhas."""
+    acabamento = (dados.acabamento or "").strip().upper()
+    if acabamento not in ("GE", "BICRO"):
+        raise HTTPException(400, "Acabamento deve ser GE ou BICRO")
+    item = session.get(NotaItem, item_id)
+    if not item or item.tipo_nota != "saida":
+        raise HTTPException(404, "Item de nota de saída não encontrado")
+    item.acabamento = acabamento
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
+
+
+def _modelo_da_nota(tipo: str):
+    if tipo == "saida":
+        return NotaSaida
+    if tipo == "retorno":
+        return NotaRetorno
+    raise HTTPException(404, "Tipo de nota inválido")
+
+
+@app.get("/api/terceirizacao/{tipo}/{numero_nota}/detalhe")
+def detalhe_nota_terceirizacao(tipo: str, numero_nota: str, session: Session = Depends(get_session)):
+    """Tudo de uma nota pra tela de detalhe: dados do cabeçalho, itens com
+    peso/valor e a conferência da soma dos itens contra os totais da nota."""
+    Model = _modelo_da_nota(tipo)
+    nota = session.get(Model, numero_nota)
+    if not nota:
+        raise HTTPException(404, "Nota não encontrada")
+
+    itens = session.exec(
+        select(NotaItem).where(NotaItem.tipo_nota == tipo, NotaItem.numero_nota == numero_nota).order_by(NotaItem.id)
+    ).all()
+    soma_peso = sum(i.peso_total for i in itens if i.peso_total is not None)
+    soma_valor = sum(i.valor_total for i in itens if i.valor_total is not None)
+    itens_sem_peso = sum(1 for i in itens if i.peso_total is None)
+
+    peso_nota = nota.peso_bruto
+    peso_diverge = False
+    if itens and peso_nota is not None and itens_sem_peso == 0:
+        peso_diverge = abs(soma_peso - peso_nota) > max(1.0, 0.005 * peso_nota)
+    valor_diverge = False
+    if itens and nota.valor_total_produtos is not None:
+        valor_diverge = abs(soma_valor - nota.valor_total_produtos) > 0.05
+
+    dados = nota.dict(exclude={"texto_bruto", "parcelas_json"})
+    try:
+        parcelas = json.loads(nota.parcelas_json) if nota.parcelas_json else []
+    except ValueError:
+        parcelas = []
+
+    extra = {}
+    if tipo == "saida":
+        retornos = session.exec(select(NotaRetorno).where(NotaRetorno.numero_nota_saida == numero_nota)).all()
+        extra["retornos_vinculados"] = [
+            {"numero_nota": r.numero_nota, "data_nota": r.data_nota, "dias_lead_time": (r.data_nota - nota.data_nota).days}
+            for r in sorted(retornos, key=lambda r: r.data_nota)
+        ]
+    else:
+        saida = session.get(NotaSaida, nota.numero_nota_saida) if nota.numero_nota_saida else None
+        esperado = {}
+        if nota.numero_nota_saida:
+            itens_saida = session.exec(
+                select(NotaItem).where(NotaItem.tipo_nota == "saida", NotaItem.numero_nota == nota.numero_nota_saida).order_by(NotaItem.id)
+            ).all()
+            for it in itens_saida:
+                esperado.setdefault(it.codigo_produto, []).append(
+                    {"acabamento": it.acabamento or "GE", "quantidade": it.quantidade}
+                )
+        extra["acabamento_esperado"] = esperado
+        extra["saida_vinculada"] = (
+            {"numero_nota": saida.numero_nota, "data_nota": saida.data_nota, "dias_lead_time": (nota.data_nota - saida.data_nota).days}
+            if saida else None
+        )
+
+    return {
+        "tipo": tipo,
+        "nota": dados,
+        "com_pdf": bool(nota.chave_acesso),
+        "pdf_disponivel": os.path.isfile(_caminho_pdf(tipo, numero_nota)),
+        "parcelas": parcelas,
+        "itens": [i.dict() for i in itens],
+        "conferencia": {
+            "soma_peso_itens": round(soma_peso, 3),
+            "peso_bruto_nota": peso_nota,
+            "itens_sem_peso": itens_sem_peso,
+            "peso_diverge": peso_diverge,
+            "soma_valor_itens": round(soma_valor, 2),
+            "valor_total_produtos": nota.valor_total_produtos,
+            "valor_diverge": valor_diverge,
+        },
+        **extra,
+    }
+
+
+@app.get("/api/terceirizacao/{tipo}/{numero_nota}/pdf")
+def baixar_pdf_original_nota(tipo: str, numero_nota: str):
+    _modelo_da_nota(tipo)
+    caminho = _caminho_pdf(tipo, numero_nota)
+    if not os.path.isfile(caminho):
+        raise HTTPException(404, "Esta nota não tem PDF original guardado — reimporte o PDF para guardá-lo.")
+    return FileResponse(
+        caminho, media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="NF_{_nome_seguro(numero_nota)}.pdf"'},
+    )
 
 
 def _fmt_data(d):
@@ -1210,6 +1420,8 @@ def exportar_terceirizacao(
             "Fornecedor": r.fornecedor,
             "Valor nota de saída": s.valor_total_nota,
             "Valor nota de retorno": r.valor_total_nota,
+            "Origem saída": "PDF" if s.chave_acesso else "Manual",
+            "Origem retorno": "PDF" if r.chave_acesso else "Manual",
         }
         for s, r, dias in pares
     ])
@@ -1225,6 +1437,7 @@ def exportar_terceirizacao(
             "Valor total dos produtos": s.valor_total_produtos,
             "Valor total da nota": s.valor_total_nota,
             "Qtd. de itens": len(itens_por_nota.get(("saida", s.numero_nota), [])),
+            "Origem": "PDF" if s.chave_acesso else "Manual",
         }
         for s in saidas
     ])
@@ -1243,6 +1456,7 @@ def exportar_terceirizacao(
             "Valor total dos produtos": r.valor_total_produtos,
             "Valor total da nota": r.valor_total_nota,
             "Qtd. de itens": len(itens_por_nota.get(("retorno", r.numero_nota), [])),
+            "Origem": "PDF" if r.chave_acesso else "Manual",
         }
         for r in retornos
     ])
@@ -1311,9 +1525,9 @@ def exportar_terceirizacao(
         df_resumo.sort_values("Lead time médio (dias)", ascending=False, inplace=True)
 
     colunas_vazias = {
-        "pares": ["Nota de saída", "Data de saída", "Peso bruto saída (kg)", "Nota de retorno", "Data de retorno", "Peso bruto retorno (kg)", "Lead time (dias)", "Fornecedor", "Valor nota de saída", "Valor nota de retorno"],
-        "saida": ["Nota de saída", "Data", "Fornecedor", "Chave de acesso", "Peso bruto (kg)", "Peso líquido (kg)", "Valor total dos produtos", "Valor total da nota", "Qtd. de itens"],
-        "retorno": ["Nota de retorno", "Data", "Fornecedor", "Nota de saída vinculada", "Lead time (dias)", "Chave de acesso", "Peso bruto (kg)", "Peso líquido (kg)", "Valor total dos produtos", "Valor total da nota", "Qtd. de itens"],
+        "pares": ["Nota de saída", "Data de saída", "Peso bruto saída (kg)", "Nota de retorno", "Data de retorno", "Peso bruto retorno (kg)", "Lead time (dias)", "Fornecedor", "Valor nota de saída", "Valor nota de retorno", "Origem saída", "Origem retorno"],
+        "saida": ["Nota de saída", "Data", "Fornecedor", "Chave de acesso", "Peso bruto (kg)", "Peso líquido (kg)", "Valor total dos produtos", "Valor total da nota", "Qtd. de itens", "Origem"],
+        "retorno": ["Nota de retorno", "Data", "Fornecedor", "Nota de saída vinculada", "Lead time (dias)", "Chave de acesso", "Peso bruto (kg)", "Peso líquido (kg)", "Valor total dos produtos", "Valor total da nota", "Qtd. de itens", "Origem"],
         "itens": ["Tipo", "Nota", "Data", "Fornecedor", "Código do produto", "Descrição", "Quantidade", "Unidade", "Peso unitário (kg)", "Peso total do item (kg)", "Valor unitário", "Valor total"],
         "resumo": ["Código do produto", "Descrição", "Fornecedor", "Nº de remessas (pares)", "Peso total movimentado (kg)", "Lead time médio (dias)", "Lead time mínimo (dias)", "Lead time máximo (dias)", "Lead time médio ponderado por peso (dias)"],
     }

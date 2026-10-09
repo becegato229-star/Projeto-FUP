@@ -259,6 +259,23 @@
     transform:scale(.96); transition:transform .18s ease;
   }
   .overlay.show .modal{ transform:scale(1); }
+  .modal.modal-wide{ width:min(1180px, 95vw); max-height:90vh; overflow:auto; }
+  .det-paineis{ display:grid; gap:18px; }
+  .det-paineis.dois{ grid-template-columns:1fr 1fr; }
+  .det-painel{ border:1px solid var(--border); border-radius:10px; padding:16px; min-width:0; background:var(--panel); }
+  .det-titulo{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:15px; font-weight:700; margin-bottom:12px; }
+  .det-meta{ display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:10px 18px; margin-bottom:14px; }
+  .det-meta div span{ display:block; font-size:11px; color:var(--text-dim); margin-bottom:2px; }
+  .det-meta div b{ font-size:13px; font-weight:600; word-break:break-word; }
+  .det-conf{ border-radius:8px; padding:10px 12px; font-size:12.5px; margin-bottom:14px; background:var(--panel-2); border:1px solid var(--border); line-height:1.6; }
+  .det-conf.alerta{ border-color:var(--warn); }
+  .det-itens{ max-height:340px; overflow:auto; border:1px solid var(--border); border-radius:8px; }
+  .det-itens table{ width:100%; }
+  .det-itens tfoot td{ font-weight:700; position:sticky; bottom:0; background:var(--panel-2); }
+  .det-acoes{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; align-items:center; font-size:12px; color:var(--text-dim); }
+  .det-paineis.dois .col-unit{ display:none; }
+  .det-paineis.dois .det-itens th, .det-paineis.dois .det-itens td{ padding:6px 5px; font-size:11.5px; }
+  @media (max-width: 900px){ .det-paineis.dois{ grid-template-columns:1fr; } }
   .modal h3{margin:0 0 14px; font-size:15px;}
   .modal label{display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--text-dim); margin-bottom:12px;}
   .modal input{background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;}
@@ -550,6 +567,13 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         <input type="text" id="terc_busca" placeholder="Buscar por número de nota ou fornecedor..." oninput="renderTercSubtabAtiva()">
       </div>
+      <label>Origem da nota
+        <select id="terc_origem_filtro" onchange="renderTercSubtabAtiva()">
+          <option value="">Todas</option>
+          <option value="pdf">📄 Só as importadas por PDF</option>
+          <option value="manual">✍ Só as manuais (sem PDF)</option>
+        </select>
+      </label>
       <label class="upload-btn" style="display:inline-flex; align-items:center;">
         ⬆ Importar catálogo (Gd_Produtos.xlsx)
         <input type="file" accept=".xlsx,.xls" onchange="importarCatalogoProdutos(this)" style="position:absolute; inset:0; opacity:0; cursor:pointer;">
@@ -792,6 +816,15 @@
     </div>
     <div class="actions">
       <button class="ghost" onclick="fecharGerenciarMotivos()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="detalheNotaOverlay" onclick="if(event.target===this) fecharDetalheNota()">
+  <div class="modal modal-wide">
+    <div id="detalheNotaConteudo"></div>
+    <div class="actions">
+      <button class="ghost" onclick="fecharDetalheNota()">Fechar</button>
     </div>
   </div>
 </div>
@@ -1891,12 +1924,14 @@ function valorOrdenacaoTercSaida(s, campo){
     case 'numero_nota': return s.numero_nota || '';
     case 'data_nota': return s.data_nota || '';
     case 'retornos_vinculados': return s.retornos_vinculados || 0;
+    case 'com_pdf': return s.com_pdf ? 1 : 0;
     case 'fornecedor': return (s.fornecedor || '').toLowerCase();
     default: return '';
   }
 }
 function valorOrdenacaoTercSemVinculo(r, campo){
   switch(campo){
+    case 'com_pdf': return r.chave_acesso ? 1 : 0;
     case 'numero_nota': return r.numero_nota || '';
     case 'data_nota': return r.data_nota || '';
     default: return '';
@@ -1907,22 +1942,36 @@ function valorOrdenacaoTercRetorno(r, campo){
     case 'numero_nota': return r.numero_nota || '';
     case 'data_nota': return r.data_nota || '';
     case 'numero_nota_saida': return r.numero_nota_saida || '';
+    case 'com_pdf': return r.com_pdf ? 1 : 0;
     case 'dias_lead_time': return r.dias_lead_time ?? -1;
     case 'fornecedor': return (r.fornecedor || '').toLowerCase();
     default: return '';
   }
 }
 
+function badgeOrigem(comPdf){
+  return comPdf
+    ? '<span class="atraso-tag" style="color:var(--ok)" title="PDF importado: tem peso, itens e dados fiscais">📄 PDF</span>'
+    : '<span class="atraso-tag" style="color:var(--text-dim)" title="Cadastrada só manualmente: sem peso, itens nem dados fiscais">✍ Manual</span>';
+}
+function badgeBicro(tem){
+  return tem ? '<span class="atraso-tag" style="background:#fff3cd; color:#8a5a00; font-weight:700;" title="Esta nota tem item(ns) que devem voltar como BICRO — abra para ver quais">⚠ BICRO</span>' : '';
+}
+function passaFiltroOrigem(comPdf){
+  const f = document.getElementById('terc_origem_filtro').value;
+  return !f || (f === 'pdf' ? comPdf : !comPdf);
+}
+
 function linhaTercPar(p){
   return `
-    <tr>
-      <td style="font-family:var(--mono)">${p.nota_saida}</td>
+    <tr ondblclick="abrirDetalhePar('${p.nota_saida}', '${p.nota_retorno}')" style="cursor:pointer;" title="Duplo clique para ver itens, pesos e valores">
+      <td style="font-family:var(--mono)">${p.nota_saida} ${badgeOrigem(p.saida_com_pdf)} ${badgeBicro(p.tem_bicro)}</td>
       <td>${fmtDate(p.data_saida)}</td>
-      <td style="font-family:var(--mono)">${p.nota_retorno}</td>
+      <td style="font-family:var(--mono)">${p.nota_retorno} ${badgeOrigem(p.retorno_com_pdf)} ${badgeBicro(p.tem_bicro)}</td>
       <td>${fmtDate(p.data_retorno)}</td>
       <td><span class="atraso-tag" style="color:var(--ok)">${p.dias_lead_time}d</span></td>
       <td class="col-secondary">${p.fornecedor}</td>
-      <td>
+      <td ondblclick="event.stopPropagation()">
         <button class="small-action fup" onclick="abrirEditarNotaRetorno('${p.nota_retorno}')" title="Editar a nota de retorno deste par">✎</button>
         <button class="small-action" onclick="apagarNotaRetorno('${p.nota_retorno}')" title="Apagar a nota de retorno (desfaz o vínculo)">🗑</button>
       </td>
@@ -1932,12 +1981,13 @@ function linhaTercPar(p){
 function linhaTercSaida(s){
   const corContagem = s.retornos_vinculados === 0 ? 'var(--text-dim)' : 'var(--ok)';
   return `
-    <tr>
-      <td style="font-family:var(--mono)">${s.numero_nota}</td>
+    <tr ondblclick="abrirDetalheNota('saida', '${s.numero_nota}')" style="cursor:pointer;" title="Duplo clique para ver itens, pesos e valores">
+      <td style="font-family:var(--mono)">${s.numero_nota} ${badgeBicro(s.tem_bicro)}</td>
       <td>${fmtDate(s.data_nota)}</td>
+      <td>${badgeOrigem(s.com_pdf)}</td>
       <td><span style="color:${corContagem}; font-weight:700;">${s.retornos_vinculados}</span></td>
       <td class="col-secondary">${s.fornecedor}</td>
-      <td>
+      <td ondblclick="event.stopPropagation()">
         <button class="small-action fup" onclick="abrirEditarNotaSaida('${s.numero_nota}')" title="Editar">✎</button>
         <button class="small-action" onclick="apagarNotaSaida('${s.numero_nota}')" title="Apagar">🗑</button>
       </td>
@@ -1946,11 +1996,12 @@ function linhaTercSaida(s){
 }
 function linhaTercSemVinculo(r){
   return `
-    <tr>
+    <tr ondblclick="abrirDetalheNota('retorno', '${r.numero_nota}')" style="cursor:pointer;" title="Duplo clique para ver itens, pesos e valores">
       <td style="font-family:var(--mono)">${r.numero_nota}</td>
       <td>${fmtDate(r.data_nota)}</td>
+      <td>${badgeOrigem(!!r.chave_acesso)}</td>
       <td class="col-secondary" style="white-space:normal; max-width:320px;">${r.informacoes_adicionais || '—'}</td>
-      <td>
+      <td ondblclick="event.stopPropagation()">
         <button class="small-action fup" onclick="abrirVincularManual('${r.numero_nota}')">Vincular</button>
         <button class="small-action fup" onclick="abrirEditarNotaRetorno('${r.numero_nota}')" title="Editar">✎</button>
         <button class="small-action" onclick="apagarNotaRetorno('${r.numero_nota}')" title="Apagar">🗑</button>
@@ -1967,13 +2018,14 @@ function linhaTercRetorno(r){
     ? `<span class="atraso-tag" style="color:var(--ok)">${r.dias_lead_time}d</span>`
     : `<span style="color:var(--text-dim)">—</span>`;
   return `
-    <tr>
-      <td style="font-family:var(--mono)">${r.numero_nota}</td>
+    <tr ondblclick="abrirDetalheNota('retorno', '${r.numero_nota}')" style="cursor:pointer;" title="Duplo clique para ver itens, pesos e valores">
+      <td style="font-family:var(--mono)">${r.numero_nota} ${badgeBicro(r.tem_bicro)}</td>
       <td>${fmtDate(r.data_nota)}</td>
+      <td>${badgeOrigem(r.com_pdf)}</td>
       <td>${vinculo}</td>
       <td>${leadTime}</td>
       <td class="col-secondary">${r.fornecedor}</td>
-      <td>
+      <td ondblclick="event.stopPropagation()">
         <button class="small-action fup" onclick="abrirEditarNotaRetorno('${r.numero_nota}')" title="Editar">✎</button>
         <button class="small-action" onclick="apagarNotaRetorno('${r.numero_nota}')" title="Apagar">🗑</button>
       </td>
@@ -2000,6 +2052,10 @@ async function loadTerceirizacaoTab(){
     <div class="stat"><div class="n">${data.stats.lead_time_maximo}d</div><div class="l">Máximo</div></div>
     <div class="stat atraso"><div class="n">${data.stats.aguardando_retorno_n}</div><div class="l">Sem nenhum retorno ainda</div></div>
     <div class="stat atraso"><div class="n">${data.stats.sem_vinculo_n}</div><div class="l">Sem vínculo</div></div>
+    <div class="stat"><div class="n">${data.stats.saidas_com_pdf} / ${data.stats.saidas_com_pdf + data.stats.saidas_manuais}</div><div class="l">Saídas com PDF</div></div>
+    <div class="stat ${data.stats.saidas_manuais ? 'atraso' : ''}"><div class="n">${data.stats.saidas_manuais}</div><div class="l">Saídas só manuais</div></div>
+    <div class="stat"><div class="n">${data.stats.retornos_com_pdf} / ${data.stats.retornos_com_pdf + data.stats.retornos_manuais}</div><div class="l">Retornos com PDF</div></div>
+    <div class="stat ${data.stats.retornos_manuais ? 'atraso' : ''}"><div class="n">${data.stats.retornos_manuais}</div><div class="l">Retornos só manuais</div></div>
   `;
 
   const opcoesSaida = data.notas_saida.map(s => `<option value="${s.numero_nota}">${s.numero_nota} (${fmtDate(s.data_nota)})</option>`).join('');
@@ -2018,6 +2074,7 @@ function renderTercSubtabAtiva(){
   const busca = document.getElementById('terc_busca').value;
 
   let pares = filtrarPorBusca(window.tercParesCache || [], busca, ['nota_saida', 'nota_retorno'], ['fornecedor']);
+  pares = pares.filter(p => passaFiltroOrigem(p.saida_com_pdf && p.retorno_com_pdf));  // 'PDF' = os dois lados com PDF; 'manual' = pelo menos um lado manual
   pares = ordenarLista(pares, 'tercPares', valorOrdenacaoTercPar);
   document.getElementById('theadTercPares').innerHTML = `
     ${thOrdenavelGenerico('tercPares', 'nota_saida', 'Nota saída')}
@@ -2033,35 +2090,41 @@ function renderTercSubtabAtiva(){
     : `<tr><td colspan="7" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum par vinculado encontrado.</td></tr>`;
 
   let notasSaida = filtrarPorBusca(window.tercNotasSaidaCache || [], busca, ['numero_nota'], ['fornecedor']);
+  notasSaida = notasSaida.filter(n => passaFiltroOrigem(n.com_pdf));
   notasSaida = ordenarLista(notasSaida, 'tercSaida', valorOrdenacaoTercSaida);
   document.getElementById('theadTercSaida').innerHTML = `
     ${thOrdenavelGenerico('tercSaida', 'numero_nota', 'Nota saída')}
     ${thOrdenavelGenerico('tercSaida', 'data_nota', 'Data')}
+    ${thOrdenavelGenerico('tercSaida', 'com_pdf', 'Origem')}
     ${thOrdenavelGenerico('tercSaida', 'retornos_vinculados', 'Retornos vinculados')}
     ${thOrdenavelGenerico('tercSaida', 'fornecedor', 'Fornecedor', 'col-secondary')}
     <th></th>
   `;
   document.getElementById('tbodyTercAguardando').innerHTML = notasSaida.length
     ? notasSaida.map(linhaTercSaida).join('')
-    : `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de saída encontrada.</td></tr>`;
+    : `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de saída encontrada.</td></tr>`;
 
   let semVinculo = filtrarPorBusca(window.tercSemVinculoCache || [], busca, ['numero_nota'], []);
+  semVinculo = semVinculo.filter(n => passaFiltroOrigem(!!n.chave_acesso));
   semVinculo = ordenarLista(semVinculo, 'tercSemVinculo', valorOrdenacaoTercSemVinculo);
   document.getElementById('theadTercSemVinculo').innerHTML = `
     ${thOrdenavelGenerico('tercSemVinculo', 'numero_nota', 'Nota retorno')}
     ${thOrdenavelGenerico('tercSemVinculo', 'data_nota', 'Data')}
+    ${thOrdenavelGenerico('tercSemVinculo', 'com_pdf', 'Origem')}
     <th class="col-secondary">Texto colado</th>
     <th></th>
   `;
   document.getElementById('tbodyTercSemVinculo').innerHTML = semVinculo.length
     ? semVinculo.map(linhaTercSemVinculo).join('')
-    : `<tr><td colspan="4" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma pendência de vínculo 🎉</td></tr>`;
+    : `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma pendência de vínculo 🎉</td></tr>`;
 
   let notasRetorno = filtrarPorBusca(window.tercNotasRetornoCache || [], busca, ['numero_nota', 'numero_nota_saida'], ['fornecedor']);
+  notasRetorno = notasRetorno.filter(n => passaFiltroOrigem(n.com_pdf));
   notasRetorno = ordenarLista(notasRetorno, 'tercRetorno', valorOrdenacaoTercRetorno);
   document.getElementById('theadTercRetorno').innerHTML = `
     ${thOrdenavelGenerico('tercRetorno', 'numero_nota', 'Nota retorno')}
     ${thOrdenavelGenerico('tercRetorno', 'data_nota', 'Data')}
+    ${thOrdenavelGenerico('tercRetorno', 'com_pdf', 'Origem')}
     ${thOrdenavelGenerico('tercRetorno', 'numero_nota_saida', 'Vínculo (saída)')}
     ${thOrdenavelGenerico('tercRetorno', 'dias_lead_time', 'Lead time')}
     ${thOrdenavelGenerico('tercRetorno', 'fornecedor', 'Fornecedor', 'col-secondary')}
@@ -2069,13 +2132,200 @@ function renderTercSubtabAtiva(){
   `;
   document.getElementById('tbodyTercRetorno').innerHTML = notasRetorno.length
     ? notasRetorno.map(linhaTercRetorno).join('')
-    : `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de retorno encontrada.</td></tr>`;
+    : `<tr><td colspan="7" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de retorno encontrada.</td></tr>`;
 }
 
 function exportarTerceirizacao(){
   const fornecedor = document.getElementById('terc_fornecedor_filtro').value.trim();
   const params = fornecedor ? new URLSearchParams({fornecedor}) : new URLSearchParams();
   window.location = '/api/terceirizacao/exportar?' + params.toString();
+}
+
+// ---- Detalhe da nota (duplo clique): cabeçalho, itens, pesos, valores ----
+let detalhePaineis = [];  // [{tipo, numero, dados, ordem:{campo, dir}}]
+
+function escHtml(t){
+  return String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtKg(v){
+  return (v === null || v === undefined) ? '—' : Number(v).toLocaleString('pt-BR', {minimumFractionDigits:3, maximumFractionDigits:3}) + ' kg';
+}
+function fmtQtd(v){
+  return (v === null || v === undefined) ? '—' : Number(v).toLocaleString('pt-BR', {maximumFractionDigits:3});
+}
+
+async function abrirDetalheNota(tipo, numero){ await abrirDetalhePaineis([[tipo, numero]]); }
+async function abrirDetalhePar(notaSaida, notaRetorno){ await abrirDetalhePaineis([['saida', notaSaida], ['retorno', notaRetorno]]); }
+
+let detalheLista = [];
+async function abrirDetalhePaineis(lista){
+  detalheLista = lista;
+  try{
+    detalhePaineis = await Promise.all(lista.map(async ([tipo, numero]) => {
+      const res = await fetch(`/api/terceirizacao/${tipo}/${encodeURIComponent(numero)}/detalhe`);
+      const dados = await res.json();
+      if(!res.ok) throw new Error(dados.detail || 'Erro ao carregar a nota');
+      return {tipo, numero, dados, ordem: {campo: null, dir: 1}};
+    }));
+  }catch(e){ toast('Erro: ' + e.message, true); return; }
+  renderDetalheNota();
+  document.getElementById('detalheNotaOverlay').classList.add('show');
+}
+function fecharDetalheNota(){
+  document.getElementById('detalheNotaOverlay').classList.remove('show');
+}
+document.addEventListener('keydown', e => { if(e.key === 'Escape') fecharDetalheNota(); });
+
+function selosAcabamento(lista){
+  // lista: [{acabamento, quantidade}] -> "200 GE + 200 BICRO" (ou só "GE" se tudo GE)
+  if(!lista || !lista.length) return '<span style="color:var(--text-dim)">—</span>';
+  const soma = {};
+  lista.forEach(x => { soma[x.acabamento] = (soma[x.acabamento] || 0) + (x.quantidade || 0); });
+  const chaves = Object.keys(soma).sort();
+  const selo = a => `<b style="padding:2px 7px; border-radius:6px; font-size:11px; ${a === 'BICRO' ? 'background:#fff3cd; color:#8a5a00' : 'background:#d8f3e3; color:#146c3c'}">${a}</b>`;
+  if(chaves.length === 1) return selo(chaves[0]);
+  return chaves.map(a => `${fmtQtd(soma[a])} ${selo(a)}`).join(' + ');
+}
+
+async function salvarAcabamentoItem(itemId, valor){
+  try{
+    const res = await fetch(`/api/terceirizacao/item/${itemId}/acabamento`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({acabamento: valor})
+    });
+    const d = await res.json();
+    if(!res.ok) throw new Error(d.detail || 'Erro ao salvar');
+    // recarrega os painéis (o retorno vinculado depende do acabamento da saída), mantendo a ordenação
+    const ordens = detalhePaineis.map(p => p.ordem);
+    detalhePaineis = await Promise.all(detalheLista.map(async ([tipo, numero], i) => {
+      const r = await fetch(`/api/terceirizacao/${tipo}/${encodeURIComponent(numero)}/detalhe`);
+      return {tipo, numero, dados: await r.json(), ordem: ordens[i] || {campo:null, dir:1}};
+    }));
+    renderDetalheNota();
+    toast(`Item marcado como ${valor}`);
+  }catch(e){ toast('Erro: ' + e.message, true); renderDetalheNota(); }
+}
+
+function ordenarItensDetalhe(idx, campo){
+  const o = detalhePaineis[idx].ordem;
+  o.dir = (o.campo === campo) ? -o.dir : 1;
+  o.campo = campo;
+  renderDetalheNota();
+}
+
+function renderPainelDetalhe(p, idx){
+  const d = p.dados, n = d.nota, c = d.conferencia;
+  const ehSaida = p.tipo === 'saida';
+  const meta = [
+    ['Data', fmtDate(n.data_nota)],
+    ['Fornecedor', escHtml(n.fornecedor)],
+    ['CNPJ do fornecedor', escHtml(n.cnpj_fornecedor || '—')],
+    ['Natureza da operação', escHtml(n.natureza_operacao || '—')],
+    ['Peso bruto', fmtKg(n.peso_bruto)],
+    ['Peso líquido', fmtKg(n.peso_liquido)],
+    ['Valor dos produtos', fmtMoeda(n.valor_total_produtos)],
+    ['Valor total da nota', fmtMoeda(n.valor_total_nota)],
+  ];
+  if(n.data_saida_entrada) meta.push([ehSaida ? 'Data de saída (DANFE)' : 'Data de entrada (DANFE)', fmtDate(n.data_saida_entrada)]);
+  if(n.valor_frete) meta.push(['Frete', fmtMoeda(n.valor_frete)]);
+  if(n.valor_ipi) meta.push(['IPI', fmtMoeda(n.valor_ipi)]);
+  if(n.transportador_nome) meta.push(['Transportadora', escHtml(n.transportador_nome)]);
+  if(n.numero_fatura) meta.push(['Fatura', escHtml(n.numero_fatura)]);
+  if(d.parcelas && d.parcelas.length) meta.push(['Vencimentos', d.parcelas.map(x => `${fmtDate(x.vencimento)} · ${fmtMoeda(x.valor)}`).join('<br>')]);
+  if(ehSaida){
+    const rv = d.retornos_vinculados || [];
+    meta.push(['Retornos vinculados', rv.length ? rv.map(r => `${escHtml(r.numero_nota)} (${fmtDate(r.data_nota)}, ${r.dias_lead_time}d)`).join('<br>') : '— nenhum ainda']);
+  } else {
+    const sv = d.saida_vinculada;
+    meta.push(['Saída vinculada', sv ? `${escHtml(sv.numero_nota)} (${fmtDate(sv.data_nota)}) · lead time ${sv.dias_lead_time}d` : '— sem vínculo']);
+  }
+  if(n.chave_acesso) meta.push(['Chave de acesso', `<span style="font-family:var(--mono); font-size:11px">${escHtml(n.chave_acesso)}</span>`]);
+
+  // ordenação dos itens
+  let itens = d.itens.slice();
+  const {campo, dir} = p.ordem;
+  if(campo){
+    itens.sort((a, b) => {
+      const va = a[campo] ?? (typeof a[campo] === 'number' ? 0 : ''), vb = b[campo] ?? (typeof b[campo] === 'number' ? 0 : '');
+      if(typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+      return String(va).localeCompare(String(vb), 'pt-BR', {numeric:true}) * dir;
+    });
+  }
+  const th = (cmp, rot, alinhar) => `<th style="cursor:pointer; ${alinhar ? 'text-align:right;' : ''}" onclick="ordenarItensDetalhe(${idx}, '${cmp}')">${rot}${campo === cmp ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>`;
+
+  let conf = '';
+  if(!d.com_pdf){
+    conf = `<div class="det-conf">✍ Nota cadastrada <b>manualmente</b>: não tem itens, pesos nem dados fiscais. Importe o PDF dela para completar.</div>`;
+  } else if(d.itens.length){
+    const linhas = [];
+    const difPeso = (c.soma_peso_itens - (c.peso_bruto_nota ?? 0));
+    linhas.push(c.peso_diverge
+      ? `⚠ <b>Peso não bate:</b> soma dos itens ${fmtKg(c.soma_peso_itens)} × peso bruto da nota ${fmtKg(c.peso_bruto_nota)} (diferença de ${fmtKg(Math.abs(difPeso))}). Confira o peso cadastrado dos itens no catálogo.`
+      : `✅ Peso confere: soma dos itens ${fmtKg(c.soma_peso_itens)} × peso bruto da nota ${fmtKg(c.peso_bruto_nota)}.`);
+    if(c.itens_sem_peso) linhas.push(`⚠ ${c.itens_sem_peso} item(ns) sem peso (não estão no catálogo) — a soma de peso fica incompleta.`);
+    linhas.push(c.valor_diverge
+      ? `⚠ <b>Valor não bate:</b> soma dos itens ${fmtMoeda(c.soma_valor_itens)} × valor dos produtos da nota ${fmtMoeda(c.valor_total_produtos)}.`
+      : `✅ Valor confere: ${fmtMoeda(c.soma_valor_itens)}.`);
+    conf = `<div class="det-conf ${(c.peso_diverge || c.valor_diverge || c.itens_sem_peso) ? 'alerta' : ''}">${linhas.join('<br>')}</div>`;
+  }
+
+  let avisoAcab = '';
+  if(!ehSaida && d.itens.length){
+    const sv = d.saida_vinculada;
+    avisoAcab = !sv ? `<div class="det-conf alerta">⚠ Sem nota de saída vinculada — não dá para saber como os itens deveriam voltar.</div>`
+      : !Object.keys(d.acabamento_esperado || {}).length ? `<div class="det-conf alerta">⚠ A saída ${escHtml(sv.numero_nota)} não tem itens (nota só manual) — importe o PDF dela para ver como deve voltar.</div>`
+      : `<div class="det-conf">Itens abaixo conforme o PDF deste retorno (o que realmente voltou). "Deve voltar como" vem da nota de saída ${escHtml(sv.numero_nota)}.</div>`;
+  }
+  const tabela = d.itens.length ? `
+    <div class="det-itens"><table>
+      <thead><tr>
+        ${th('codigo_produto', 'Código')}${th('descricao', 'Descrição')}${th('quantidade', 'Qtd.', true)}<th>Un.</th><th>${ehSaida ? 'Acabamento' : 'Deve voltar como'}</th>
+        ${th('peso_unitario', 'Peso unit.', true).replace('<th ','<th class="col-unit" ')}${th('peso_total', 'Peso total', true)}${th('valor_unitario', 'Valor unit.', true).replace('<th ','<th class="col-unit" ')}${th('valor_total', 'Valor total', true)}
+      </tr></thead>
+      <tbody>${itens.map(i => `<tr>
+        <td style="font-family:var(--mono)">${escHtml(i.codigo_produto)}</td>
+        <td style="white-space:normal">${escHtml(i.descricao)}</td>
+        <td style="text-align:right">${fmtQtd(i.quantidade)}</td><td>${escHtml(i.unidade || '')}</td>
+        <td style="white-space:nowrap">${ehSaida
+          ? `<select onchange="salvarAcabamentoItem(${i.id}, this.value)" style="padding:3px 6px; font-size:12px; font-weight:700; border-radius:6px; ${(i.acabamento || 'GE') === 'BICRO' ? 'background:#fff3cd; color:#8a5a00' : ''}">
+              <option value="GE" ${(i.acabamento || 'GE') === 'GE' ? 'selected' : ''}>GE</option>
+              <option value="BICRO" ${i.acabamento === 'BICRO' ? 'selected' : ''}>BICRO</option></select>`
+          : selosAcabamento((d.acabamento_esperado || {})[i.codigo_produto])}</td>
+        <td class="col-unit" style="text-align:right">${fmtKg(i.peso_unitario)}</td><td style="text-align:right">${fmtKg(i.peso_total)}</td>
+        <td class="col-unit" style="text-align:right">${fmtMoeda(i.valor_unitario)}</td><td style="text-align:right">${fmtMoeda(i.valor_total)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr>
+        <td colspan="2">Total · ${d.itens.length} item(ns)</td>
+        <td style="text-align:right">${fmtQtd(d.itens.reduce((a, i) => a + (i.quantidade || 0), 0))}</td><td></td><td></td><td class="col-unit"></td>
+        <td style="text-align:right">${fmtKg(c.soma_peso_itens)}</td><td class="col-unit"></td><td style="text-align:right">${fmtMoeda(c.soma_valor_itens)}</td>
+      </tr></tfoot>
+    </table></div>` : (d.com_pdf ? '<div style="color:var(--text-dim); font-size:13px">Nenhum item registrado nesta nota.</div>' : '');
+
+  const importarBtn = `<label class="upload-btn" style="display:inline-flex; align-items:center;">📎 ${d.com_pdf ? 'Reimportar PDF' : 'Importar PDF desta nota'}
+      <input type="file" accept=".pdf" onchange="importarPdfDoDetalhe(this, '${p.tipo}')" style="position:absolute; inset:0; opacity:0; cursor:pointer;"></label>`;
+  const acoes = d.pdf_disponivel
+    ? `<a class="small-action fup" style="text-decoration:none; padding:6px 10px;" href="/api/terceirizacao/${p.tipo}/${encodeURIComponent(p.numero)}/pdf" target="_blank" rel="noopener">📄 Ver PDF original</a>${importarBtn}`
+    : `${importarBtn}<span>${d.com_pdf ? 'PDF original não guardado (nota importada antes dessa função) — reimporte para guardá-lo.' : ''}</span>`;
+
+  return `<div class="det-painel">
+    <div class="det-titulo">${ehSaida ? '📤 Nota de saída' : '📥 Nota de retorno'} <span style="font-family:var(--mono)">${escHtml(p.numero)}</span> ${badgeOrigem(d.com_pdf)} ${badgeBicro(ehSaida ? d.itens.some(i => i.acabamento === 'BICRO') : Object.values(d.acabamento_esperado || {}).some(l => l.some(x => x.acabamento === 'BICRO')))}</div>
+    <div class="det-meta">${meta.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>
+    ${conf}${avisoAcab}${tabela}
+    <div class="det-acoes">${acoes}</div>
+  </div>`;
+}
+
+function renderDetalheNota(){
+  document.getElementById('detalheNotaConteudo').innerHTML =
+    `<div class="det-paineis ${detalhePaineis.length > 1 ? 'dois' : ''}">${detalhePaineis.map(renderPainelDetalhe).join('')}</div>`;
+}
+
+// Importar PDF a partir do detalhe: leva pro formulário da aba certa (pré-preenchido pra revisar)
+function importarPdfDoDetalhe(input, tipo){
+  const aba = tipo === 'saida' ? 'saida' : 'entrada';
+  const btn = document.querySelector(`#terceirizacaoWrap .subtabs button[data-terc-subtab="${aba}"]`);
+  if(btn) setTercSubtab(aba, btn);
+  importarPdfNota(input, tipo);   // lê input.files de forma síncrona, antes de qualquer re-renderização
+  fecharDetalheNota();
 }
 
 // ---- Importação de notas por PDF (DANFE) ----
@@ -2092,7 +2342,7 @@ async function importarCatalogoProdutos(input){
     const res = await fetch('/api/terceirizacao/catalogo/importar', {method:'POST', body: formData});
     const data = await res.json();
     if(!res.ok) throw new Error(data.detail || 'Erro ao importar catálogo');
-    toast(`Catálogo importado: ${data.criados} novo(s), ${data.atualizados} atualizado(s)${data.ignorados ? `, ${data.ignorados} ignorado(s)` : ''}`);
+    toast(`Catálogo importado: ${data.criados} novo(s), ${data.atualizados} atualizado(s)${data.ignorados ? `, ${data.ignorados} ignorado(s)` : ''} · ${data.itens_recalculados} item(ns) de notas já importadas tiveram o peso recalculado`);
   }catch(e){ toast('Erro: ' + e.message, true); }
   finally{ input.value = ''; }
 }

@@ -219,6 +219,7 @@ class NotaItem(SQLModel, table=True):
     valor_ipi: Optional[float] = None
     peso_unitario: Optional[float] = None  # resolvido do catálogo (ProdutoCatalogo) na hora da importação
     peso_total: Optional[float] = None  # quantidade * peso_unitario, já calculado
+    acabamento: Optional[str] = None  # só nota de saída: "GE" ou "BICRO" (vazio = GE) — como o item deve voltar da galvanização
 
 
 class ProdutoCatalogo(SQLModel, table=True):
@@ -283,6 +284,7 @@ class NotaPdfPayload(SQLModel):
     numero_nota_saida: Optional[str] = None  # só faz sentido pra retorno; o vínculo final (auto ou corrigido na revisão)
     vinculo_detectado_automaticamente: Optional[str] = None  # o que a extração achou sozinha, pra comparar
     texto_bruto: Optional[str] = None
+    pdf_token: Optional[str] = None  # arquivo PDF guardado temporariamente na pré-visualização; vira definitivo ao confirmar
     itens: List[NotaPdfItemPayload] = []
 
 
@@ -387,3 +389,7 @@ class TransportadoraRegistroCreate(SQLModel):
     chamado: bool = False
     quem_chamou: Optional[str] = None
     observacao: Optional[str] = None
+
+
+class ItemAcabamentoPayload(SQLModel):
+    acabamento: str  # "GE" ou "BICRO"

@@ -13,7 +13,7 @@ from typing import Optional
 import numpy as np
 from sqlmodel import Session, select
 
-from .models import NotaSaida, NotaRetorno
+from .models import NotaSaida, NotaRetorno, NotaItem
 
 # Reconhece o padrão observado: "/obs.nfe116858 nfe9186 jjleste /" — e variações
 # como "OBS:No NFE116921 No NFE9196" (com texto extra entre os dois números) e
@@ -71,6 +71,11 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
         if r.numero_nota_saida:
             retornos_por_saida.setdefault(r.numero_nota_saida, []).append(r)
 
+    # notas de saída que têm ao menos um item marcado BICRO (o resto volta GE)
+    saidas_bicro = set(session.exec(
+        select(NotaItem.numero_nota).where(NotaItem.tipo_nota == "saida", NotaItem.acabamento == "BICRO")
+    ).all())
+
     pares = []
     sem_vinculo = []
     for r in retornos:
@@ -85,6 +90,9 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
             "data_retorno": r.data_nota,
             "fornecedor": r.fornecedor,
             "dias_lead_time": calcular_lead_time_dias(s.data_nota, r.data_nota),
+            "saida_com_pdf": bool(s.chave_acesso),
+            "retorno_com_pdf": bool(r.chave_acesso),
+            "tem_bicro": s.numero_nota in saidas_bicro,
         })
 
     # Todas as notas de saída aparecem aqui — não somem mais assim que um
@@ -95,6 +103,8 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
             "data_nota": s.data_nota,
             "fornecedor": s.fornecedor,
             "retornos_vinculados": len(retornos_por_saida.get(s.numero_nota, [])),
+            "tem_bicro": s.numero_nota in saidas_bicro,
+            "com_pdf": bool(s.chave_acesso),  # False = só cadastro manual, nunca teve o PDF importado
         }
         for s in saidas
     ]
@@ -112,6 +122,8 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
             "fornecedor": r.fornecedor,
             "numero_nota_saida": r.numero_nota_saida if vinculada else None,
             "dias_lead_time": calcular_lead_time_dias(s.data_nota, r.data_nota) if s else None,
+            "com_pdf": bool(r.chave_acesso),
+            "tem_bicro": bool(s) and s.numero_nota in saidas_bicro,
         })
 
     dias_lista = [p["dias_lead_time"] for p in pares]
@@ -122,6 +134,10 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
         "lead_time_maximo": max(dias_lista) if dias_lista else 0,
         "aguardando_retorno_n": aguardando_retorno_n,
         "sem_vinculo_n": len(sem_vinculo),
+        "saidas_com_pdf": sum(1 for n in notas_saida if n["com_pdf"]),
+        "saidas_manuais": sum(1 for n in notas_saida if not n["com_pdf"]),
+        "retornos_com_pdf": sum(1 for n in notas_retorno if n["com_pdf"]),
+        "retornos_manuais": sum(1 for n in notas_retorno if not n["com_pdf"]),
     }
 
     pares.sort(key=lambda p: p["data_retorno"], reverse=True)
