@@ -1,0 +1,3563 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowLog — Acompanhamento de Pedidos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+<script src="/static/chart.umd.js"></script>
+<style>
+  :root{
+    --bg: #f2f4f3;
+    --panel: #ffffff;
+    --panel-2: #eef1f0;
+    --border: #dde2e0;
+    --text: #1a1d1c;
+    --text-dim: #66716b;
+    --accent: #48d597;
+    --accent-text: #137a4a;
+    --accent-contrast: #08130e;
+    --ok: #137a4a;
+    --warn: #8a5a00;
+    --danger: #c53030;
+    --mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
+
+    /* O cabeçalho continua escuro de propósito (mesmo com o resto do site
+       claro) — é onde o logo branco da Mubec fica, e dá uma "ancora" visual
+       de marca no topo, como no outro site da Mubec (Certificado de Qualidade). */
+    --header-bg: #14171a;
+    --header-border: #2b2f32;
+    --header-text: #eef1ef;
+    --header-text-dim: #9aa3a0;
+  }
+  *{box-sizing:border-box;}
+  button, .upload-btn, .th-ordenavel{
+    transition: transform .08s ease, background-color .15s ease, color .15s ease, border-color .15s ease;
+  }
+  button:active, .upload-btn:active{ transform: scale(0.96); }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family: "DM Sans", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size:14px;
+  }
+  header{
+    padding:18px 24px; border-bottom:1px solid var(--header-border);
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--header-bg);
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-logo{ height:26px; width:auto; display:block; }
+  .brand-divider{ width:1px; height:20px; background:var(--header-border); }
+  .brand-product{ font-size:15px; font-weight:600; letter-spacing:0.02em; color:var(--header-text-dim); }
+  .header-right{display:flex; align-items:center; gap:10px;}
+  .upload-group{display:flex; gap:8px;}
+  .upload-btn{
+    position:relative; overflow:hidden; padding:8px 14px; border-radius:6px;
+    border:1px solid var(--header-border); background:#1c2023; color:var(--header-text-dim);
+    font-size:12.5px; cursor:pointer; transition:.15s;
+  }
+  .upload-btn:hover{border-color:var(--accent); color:var(--header-text);}
+  .upload-btn input{position:absolute; inset:0; opacity:0; cursor:pointer;}
+  .icon-btn{
+    width:34px; height:34px; border-radius:6px; border:1px solid var(--header-border);
+    background:#1c2023; color:var(--header-text-dim); cursor:pointer;
+    display:flex; align-items:center; justify-content:center; transition:.15s;
+  }
+  .icon-btn:hover{border-color:var(--accent); color:var(--accent);}
+  .icon-btn.active{border-color:var(--accent); color:var(--accent); background:#0f2a1e;}
+
+  nav.tabs{
+    display:flex; gap:2px; padding:0 24px; background:var(--panel);
+    border-bottom:1px solid var(--border);
+  }
+  nav.tabs button{
+    background:transparent; border:none; color:var(--text-dim);
+    padding:12px 18px; font-size:13px; cursor:pointer; border-bottom:2px solid transparent;
+    font-weight:600;
+  }
+  nav.tabs button.active{color:var(--text); border-bottom-color:var(--accent-text);}
+
+  .badge-count{
+    display:inline-block; background:var(--danger); color:#fff; font-size:11px; font-weight:700;
+    padding:1px 7px; border-radius:10px; margin-left:4px; vertical-align:middle;
+  }
+
+  tr.linha-pendente{ background:#fff1e0; }
+  tr.linha-pendente:hover{ background:#ffe6c7; }
+  tr.linha-paga{ background:#eafbf3; }
+  tr.linha-paga:hover{ background:#dcf5e9; }
+
+  .th-ordenavel{ cursor:pointer; user-select:none; white-space:nowrap; }
+  .th-ordenavel:hover{ color:var(--text); }
+
+  .subtabs{ display:flex; gap:2px; }
+  .subtabs button{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text-dim);
+    padding:8px 16px; font-size:12.5px; cursor:pointer; font-weight:600; border-radius:6px;
+  }
+  .subtabs button.active{color:var(--accent-text); background:#eafbf3; border-color:#bfe9d6;}
+
+  .toolbar-top{
+    display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;
+    padding:14px 24px 10px;
+  }
+  .toolbar-top label{font-size:11.5px; color:var(--text-dim); display:flex; flex-direction:column; gap:4px;}
+  .toolbar-top input[type="date"], .toolbar-top select{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:7px 10px; border-radius:6px; font-size:12.5px;
+  }
+  .search-wrap{
+    position:relative; flex:1; min-width:220px; max-width:420px;
+    display:flex; align-items:center;
+  }
+  .search-wrap svg{position:absolute; left:11px; color:var(--text-dim); pointer-events:none;}
+  .search-wrap input{
+    width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:9px 12px 9px 34px; border-radius:8px; font-size:13px;
+  }
+  .search-wrap input:focus{outline:none; border-color:var(--accent-text);}
+
+  .pill-rows{
+    display:flex; flex-direction:column; gap:8px;
+    padding:2px 24px 14px; border-bottom:1px solid var(--border);
+  }
+  .pill-row{display:flex; flex-wrap:wrap; gap:8px;}
+  .pill{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text-dim);
+    padding:7px 14px; border-radius:20px; font-size:12.5px; font-weight:600;
+    cursor:pointer; transition:.12s; white-space:nowrap;
+  }
+  .pill:hover{border-color:var(--text-dim); color:var(--text);}
+  .pill.active{background:#e7e9e8; color:var(--text); border-color:#c9cdc9;}
+  .pill.active.all{background:#eafbf3; border-color:#bfe9d6; color:var(--accent-text);}
+  .pill.danger.active{background:#fbdcdc; border-color:#f0b8b8; color:#a82929;}
+  .spacer{flex:1;}
+  button.primary{
+    background:var(--accent); border:none; color:var(--accent-contrast); font-weight:700;
+    padding:9px 16px; border-radius:6px; cursor:pointer; font-size:12.5px;
+  }
+  button.ghost{
+    background:transparent; border:1px solid var(--border); color:var(--text-dim);
+    padding:9px 14px; border-radius:6px; cursor:pointer; font-size:12.5px;
+  }
+  button.ghost:hover{color:var(--text); border-color:var(--text-dim);}
+  .upload-btn-light{
+    position:relative; overflow:hidden; background:transparent; border:1px solid var(--border);
+    color:var(--text-dim); padding:9px 14px; border-radius:6px; cursor:pointer; font-size:12.5px;
+    transition:.15s;
+  }
+  .upload-btn-light:hover{color:var(--text); border-color:var(--text-dim);}
+  .upload-btn-light input{position:absolute; inset:0; opacity:0; cursor:pointer;}
+  button.small-action{
+    background:transparent; border:1px solid var(--border); color:var(--text-dim);
+    padding:4px 9px; border-radius:5px; cursor:pointer; font-size:11px;
+  }
+  button.small-action:hover{border-color:var(--danger); color:var(--danger);}
+  button.small-action.fup:hover{border-color:var(--accent-text); color:var(--accent-text);}
+
+  main{padding:0 24px 40px;}
+  @keyframes fadeSlideIn{
+    from{ opacity:0; transform:translateY(6px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+  .tab-fade{ animation: fadeSlideIn .22s ease; }
+
+  .stats{display:flex; gap:16px; padding:18px 0; flex-wrap:wrap;}
+  .stat{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:16px 20px; min-width:150px;
+    box-shadow:0 1px 2px rgba(20,25,22,.04), 0 1px 10px rgba(20,25,22,.03);
+  }
+  .stat.atraso{ border-color:#f0bcbc; }
+  .stat .n{font-family:var(--mono); font-size:22px; font-weight:700;}
+  .stat .l{font-size:11px; color:var(--text-dim); margin-top:3px;}
+  .stat.atraso .n{color:var(--danger);}
+
+  table{width:100%; border-collapse:collapse; margin-top:6px;}
+  .table-scroll{
+    max-height: calc(100vh - 340px);
+    min-height: 200px;
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow:0 1px 2px rgba(20,25,22,.04), 0 1px 10px rgba(20,25,22,.03);
+    position: relative;
+  }
+  thead th{
+    text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--text-dim); padding:10px 12px; border-bottom:1px solid var(--border);
+    position:sticky; top:0; background:var(--bg); z-index:1;
+  }
+  tbody tr{ height:44px; }
+  tbody td{
+    padding:10px 12px; border-bottom:1px solid var(--border); font-size:13px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px;
+  }
+  tbody tr{ transition: background-color .12s ease; }
+  tbody tr:hover{background:var(--panel);}
+  .badge{
+    display:inline-block; padding:3px 8px; border-radius:5px; font-size:11px; font-weight:700;
+  }
+  .badge.Bloqueado{background:#fdecc8; color:var(--warn);}
+  .badge.Aprovado{background:#dceffc; color:#0f6fa8;}
+  .badge.Faturado{background:#fdecc8; color:var(--warn);}
+  .badge.Encerrado{background:#dcf5e9; color:var(--ok);}
+  .badge.Cancelado{background:#fbdcdc; color:var(--danger);}
+  .atraso-tag{color:var(--danger); font-weight:700; font-size:11.5px;}
+  .empty{padding:60px 0; text-align:center; color:var(--text-dim);}
+  .empty b{color:var(--text);}
+
+  #fupForm{display:none;}
+  .form-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:20px 22px; margin:18px 0;
+    box-shadow:0 1px 2px rgba(20,25,22,.04), 0 1px 10px rgba(20,25,22,.03);
+  }
+  .form-card-title{
+    font-size:13px; font-weight:700; color:var(--text); margin-bottom:12px;
+    padding-bottom:10px; border-bottom:1px solid var(--border);
+  }
+  .form-card-body{
+    display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;
+  }
+  .form-card-body label{
+    font-size:11.5px; color:var(--text-dim); display:flex; flex-direction:column; gap:5px;
+  }
+  .form-card-body label.grow{ flex:1; min-width:220px; }
+  .form-card-body input, .form-card-body select{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:8px 11px; border-radius:6px; font-size:13px; min-width:140px;
+  }
+  .form-card-body label.chk{
+    flex-direction:row !important; align-items:center; gap:7px !important; min-width:0;
+    padding-bottom:9px;
+  }
+  .form-card-body label.chk input{ min-width:0; width:auto; }
+  .section-title{font-size:13px; font-weight:700; color:var(--text-dim); margin:22px 0 6px; text-transform:uppercase; letter-spacing:.03em;}
+
+  #toast{
+    position:fixed; bottom:20px; right:20px; background:var(--panel-2); border:1px solid var(--border);
+    padding:12px 18px; border-radius:8px; font-size:13px; max-width:340px; z-index:50;
+    opacity:0; visibility:hidden; transform:translateY(8px);
+    transition:opacity .22s ease, transform .22s ease;
+  }
+  #toast.show{ opacity:1; visibility:visible; transform:translateY(0); }
+
+  .overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex;
+    align-items:center; justify-content:center; z-index:100;
+    opacity:0; visibility:hidden; pointer-events:none;
+    transition:opacity .18s ease;
+  }
+  .overlay.show{ opacity:1; visibility:visible; pointer-events:auto; }
+  .modal{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:22px; width:360px;
+    transform:scale(.96); transition:transform .18s ease;
+  }
+  .overlay.show .modal{ transform:scale(1); }
+  .modal.modal-wide{ width:min(1180px, 95vw); max-height:90vh; overflow:auto; }
+  .det-paineis{ display:grid; gap:18px; }
+  .det-paineis.dois{ grid-template-columns:1fr 1fr; }
+  .det-painel{ border:1px solid var(--border); border-radius:10px; padding:16px; min-width:0; background:var(--panel); }
+  .det-titulo{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:15px; font-weight:700; margin-bottom:12px; }
+  .det-meta{ display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:10px 18px; margin-bottom:14px; }
+  .det-meta div span{ display:block; font-size:11px; color:var(--text-dim); margin-bottom:2px; }
+  .det-meta div b{ font-size:13px; font-weight:600; word-break:break-word; }
+  .det-conf{ border-radius:8px; padding:10px 12px; font-size:12.5px; margin-bottom:14px; background:var(--panel-2); border:1px solid var(--border); line-height:1.6; }
+  .det-conf.alerta{ border-color:var(--warn); }
+  .det-itens{ max-height:340px; overflow:auto; border:1px solid var(--border); border-radius:8px; }
+  .det-itens table{ width:100%; }
+  .det-itens tfoot td{ font-weight:700; position:sticky; bottom:0; background:var(--panel-2); }
+  .det-acoes{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; align-items:center; font-size:12px; color:var(--text-dim); }
+  .det-paineis.dois .col-unit{ display:none; }
+  .det-paineis.dois .det-itens th, .det-paineis.dois .det-itens td{ padding:6px 5px; font-size:11.5px; }
+  @media (max-width: 900px){ .det-paineis.dois{ grid-template-columns:1fr; } }
+  .modal h3{margin:0 0 14px; font-size:15px;}
+  .modal label{display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--text-dim); margin-bottom:12px;}
+  .modal input{background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;}
+  .modal .actions{display:flex; justify-content:flex-end; gap:8px; margin-top:8px;}
+
+  /* Monitoramento */
+  #monitoramento{display:none;}
+  #monitoramento.show{display:block;}
+  #appMain{display:block;}
+  #appMain.hide{display:none;}
+  .charts-grid{display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:18px;}
+  .chart-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px;
+    box-shadow:0 1px 2px rgba(20,25,22,.04), 0 1px 10px rgba(20,25,22,.03);
+  }
+  .chart-card h4{margin:0 0 10px; font-size:12.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.03em;}
+  .chart-card canvas{max-height:260px;}
+  .hist-divider{
+    display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px;
+    margin-top:40px; padding-top:20px; border-top:2px solid var(--border);
+  }
+  .hist-filters{display:flex; gap:10px; align-items:flex-end;}
+  .hist-filters label{font-size:11.5px; color:var(--text-dim); display:flex; flex-direction:column; gap:4px;}
+  .hist-filters input{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:7px 10px; border-radius:6px; font-size:12.5px;
+  }
+  @media (max-width: 900px){ .charts-grid{grid-template-columns:1fr;} }
+
+  /* ============================================================
+     ADAPTAÇÃO MOBILE (formato retrato / 9:16) — só aplica abaixo
+     de 640px de largura. Acima disso, o desktop fica intocado.
+  ============================================================ */
+  .mobile-only{ display:none; }
+  .filtros-toggle{
+    width:100%; text-align:left; background:var(--panel-2); border:1px solid var(--border);
+    color:var(--text); padding:12px 16px; font-size:13px; font-weight:700; cursor:pointer;
+  }
+
+  @media (max-width: 640px){
+    .mobile-only{ display:block; }
+    .hide-mobile{ display:none !important; }
+
+    .filtros-panel{ display:none; }
+    .filtros-panel.mobile-open{ display:block; }
+
+    .toolbar-top{ flex-direction:column; align-items:stretch; padding:12px 14px; }
+    .search-wrap{ max-width:none; }
+    .toolbar-top label{ width:100%; }
+    .toolbar-top input[type="date"], .toolbar-top select{ width:100%; }
+    .pill-rows{ padding:2px 14px 14px; }
+
+    header{ padding:12px 14px; flex-wrap:wrap; gap:10px; }
+    header h1{ font-size:15px; }
+    .brand-logo{ height:20px; }
+    .brand-product{ font-size:13px; }
+    .upload-group{ flex-wrap:wrap; gap:6px; }
+    .upload-btn{ padding:7px 10px; font-size:11.5px; flex:1; text-align:center; min-width:0; }
+
+    nav.tabs{ padding:0 10px; overflow-x:auto; }
+    nav.tabs button{ padding:10px 12px; font-size:12px; white-space:nowrap; }
+
+    main{ padding:0 10px 30px; }
+    .stats{ gap:8px; }
+    .stat{ min-width:calc(50% - 4px); padding:10px 12px; }
+    .stat .n{ font-size:18px; }
+
+    /* Tabela: some com colunas secundárias, mostra só o essencial.
+       Toca na linha pra ver o resto num painel de detalhes. */
+    .table-scroll{ max-height: calc(100vh - 260px); }
+    .col-secondary{ display:none !important; }
+    tbody td{ max-width:120px; font-size:12.5px; padding:10px 8px; }
+    .chevron-cell{ text-align:center; color:var(--text-dim); font-size:16px; }
+    tbody tr{ cursor:pointer; }
+  }
+
+  /* Painel de detalhes do pedido (mobile) */
+  .detalhe-linha{
+    display:flex; justify-content:space-between; gap:12px; padding:9px 0;
+    border-bottom:1px solid var(--border); font-size:13px;
+  }
+  .detalhe-linha span{ color:var(--text-dim); }
+  .detalhe-linha b{ text-align:right; }
+  .detalhe-acoes{ display:flex; flex-direction:column; gap:8px; margin-top:16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <img src="/static/mubec-logo.svg" alt="Mubec" class="brand-logo">
+    <span class="brand-divider"></span>
+    <span class="brand-product">FlowLog</span>
+  </div>
+  <div class="header-right">
+    <div class="upload-group">
+      <label class="upload-btn">📄 Follow up de vendas<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
+      <label class="upload-btn">🚚 OE<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
+      <label class="upload-btn">📦 Pedidos Mubec<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
+    </div>
+    <a class="icon-btn" id="btnBackup" href="/api/backup" title="Baixar backup (banco de dados + PDFs)">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>
+      </svg>
+    </a>
+    <button class="icon-btn" id="btnMonitor" title="Monitoramento" onclick="toggleMonitoramento()">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<div id="appMain">
+<nav class="tabs">
+  <button class="active" data-tab="todos" onclick="setTab('todos', this)">Todos</button>
+  <button data-tab="avisos" onclick="setTab('avisos', this)">⚠ Avisos</button>
+  <button data-tab="fup" onclick="setTab('fup', this)">FUP</button>
+  <button data-tab="terceirizacao" onclick="setTab('terceirizacao', this)">🏭 Terceirização</button>
+  <button data-tab="cobranca" onclick="setTab('cobranca', this)">💰 Cobrança <span id="badgeCobranca" class="badge-count" style="display:none"></span></button>
+</nav>
+
+<button class="mobile-only filtros-toggle" onclick="toggleFiltrosMobile()">
+  🔍 Filtros e busca <span id="filtrosToggleIcon">▾</span>
+</button>
+
+<div class="filtros-panel" id="filtrosPanel">
+<div class="toolbar-top">
+  <div class="search-wrap">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input type="text" id="f_busca" placeholder="Buscar por cliente, pedido, OE ou NF..." oninput="debouncedLoad()">
+  </div>
+  <label>Data de<input type="date" id="f_data_de" onchange="load()"></label>
+  <label>Data até<input type="date" id="f_data_ate" onchange="load()"></label>
+  <label id="f_campo_data_wrap">Filtrar por
+    <select id="f_campo_data" onchange="load()">
+      <option value="entrega" selected>Data de entrega</option>
+      <option value="emissao">Data de emissão</option>
+      <option value="entrega_efetiva">Data efetiva de entrega</option>
+      <option value="faturamento">Data de faturamento</option>
+    </select>
+  </label>
+  <div class="spacer"></div>
+  <button class="ghost" onclick="limparFiltros()">✕ Limpar filtros</button>
+  <button class="ghost" onclick="load()">↻ Atualizar</button>
+  <label class="upload-btn-light hide-mobile" id="upload_fup_lote_wrap" title="Reimporta a planilha exportada com as colunas 'Situação FUP' / 'FUP' / 'Nova Data de Entrega' preenchidas">
+    ↑ Importar FUP em lote
+    <input type="file" accept=".xlsx,.xls" onchange="importarFupLote(this)">
+  </label>
+  <button class="primary hide-mobile" id="btn_exportar_excel" onclick="exportar()">⬇ Exportar Excel</button>
+</div>
+
+<div class="pill-rows">
+  <div class="pill-row" id="pills_tipo" data-group="tipo">
+    <button class="pill all active" data-value="">Todos os tipos</button>
+    <button class="pill" data-value="Entrega">🚚 Entrega</button>
+    <button class="pill" data-value="Retira">🏬 Retira</button>
+    <button class="pill" data-value="Transportadora">📦 Transportadora</button>
+  </div>
+  <div class="pill-row" id="pills_atraso" data-group="atraso">
+    <button class="pill all active" data-value="">Todos</button>
+    <button class="pill" data-value="atrasado">⚠ Atrasados</button>
+  </div>
+  <div class="pill-row" id="pills_status" data-group="status">
+    <button class="pill all active" data-value="">Todos os status</button>
+    <button class="pill" data-value="Bloqueado">Bloqueado</button>
+    <button class="pill" data-value="Aprovado">Aprovado</button>
+    <button class="pill" data-value="Faturado">Faturado</button>
+    <button class="pill" data-value="Encerrado">Encerrado</button>
+    <button class="pill danger" data-value="Cancelado">Cancelado</button>
+  </div>
+</div>
+</div>
+<!-- fim do filtros-panel -->
+
+<main>
+  <div class="stats" id="stats"></div>
+
+  <div class="form-card" id="fupForm">
+    <div class="form-card-title">📋 Registrar novo FUP</div>
+    <div class="form-card-body">
+      <label>Nº do pedido<input type="text" id="fup_pedido" placeholder="ex: 20233"></label>
+      <label>Data<input type="date" id="fup_data"></label>
+      <label>Situação
+        <select id="fup_situacao" onchange="atualizarVisibilidadeMotivoFup()">
+          <option value="ok">✓ Ok</option>
+          <option value="previsto_atraso">⚠ Previsto atraso</option>
+          <option value="atraso" selected>✗ Atraso</option>
+        </select>
+      </label>
+      <label id="fup_motivo_wrap">Motivo
+        <select id="fup_motivo"></select>
+      </label>
+      <label class="grow">Observação<input type="text" id="fup_obs"></label>
+      <button class="primary" onclick="salvarFup()">Registrar FUP</button>
+      <button class="ghost" onclick="abrirGerenciarMotivos()" title="Adicionar, editar ou apagar motivos">⚙ Motivos</button>
+    </div>
+  </div>
+
+  <div id="fupPendentesWrap" style="display:none">
+    <div class="section-title">Pedidos (use os filtros de status/tipo/atraso no topo para refinar)</div>
+    <div class="table-scroll" id="scrollFupPendentes" style="max-height:320px;">
+      <table>
+        <thead><tr><th>Pedido</th><th>Cliente</th><th class="col-secondary">Entrega prevista</th><th>Status</th><th>Atraso</th><th></th></tr></thead>
+        <tbody id="tbodyFupPendentes"></tbody>
+      </table>
+    </div>
+    <div class="section-title">Histórico de FUPs registrados</div>
+  </div>
+
+  <div id="avisosWrap" style="display:none">
+    <div class="subtabs" style="margin-top:10px;">
+      <button class="active" data-avisos-subtab="canhoto" onclick="setAvisosSubtab('canhoto', this)">📦 Canhoto</button>
+      <button data-avisos-subtab="transportadora" onclick="setAvisosSubtab('transportadora', this)">🚚 Transportadora</button>
+    </div>
+
+    <div id="avisosCanhotoWrap" style="margin-top:14px;">
+      <div class="form-card">
+        <div class="form-card-title">⚠ Registrar novo aviso</div>
+        <div class="form-card-body">
+          <label>Nº do pedido<input type="text" id="aviso_pedido" placeholder="ex: 20233"></label>
+          <label>Data<input type="date" id="aviso_data"></label>
+          <label class="grow">Motivo (texto livre)<input type="text" id="aviso_motivo" placeholder="ex: liguei pra transportadora, falou que..."></label>
+          <label>Próxima verificação (opcional)<input type="date" id="aviso_proxima_data"></label>
+          <button class="primary" onclick="salvarAviso()">Registrar aviso</button>
+        </div>
+      </div>
+
+      <div class="section-title">⚠ Avisos (precisam de atenção)</div>
+      <div class="table-scroll" id="scrollAvisos" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadAvisos"></tr></thead>
+          <tbody id="tbodyAvisos"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">✓ Tratados (em acompanhamento)</div>
+      <div class="table-scroll" id="scrollAvisosTratados" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadAvisosTratados"></tr></thead>
+          <tbody id="tbodyAvisosTratados"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">📖 Histórico (todos os pedidos que já tiveram aviso, mesmo Encerrados)</div>
+      <div class="table-scroll" id="scrollAvisosHistorico" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadAvisosHistorico"></tr></thead>
+          <tbody id="tbodyAvisosHistorico"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="avisosTransportadoraWrap" style="display:none; margin-top:14px;">
+      <div style="font-size:12.5px; color:var(--text-dim); margin-bottom:10px;">
+        Dê um duplo clique em qualquer pedido da lista (ou use o botão "Registrar") para abrir o registro de contato.
+      </div>
+
+      <div class="section-title">🚚 Pendentes (precisa verificar)</div>
+      <div class="table-scroll" id="scrollTransportadora" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadTransportadora"></tr></thead>
+          <tbody id="tbodyTransportadora"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">✓ Confirmados</div>
+      <div class="table-scroll" id="scrollTransportadoraConfirmados" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadTransportadoraConfirmados"></tr></thead>
+          <tbody id="tbodyTransportadoraConfirmados"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">📖 Histórico (todo pedido que já teve tentativa registrada, mesmo Encerrado)</div>
+      <div class="table-scroll" id="scrollTransportadoraHistorico" style="max-height:320px;">
+        <table>
+          <thead><tr id="theadTransportadoraHistorico"></tr></thead>
+          <tbody id="tbodyTransportadoraHistorico"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="terceirizacaoWrap" style="display:none">
+    <div class="toolbar-top" style="padding:14px 0;">
+      <label>Fornecedor
+        <select id="terc_fornecedor_filtro" onchange="loadTerceirizacaoTab()">
+          <option value="">Todos os fornecedores</option>
+        </select>
+      </label>
+      <div class="search-wrap" style="max-width:320px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" id="terc_busca" placeholder="Buscar por número de nota ou fornecedor..." oninput="renderTercSubtabAtiva()">
+      </div>
+      <label>Origem da nota
+        <select id="terc_origem_filtro" onchange="renderTercSubtabAtiva()">
+          <option value="">Todas</option>
+          <option value="pdf">📄 Só as importadas por PDF</option>
+          <option value="manual">✍ Só as manuais (sem PDF)</option>
+        </select>
+      </label>
+      <label class="upload-btn" style="display:inline-flex; align-items:center;">
+        ⬆ Importar catálogo (Gd_Produtos.xlsx)
+        <input type="file" accept=".xlsx,.xls" onchange="importarCatalogoProdutos(this)" style="position:absolute; inset:0; opacity:0; cursor:pointer;">
+      </label>
+      <label class="upload-btn" style="display:inline-flex; align-items:center;" title="Selecione vários PDFs de uma vez (saída e retorno juntos)">
+        📥 Importar vários PDFs
+        <input type="file" accept=".pdf" multiple onchange="importarPdfsLote(this)" style="position:absolute; inset:0; opacity:0; cursor:pointer;">
+      </label>
+      <button class="upload-btn hide-mobile" onclick="reprocessarPdfsGuardados()" title="Relê com o leitor atual todos os PDFs originais guardados">🔄 Reprocessar PDFs guardados</button>
+      <button class="primary hide-mobile" onclick="exportarTerceirizacao()">⬇ Exportar Excel</button>
+    </div>
+
+    <div class="stats" id="statsTerc"></div>
+
+    <div class="subtabs" style="margin-top:10px;">
+      <button class="active" data-terc-subtab="ligacao" onclick="setTercSubtab('ligacao', this)">🔗 Ligação</button>
+      <button data-terc-subtab="saida" onclick="setTercSubtab('saida', this)">📤 Notas de saída</button>
+      <button data-terc-subtab="entrada" onclick="setTercSubtab('entrada', this)">📥 Notas de entrada</button>
+    </div>
+
+    <div id="tercLigacaoWrap" style="margin-top:10px;">
+      <div class="section-title">🔗 Pares vinculados</div>
+      <div class="table-scroll" id="scrollTercPares" style="max-height:480px;">
+        <table>
+          <thead><tr id="theadTercPares"></tr></thead>
+          <tbody id="tbodyTercPares"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tercSaidaWrap" style="display:none; margin-top:10px;">
+      <div class="form-card">
+        <div class="form-card-title">📤 Registrar nota de saída</div>
+        <div class="form-card-body">
+          <label class="upload-btn" style="display:inline-flex; align-items:center;">
+            📎 Importar nota (PDF)
+            <input type="file" accept=".pdf" onchange="importarPdfNota(this, 'saida')" style="position:absolute; inset:0; opacity:0; cursor:pointer;">
+          </label>
+          <label>Número da nota<input type="text" id="terc_saida_numero" placeholder="ex: 116858"></label>
+          <label>Data<input type="date" id="terc_saida_data"></label>
+          <label class="grow">Fornecedor<input type="text" id="terc_saida_fornecedor" list="terc_fornecedores_datalist" value="JJ LESTE GALVANIZACAO LTDA"></label>
+          <div id="terc_saida_resumo_pdf" style="font-size:12px; width:100%;"></div>
+          <button class="primary" onclick="salvarNotaSaida()">Registrar saída</button>
+        </div>
+      </div>
+
+      <div class="section-title">📤 Notas de saída</div>
+      <div class="table-scroll" id="scrollTercAguardando" style="max-height:480px;">
+        <table>
+          <thead><tr id="theadTercSaida"></tr></thead>
+          <tbody id="tbodyTercAguardando"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tercEntradaWrap" style="display:none; margin-top:10px;">
+      <div class="form-card">
+        <div class="form-card-title">📥 Registrar nota de retorno</div>
+        <div class="form-card-body">
+          <label class="upload-btn" style="display:inline-flex; align-items:center;">
+            📎 Importar nota (PDF)
+            <input type="file" accept=".pdf" onchange="importarPdfNota(this, 'retorno')" style="position:absolute; inset:0; opacity:0; cursor:pointer;">
+          </label>
+          <label>Número da nota<input type="text" id="terc_retorno_numero" placeholder="ex: 9186"></label>
+          <label>Data<input type="date" id="terc_retorno_data"></label>
+          <label class="grow">Fornecedor<input type="text" id="terc_retorno_fornecedor" list="terc_fornecedores_datalist" value="JJ LESTE GALVANIZACAO LTDA"></label>
+          <label class="grow">Colar "Informações Adicionais" (detecta o vínculo sozinho)
+            <input type="text" id="terc_retorno_info" placeholder="cole aqui o texto da nota..." oninput="preVerificarVinculo()">
+          </label>
+          <div id="terc_vinculo_preview" style="font-size:12px; color:var(--text-dim); width:100%;"></div>
+          <label class="grow">Ou escolher a nota de saída manualmente
+            <select id="terc_retorno_saida_manual">
+              <option value="">— nenhuma (deixar a extração automática decidir) —</option>
+            </select>
+          </label>
+          <div id="terc_retorno_resumo_pdf" style="font-size:12px; width:100%;"></div>
+          <button class="primary" onclick="salvarNotaRetorno()">Registrar retorno</button>
+        </div>
+      </div>
+
+      <div class="section-title">⚠ Sem vínculo encontrado (precisa de atenção)</div>
+      <div class="table-scroll" id="scrollTercSemVinculo" style="max-height:260px;">
+        <table>
+          <thead><tr id="theadTercSemVinculo"></tr></thead>
+          <tbody id="tbodyTercSemVinculo"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">📥 Notas de retorno</div>
+      <div class="table-scroll" id="scrollTercRetorno" style="max-height:480px;">
+        <table>
+          <thead><tr id="theadTercRetorno"></tr></thead>
+          <tbody id="tbodyTercRetorno"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <datalist id="terc_fornecedores_datalist"></datalist>
+  </div>
+
+  <div id="cobrancaWrap" style="display:none">
+    <div class="toolbar-top" style="padding:14px 0;">
+      <label class="upload-btn" style="display:inline-flex; align-items:center;">
+        ⬆ Importar relatório de boletos vencidos
+        <input type="file" accept=".xlsx,.xls" onchange="uploadCobranca(this)" style="position:absolute; inset:0; opacity:0; cursor:pointer;">
+      </label>
+      <div class="search-wrap" style="max-width:320px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" id="cob_busca" placeholder="Buscar por pagador, CNPJ, nosso número, valor..." oninput="renderTabelaCobranca()">
+      </div>
+      <label>Data de<input type="date" id="cob_data_de" onchange="renderTabelaCobranca()"></label>
+      <label>Data até<input type="date" id="cob_data_ate" onchange="renderTabelaCobranca()"></label>
+      <label>Filtrar por
+        <select id="cob_campo_data" onchange="renderTabelaCobranca()">
+          <option value="vencimento">Data de vencimento</option>
+          <option value="pagamento">Data de pagamento</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="stats" id="statsCobranca"></div>
+
+    <div class="form-card">
+      <div class="form-card-title">📞 Registrar cobrança</div>
+      <div class="form-card-body">
+        <label>Seu Número<input type="text" id="cob_seu_numero" placeholder="ex: 115352-002"></label>
+        <label>Data<input type="date" id="cob_data"></label>
+        <label class="grow">Motivo<input type="text" id="cob_motivo" placeholder="ex: liguei, cliente disse que paga sexta"></label>
+        <label>Ligar de novo em (opcional)<input type="date" id="cob_proxima_data"></label>
+        <button class="primary" onclick="salvarCobranca()">Registrar cobrança</button>
+      </div>
+    </div>
+
+    <div class="subtabs" style="margin-top:10px;">
+      <button class="active" data-subtab="todos" onclick="setCobrancaSubtab('todos', this)">Todos</button>
+      <button data-subtab="em_aberto" onclick="setCobrancaSubtab('em_aberto', this)">Em aberto</button>
+      <button data-subtab="pago" onclick="setCobrancaSubtab('pago', this)">Pago</button>
+    </div>
+
+    <div class="table-scroll" id="scrollCobranca" style="max-height:480px; margin-top:10px;">
+      <table>
+        <thead><tr id="theadCobranca"></tr></thead>
+        <tbody id="tbodyCobranca"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="table-scroll" id="scrollTabela">
+    <table id="tabela">
+      <thead><tr id="thead"></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <div class="empty" id="empty" style="display:none"></div>
+</main>
+</div>
+
+<div id="monitoramento">
+  <main>
+    <div class="hist-divider" style="margin-top:16px; border-top:none; padding-top:0;">
+      <div class="section-title" style="margin:0">📊 Histórico permanente (nunca perde dado)</div>
+      <div class="hist-filters">
+        <label>Data de<input type="date" id="hist_data_de" onchange="loadHistorico()"></label>
+        <label>Data até<input type="date" id="hist_data_ate" onchange="loadHistorico()"></label>
+        <button class="ghost" onclick="document.getElementById('hist_data_de').value='';document.getElementById('hist_data_ate').value='';loadHistorico();">✕ Limpar período</button>
+      </div>
+    </div>
+    <div class="stats" id="monitorStatsHistorico"></div>
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <h4 style="margin:0;">Motivos de atraso mais frequentes</h4>
+          <div class="subtabs" style="transform:scale(0.85); transform-origin:right;">
+            <button class="active" id="btnAgruparOutros" onclick="setAgruparOutros(true)">Agrupar "Outros"</button>
+            <button id="btnMostrarTudo" onclick="setAgruparOutros(false)">Mostrar tudo</button>
+          </div>
+        </div>
+        <canvas id="chartMotivos"></canvas>
+      </div>
+      <div class="chart-card"><h4>Registros de FUP ao longo do tempo</h4><canvas id="chartTimeline"></canvas></div>
+      <div class="chart-card"><h4>Situação dos acompanhamentos (Ok / Previsto / Atraso)</h4><canvas id="chartSituacao"></canvas></div>
+      <div class="chart-card">
+        <h4>Taxa de acerto do "Previsto atraso"</h4>
+        <div id="taxaAcertoTexto" style="padding:20px 0; text-align:center;"></div>
+      </div>
+      <div class="chart-card" style="grid-column:1/-1"><h4>Clientes com mais atraso (histórico completo)</h4><canvas id="chartClientesHistorico"></canvas></div>
+    </div>
+  </main>
+</div>
+
+<div class="overlay" id="detalheMobileOverlay">
+  <div class="modal" style="width:min(420px, 92vw); max-height:85vh; overflow-y:auto;">
+    <h3>Pedido <span id="detalheMobilePedidoNum"></span></h3>
+    <div id="detalheMobileConteudo"></div>
+    <div class="detalhe-acoes">
+      <button class="ghost" onclick="detalheMobileHistorico()">📋 Ver histórico de FUP</button>
+      <button class="ghost" onclick="detalheMobileNovaData()">✎ Nova data de entrega</button>
+      <button class="ghost" id="btnDetalheCancelar" onclick="detalheMobileCancelar()" style="border-color:var(--danger); color:var(--danger);">Cancelar pedido</button>
+      <button class="primary" onclick="fecharDetalheMobile()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="novaDataOverlay">
+  <div class="modal">
+    <h3>Nova data de entrega — pedido <span id="novaDataPedidoNum"></span></h3>
+    <label>Nova data (renegociada com o cliente)<input type="date" id="nova_data_input"></label>
+    <div style="font-size:11.5px; color:var(--text-dim); margin:-6px 0 14px;">Deixe em branco e salve para remover a renegociação e voltar a usar a data original.</div>
+    <div class="actions">
+      <button class="ghost" onclick="fecharNovaDataModal()">Cancelar</button>
+      <button class="primary" onclick="salvarNovaData()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editarFupOverlay">
+  <div class="modal">
+    <h3>Editar FUP — pedido <span id="editarFupPedidoNum"></span></h3>
+    <label>Data<input type="date" id="editar_fup_data"></label>
+    <label>Situação
+      <select id="editar_fup_situacao" style="background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;" onchange="atualizarVisibilidadeMotivo('editar_fup_situacao','editar_fup_motivo_wrap')">
+        <option value="ok">✓ Ok</option>
+        <option value="previsto_atraso">⚠ Previsto atraso</option>
+        <option value="atraso">✗ Atraso</option>
+      </select>
+    </label>
+    <label id="editar_fup_motivo_wrap">Motivo
+      <select id="editar_fup_motivo" style="background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;"></select>
+    </label>
+    <label>Observação<input type="text" id="editar_fup_obs"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarFup()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoFup()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="gerenciarMotivosOverlay">
+  <div class="modal" style="width:420px; max-height:80vh; overflow-y:auto;">
+    <h3>Gerenciar motivos de FUP</h3>
+    <div id="listaMotivos" style="margin-bottom:14px;"></div>
+    <div style="display:flex; gap:8px;">
+      <input type="text" id="novo_motivo_texto" placeholder="ex: Zincagem" style="flex:1; background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;">
+      <button class="primary" onclick="adicionarNovoMotivo()">+ Adicionar</button>
+    </div>
+    <div class="actions">
+      <button class="ghost" onclick="fecharGerenciarMotivos()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="loteOverlay" onclick="if(event.target===this) fecharLote()">
+  <div class="modal" style="max-width:1000px; width:94vw; max-height:88vh; overflow:auto;">
+    <div id="loteConteudo"></div>
+    <div style="text-align:right; margin-top:14px;"><button onclick="fecharLote()">Fechar</button></div>
+  </div>
+</div>
+<div class="overlay" id="detalheNotaOverlay" onclick="if(event.target===this) fecharDetalheNota()">
+  <div class="modal modal-wide">
+    <div id="detalheNotaConteudo"></div>
+    <div class="actions">
+      <button class="ghost" onclick="fecharDetalheNota()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editarNotaSaidaOverlay">
+  <div class="modal">
+    <h3>Editar nota de saída</h3>
+    <label>Número da nota<input type="text" id="editar_saida_numero"></label>
+    <label>Data<input type="date" id="editar_saida_data"></label>
+    <label class="grow">Fornecedor<input type="text" id="editar_saida_fornecedor" list="terc_fornecedores_datalist"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarNotaSaida()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoNotaSaida()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editarNotaRetornoOverlay">
+  <div class="modal">
+    <h3>Editar nota de retorno</h3>
+    <label>Número da nota<input type="text" id="editar_retorno_numero"></label>
+    <label>Data<input type="date" id="editar_retorno_data"></label>
+    <label class="grow">Fornecedor<input type="text" id="editar_retorno_fornecedor" list="terc_fornecedores_datalist"></label>
+    <label class="grow">Vínculo (nota de saída)
+      <select id="editar_retorno_saida_vinculo">
+        <option value="">— sem vínculo —</option>
+      </select>
+    </label>
+    <label class="grow">Informações adicionais (texto colado)<input type="text" id="editar_retorno_info"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarNotaRetorno()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoNotaRetorno()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editarAvisoOverlay">
+  <div class="modal">
+    <h3>Editar aviso — pedido <span id="editarAvisoPedidoNum"></span></h3>
+    <label>Data<input type="date" id="editar_aviso_data"></label>
+    <label>Motivo<input type="text" id="editar_aviso_motivo" placeholder="ex: liguei pra transportadora, falou que..."></label>
+    <label>Próxima verificação (opcional)<input type="date" id="editar_aviso_proxima_data"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarAviso()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoAviso()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="transportadoraOverlay">
+  <div class="modal">
+    <h3>Verificar transportadora — pedido <span id="transpModalPedidoNum"></span></h3>
+    <div id="transpModalContexto" style="font-size:12.5px; color:var(--text-dim); margin-bottom:14px;"></div>
+    <label>Data<input type="date" id="transp_data"></label>
+    <label>Conseguiu chamar?
+      <select id="transp_chamado" onchange="toggleTranspQuemChamou()">
+        <option value="sim" selected>Sim</option>
+        <option value="nao">Não</option>
+      </select>
+    </label>
+    <label id="transp_quem_chamou_wrap">Quem chamou<input type="text" id="transp_quem_chamou" placeholder="ex: Rian"></label>
+    <label>Observação (opcional)<input type="text" id="transp_observacao" placeholder="ex: confirmou coleta pra amanhã"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharTransportadoraModal()">Cancelar</button>
+      <button class="primary" onclick="salvarTransportadora()">Registrar</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editarBoletoOverlay">
+  <div class="modal">
+    <h3>Editar boleto — <span id="editarBoletoNum"></span></h3>
+    <label>Status
+      <select id="editar_boleto_status" style="background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px;">
+        <option value="Em aberto">Em aberto</option>
+        <option value="Pago">Pago</option>
+      </select>
+    </label>
+    <label>Data de vencimento<input type="date" id="editar_boleto_vencimento"></label>
+    <label>Valor do título (R$)<input type="number" step="0.01" id="editar_boleto_valor_titulo"></label>
+    <label>Valor pago (R$)<input type="number" step="0.01" id="editar_boleto_valor_pago"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarBoleto()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoBoleto()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editarCobrancaOverlay">
+  <div class="modal">
+    <h3>Editar cobrança — <span id="editarCobrancaNum"></span></h3>
+    <label>Data<input type="date" id="editar_cobranca_data"></label>
+    <label>Motivo<input type="text" id="editar_cobranca_motivo"></label>
+    <label>Ligar de novo em (opcional)<input type="date" id="editar_cobranca_proxima_data"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharEditarCobranca()">Cancelar</button>
+      <button class="primary" onclick="salvarEdicaoCobranca()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="historicoOverlay">
+  <div class="modal" style="width:480px; max-height:80vh; overflow-y:auto;">
+    <h3>Histórico de FUP — pedido <span id="historicoPedidoNum"></span></h3>
+    <div id="historicoLista" style="display:flex; flex-direction:column; gap:10px;"></div>
+    <div class="actions">
+      <button class="ghost" onclick="fecharHistoricoModal()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="cancelOverlay">
+  <div class="modal">
+    <h3>Cancelar pedido <span id="cancelPedidoNum"></span></h3>
+    <label>Motivo do cancelamento<input type="text" id="cancel_motivo" placeholder="ex: solicitação do cliente"></label>
+    <label>Data do cancelamento<input type="date" id="cancel_data"></label>
+    <div class="actions">
+      <button class="ghost" onclick="fecharCancelModal()">Voltar</button>
+      <button class="primary" onclick="confirmarCancelamento()">Confirmar cancelamento</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+let currentTab = 'todos';
+
+// ---------------- Virtualização de tabela (renderiza só as linhas visíveis) ----------------
+class VirtualTable {
+  constructor(scrollElId, tbodyElId, rowHeight = 44, buffer = 10){
+    this.scrollEl = document.getElementById(scrollElId);
+    this.tbodyEl = document.getElementById(tbodyElId);
+    this.rowHeight = rowHeight;
+    this.buffer = buffer;
+    this.items = [];
+    this.renderRow = () => '';
+    this.colspan = 12;
+    this._onScroll = () => { window.requestAnimationFrame(() => this._paint()); };
+    this.scrollEl.addEventListener('scroll', this._onScroll);
+  }
+  setData(items, renderRow, colspan){
+    this.items = items;
+    this.renderRow = renderRow;
+    if(colspan) this.colspan = colspan;
+    this.scrollEl.scrollTop = 0;
+    this._paint();
+  }
+  _paint(){
+    const total = this.items.length;
+    const viewportHeight = this.scrollEl.clientHeight || 400;
+    const scrollTop = this.scrollEl.scrollTop;
+    let start = Math.floor(scrollTop / this.rowHeight) - this.buffer;
+    start = Math.max(0, start);
+    const visibleCount = Math.ceil(viewportHeight / this.rowHeight) + this.buffer * 2;
+    const end = Math.min(total, start + visibleCount);
+    const topSpacer = start * this.rowHeight;
+    const bottomSpacer = (total - end) * this.rowHeight;
+    let html = '';
+    if(topSpacer > 0) html += `<tr style="height:${topSpacer}px;"><td colspan="${this.colspan}" style="padding:0;border:none;"></td></tr>`;
+    for(let i = start; i < end; i++){
+      html += this.renderRow(this.items[i], i);
+    }
+    if(bottomSpacer > 0) html += `<tr style="height:${bottomSpacer}px;"><td colspan="${this.colspan}" style="padding:0;border:none;"></td></tr>`;
+    this.tbodyEl.innerHTML = html;
+  }
+}
+const vtPedidos = new VirtualTable('scrollTabela', 'tbody', 44, 10);
+const vtFupPendentes = new VirtualTable('scrollFupPendentes', 'tbodyFupPendentes', 44, 10);
+const vtAvisos = new VirtualTable('scrollAvisos', 'tbodyAvisos', 44, 10);
+const vtAvisosTratados = new VirtualTable('scrollAvisosTratados', 'tbodyAvisosTratados', 44, 10);
+const vtAvisosHistorico = new VirtualTable('scrollAvisosHistorico', 'tbodyAvisosHistorico', 44, 10);
+const vtTransportadora = new VirtualTable('scrollTransportadora', 'tbodyTransportadora', 44, 10);
+const vtTransportadoraConfirmados = new VirtualTable('scrollTransportadoraConfirmados', 'tbodyTransportadoraConfirmados', 44, 10);
+const vtTransportadoraHistorico = new VirtualTable('scrollTransportadoraHistorico', 'tbodyTransportadoraHistorico', 44, 10);
+let debounceTimer;
+let charts = {};
+
+function debouncedLoad(){
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(load, 350);
+}
+
+function expandSelect(sel){ /* mantido por compatibilidade, não usado mais */ }
+function collapseSelect(sel){ /* mantido por compatibilidade, não usado mais */ }
+
+// ---------------- Pílulas de filtro ----------------
+function setupPillGroup(rowId){
+  const row = document.getElementById(rowId);
+  row.querySelectorAll('.pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const isAll = btn.classList.contains('all');
+      if(isAll){
+        row.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }else{
+        btn.classList.toggle('active');
+        const algumAtivo = Array.from(row.querySelectorAll('.pill:not(.all)')).some(b => b.classList.contains('active'));
+        row.querySelector('.pill.all').classList.toggle('active', !algumAtivo);
+        if(algumAtivo) row.querySelector('.pill.all').classList.remove('active');
+      }
+      load();
+    });
+  });
+}
+['pills_tipo','pills_atraso','pills_status'].forEach(setupPillGroup);
+
+function pillValues(rowId){
+  return Array.from(document.querySelectorAll(`#${rowId} .pill.active:not(.all)`)).map(b => b.dataset.value);
+}
+function resetPillGroup(rowId){
+  const row = document.getElementById(rowId);
+  row.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
+  row.querySelector('.pill.all').classList.add('active');
+}
+
+function animarTrocaDeTela(seletor){
+  const el = document.querySelector(seletor);
+  if(!el) return;
+  el.classList.remove('tab-fade');
+  void el.offsetWidth; // força o navegador a "esquecer" a animação anterior, pra poder tocar de novo
+  el.classList.add('tab-fade');
+}
+
+function setTab(tab, btn){
+  currentTab = tab;
+  document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('fupForm').style.display = (tab === 'fup') ? 'block' : 'none';
+  document.getElementById('fupPendentesWrap').style.display = (tab === 'fup') ? 'block' : 'none';
+  document.getElementById('avisosWrap').style.display = (tab === 'avisos') ? 'block' : 'none';
+  document.getElementById('terceirizacaoWrap').style.display = (tab === 'terceirizacao') ? 'block' : 'none';
+  document.getElementById('cobrancaWrap').style.display = (tab === 'cobranca') ? 'block' : 'none';
+  document.getElementById('scrollTabela').style.display = (tab === 'avisos' || tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : 'block';
+  document.getElementById('stats').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
+  document.getElementById('filtrosPanel').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
+  document.querySelector('.filtros-toggle').style.display = (tab === 'terceirizacao' || tab === 'cobranca') ? 'none' : '';
+  if(tab === 'avisos'){
+    // reaplica o estado de filtros/estatisticas da sub-aba que estiver ativa
+    // (canhoto por padrao, na primeira visita)
+    const subtabAtivo = document.querySelector('#avisosWrap .subtabs button.active')?.dataset.avisosSubtab || 'canhoto';
+    setAvisosSubtab(subtabAtivo, document.querySelector(`#avisosWrap .subtabs button[data-avisos-subtab="${subtabAtivo}"]`));
+  }else{
+    // sai da aba Avisos: garante que nenhum filtro fique escondido pras outras abas
+    document.getElementById('pills_tipo').style.display = '';
+    document.getElementById('pills_atraso').style.display = '';
+    document.getElementById('pills_status').style.display = '';
+    document.getElementById('f_campo_data_wrap').style.display = '';
+    document.getElementById('upload_fup_lote_wrap').style.display = '';
+    document.getElementById('btn_exportar_excel').style.display = '';
+  }
+  animarTrocaDeTela('#appMain main');
+  load();
+}
+
+function limparFiltros(){
+  document.getElementById('f_busca').value = '';
+  resetPillGroup('pills_tipo');
+  resetPillGroup('pills_atraso');
+  resetPillGroup('pills_status');
+  document.getElementById('f_data_de').value = '';
+  document.getElementById('f_data_ate').value = '';
+  document.getElementById('f_campo_data').value = 'entrega';
+  load();
+}
+
+function toast(msg, isError=false){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.borderColor = isError ? 'var(--danger)' : 'var(--border)';
+  t.classList.add('show');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => t.classList.remove('show'), 4000);
+}
+
+let uploadEmAndamento = false;
+
+async function uploadFile(input){
+  const file = input.files[0];
+  if(!file) return;
+  if(uploadEmAndamento){
+    toast('Já tem uma importação em andamento — aguarde ela terminar antes de enviar outra.', true);
+    input.value = '';
+    return;
+  }
+  uploadEmAndamento = true;
+  document.querySelectorAll('.upload-btn').forEach(b => b.style.pointerEvents = 'none');
+  document.querySelectorAll('.upload-btn').forEach(b => b.style.opacity = '0.5');
+
+  const formData = new FormData();
+  formData.append('file', file);
+  try{
+    const res = await fetch('/api/importar', {method:'POST', body: formData});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao importar');
+    toast(`Importado: ${data.tipo_detectado} (${data.registros_processados} registros)`);
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+  input.value = '';
+  uploadEmAndamento = false;
+  document.querySelectorAll('.upload-btn').forEach(b => b.style.pointerEvents = '');
+  document.querySelectorAll('.upload-btn').forEach(b => b.style.opacity = '');
+}
+
+function buildParams(){
+  const params = new URLSearchParams();
+  params.set('aba', (currentTab === 'fup' || currentTab === 'avisos') ? 'todos' : currentTab);
+  const busca = document.getElementById('f_busca').value;
+  const statusSel = pillValues('pills_status');
+  const tipoSel = pillValues('pills_tipo');
+  const atrasado = pillValues('pills_atraso').includes('atrasado');
+  const de = document.getElementById('f_data_de').value;
+  const ate = document.getElementById('f_data_ate').value;
+  const campoData = document.getElementById('f_campo_data').value;
+  if(busca) params.set('busca', busca);
+  if(statusSel.length) params.set('status', statusSel.join(','));
+  if(tipoSel.length) params.set('tipo_entrega', tipoSel.join(','));
+  if(de) params.set('data_de', de);
+  if(ate) params.set('data_ate', ate);
+  params.set('campo_data', campoData);
+  if(atrasado) params.set('apenas_atrasados', 'true');
+  return params;
+}
+
+// Usado pra carregar as tabelas na tela: NÃO manda a busca pro servidor —
+// a busca é feita no navegador (com tolerância a erro de digitação, tipo
+// a aba Cobrança). O buildParams() original continua igual, com a busca
+// exata do servidor, só pra exportação (o Excel gerado precisa de um
+// filtro determinístico, sem "achismo" de correção automática).
+function buildParamsSemBusca(){
+  const params = buildParams();
+  params.delete('busca');
+  return params;
+}
+
+async function load(){
+  if(currentTab === 'fup'){
+    await loadFupTab();
+    return;
+  }
+  if(currentTab === 'avisos'){
+    await loadAvisosTab();
+    return;
+  }
+  if(currentTab === 'terceirizacao'){
+    await loadTerceirizacaoTab();
+    return;
+  }
+  if(currentTab === 'cobranca'){
+    await loadCobrancaTab();
+    return;
+  }
+  const params = buildParamsSemBusca();
+  const res = await fetch('/api/pedidos?' + params.toString());
+  let pedidos = await res.json();
+  const busca = document.getElementById('f_busca').value;
+  pedidos = filtrarPorBusca(pedidos, busca, ['numero_pedido', 'numero_oe', 'nf', 'cod_cliente'], ['nome_cliente']);
+  pedidos = ordenarLista(pedidos, 'pedidos', valorOrdenacaoPedido);
+  renderStats(pedidos);
+  renderTabelaPedidos(pedidos);
+}
+
+function renderStats(pedidos){
+  const total = pedidos.length;
+  const atrasoProd = pedidos.filter(p => p.atraso_producao).length;
+  const avisos = pedidos.filter(p => p.aviso_entrega).length;
+  const encerrados = pedidos.filter(p => p.status === 'Encerrado').length;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="n">${total}</div><div class="l">Pedidos no filtro</div></div>
+    <div class="stat atraso"><div class="n">${atrasoProd}</div><div class="l">Atraso de produção</div></div>
+    <div class="stat atraso"><div class="n">${avisos}</div><div class="l">Avisos (sem canhoto)</div></div>
+    <div class="stat"><div class="n">${encerrados}</div><div class="l">Encerrados</div></div>
+  `;
+}
+
+function botaoCancelamento(p){
+  if(p.status === 'Cancelado'){
+    const label = p.motivo_cancelamento ? '✎ Motivo' : '+ Motivo';
+    return `<button class="small-action" onclick="abrirCancelModal('${p.numero_pedido}')" title="Registrar/editar motivo e data do cancelamento">${label}</button>`;
+  }
+  return `<button class="small-action" onclick="abrirCancelModal('${p.numero_pedido}')">Cancelar</button>`;
+}
+function textoAtraso(dias, sufixo){
+  return dias > 0 ? `${dias}d ${sufixo}` : `Atrasado hoje (${sufixo})`;
+}
+function fmtDate(d){ return d ? d.split('-').reverse().join('/') : '—'; }
+function textoMotivo(motivo, observacao){
+  if(motivo === 'Outro' && observacao) return observacao;
+  return motivo;
+}
+
+function linhaPedido(p){
+  const mobile = window.innerWidth <= 640;
+  const celulaAcao = mobile
+    ? `<td class="chevron-cell">›</td>`
+    : `<td class="col-secondary">${botaoCancelamento(p)}</td>`;
+  return `
+    <tr onclick="abrirDetalhePedidoMobile('${p.numero_pedido}')">
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td class="col-secondary">${fmtDate(p.data_emissao)}</td>
+      <td class="col-secondary">${fmtDate(p.data_entrega_prevista)}</td>
+      <td class="col-secondary">${p.nova_data_entrega ? fmtDate(p.nova_data_entrega) : '—'}
+          <button class="small-action fup" style="margin-left:4px" onclick="event.stopPropagation(); abrirNovaDataModal('${p.numero_pedido}', '${p.nova_data_entrega || ''}')" title="Definir/editar nova data de entrega">✎</button>
+      </td>
+      <td class="col-secondary">${p.data_entrega_real ? fmtDate(p.data_entrega_real) : '—'}</td>
+      <td class="col-secondary">${p.tipo_entrega || '—'}</td>
+      <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
+      <td>${p.atraso_producao ? `<span class="atraso-tag">${textoAtraso(p.dias_atraso_producao, 'produção')}</span>` : ''}
+          ${p.aviso_entrega ? `<span class="atraso-tag">Aviso: ${p.dias_uteis_desde_faturamento}d s/ canhoto</span>` : ''}
+          ${(!p.atraso_producao && !p.aviso_entrega) ? '—' : ''}</td>
+      <td class="col-secondary">${p.numero_oe || '—'}</td>
+      <td class="col-secondary">${p.nf || '—'}</td>
+      <td class="col-secondary">${p.motivo_atraso_fup || '—'}
+          <button class="small-action fup" style="margin-left:6px" onclick="event.stopPropagation(); abrirHistoricoFup('${p.numero_pedido}')" title="Ver histórico completo de FUP">📋</button>
+      </td>
+      ${celulaAcao}
+    </tr>
+  `;
+}
+
+// ---- Ordenação de coluna genérica (clique no cabeçalho), reutilizada nas
+// tabelas de Todos, FUP e Avisos — mesmo espírito da aba Cobrança. Cada
+// tabela guarda seu próprio estado (campo + direção), pra não interferir
+// nas outras.
+const ordenacaoEstado = {};
+
+function ordenarPorColuna(tabela, campo){
+  const estado = ordenacaoEstado[tabela] || (ordenacaoEstado[tabela] = {campo: null, direcao: 'asc'});
+  if(estado.campo === campo){
+    estado.direcao = estado.direcao === 'asc' ? 'desc' : 'asc';
+  }else{
+    estado.campo = campo;
+    estado.direcao = 'asc';
+  }
+  load();
+}
+
+function ordenarLista(lista, tabela, valorFn){
+  const estado = ordenacaoEstado[tabela];
+  if(!estado || !estado.campo) return lista;
+  const dir = estado.direcao === 'asc' ? 1 : -1;
+  return [...lista].sort((a, b) => {
+    const va = valorFn(a, estado.campo);
+    const vb = valorFn(b, estado.campo);
+    if(va < vb) return -1 * dir;
+    if(va > vb) return 1 * dir;
+    return 0;
+  });
+}
+
+function thOrdenavelGenerico(tabela, campo, label, extraClass){
+  const estado = ordenacaoEstado[tabela];
+  const ativo = estado && estado.campo === campo;
+  const seta = ativo ? (estado.direcao === 'asc' ? ' ▲' : ' ▼') : '';
+  return `<th class="th-ordenavel ${extraClass || ''}" onclick="ordenarPorColuna('${tabela}', '${campo}')">${label}${seta}</th>`;
+}
+
+function valorOrdenacaoPedido(p, campo){
+  switch(campo){
+    case 'numero_pedido': return p.numero_pedido || '';
+    case 'nome_cliente': return (p.nome_cliente || '').toLowerCase();
+    case 'data_emissao': return p.data_emissao || '';
+    case 'data_entrega_prevista': return p.data_entrega_prevista || '';
+    case 'nova_data_entrega': return p.nova_data_entrega || '';
+    case 'data_entrega_real': return p.data_entrega_real || '';
+    case 'tipo_entrega': return p.tipo_entrega || '';
+    case 'status': return p.status || '';
+    case 'atraso': return p.dias_atraso_producao || (p.aviso_entrega ? p.dias_uteis_desde_faturamento : 0) || 0;
+    case 'numero_oe': return p.numero_oe || '';
+    case 'nf': return p.nf || '';
+    case 'motivo_atraso_fup': return (p.motivo_atraso_fup || '').toLowerCase();
+    default: return '';
+  }
+}
+
+function valorOrdenacaoFup(f, campo){
+  switch(campo){
+    case 'numero_pedido': return f.numero_pedido || '';
+    case 'data_referencia': return f.data_referencia || '';
+    case 'situacao': return f.situacao || 'atraso';
+    case 'motivo': return (textoMotivo(f.motivo_atraso, f.observacao) || '').toLowerCase();
+    case 'observacao': return (f.observacao || '').toLowerCase();
+    default: return '';
+  }
+}
+
+function ultimoRegistroAviso(numero_pedido){
+  return (window.avisosRegistrosCache || []).filter(a => a.numero_pedido === numero_pedido)
+    .sort((a,b) => (b.data_registro > a.data_registro ? 1 : -1))[0];
+}
+function valorOrdenacaoAviso(p, campo){
+  switch(campo){
+    case 'numero_pedido': return p.numero_pedido || '';
+    case 'nome_cliente': return (p.nome_cliente || '').toLowerCase();
+    case 'tipo_entrega': return p.tipo_entrega || '';
+    case 'data_faturamento': return p.data_faturamento || '';
+    case 'data_entrega_prevista': return p.data_entrega_prevista || '';
+    case 'dias_uteis_desde_faturamento': return p.dias_uteis_desde_faturamento || 0;
+    case 'nf': return p.nf || '';
+    case 'status': return p.status || '';
+    default: return '';
+  }
+}
+function valorOrdenacaoAvisoTratado(p, campo){
+  if(campo === 'ultimo_motivo' || campo === 'proxima_data_limite'){
+    const u = ultimoRegistroAviso(p.numero_pedido);
+    if(campo === 'ultimo_motivo') return (u ? u.motivo : '').toLowerCase();
+    return (u && u.proxima_data_limite) || '';
+  }
+  return valorOrdenacaoAviso(p, campo);
+}
+
+function renderTabelaPedidos(pedidos){
+  document.getElementById('thead').innerHTML = `
+    ${thOrdenavelGenerico('pedidos', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('pedidos', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('pedidos', 'data_emissao', 'Emissão', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'data_entrega_prevista', 'Entrega original', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'nova_data_entrega', 'Nova data', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'data_entrega_real', 'Entrega efetiva', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'tipo_entrega', 'Tipo', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'status', 'Status')}
+    ${thOrdenavelGenerico('pedidos', 'atraso', 'Atraso')}
+    ${thOrdenavelGenerico('pedidos', 'numero_oe', 'OE', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'nf', 'NF', 'col-secondary')}
+    ${thOrdenavelGenerico('pedidos', 'motivo_atraso_fup', 'Motivo (FUP)', 'col-secondary')}
+    <th></th>
+  `;
+  document.getElementById('empty').style.display = pedidos.length ? 'none' : 'block';
+  document.getElementById('empty').innerHTML = 'Nenhum pedido encontrado com esses filtros.<br><b>Importe as planilhas</b> pelos botões no topo para começar (ou ajuste/limpe os filtros).';
+  vtPedidos.setData(pedidos, linhaPedido, 13);
+}
+
+function linhaFupPendente(p){
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td class="col-secondary">${fmtDate(p.data_entrega_prevista)}</td>
+      <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
+      <td>${p.atraso_producao ? `<span class="atraso-tag">${textoAtraso(p.dias_atraso_producao, 'produção')}</span>` : ''}
+          ${p.aviso_entrega ? `<span class="atraso-tag">Aviso: ${p.dias_uteis_desde_faturamento}d s/ canhoto</span>` : ''}
+          ${(!p.atraso_producao && !p.aviso_entrega) ? '—' : ''}</td>
+      <td>
+        <button class="small-action fup" onclick="preencherFup('${p.numero_pedido}')">Registrar FUP</button>
+        <button class="small-action fup" onclick="abrirHistoricoFup('${p.numero_pedido}')" title="Ver histórico completo de FUP">📋</button>
+      </td>
+    </tr>
+  `;
+}
+function badgeSituacaoFup(situacao){
+  const s = situacao || 'atraso';
+  if(s === 'ok') return '<span class="badge Encerrado">✓ Ok</span>';
+  if(s === 'previsto_atraso') return '<span class="badge Aprovado">⚠ Previsto</span>';
+  return '<span class="badge Cancelado">✗ Atraso</span>';
+}
+function linhaFupHistorico(f){
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${f.numero_pedido}</td>
+      <td>${fmtDate(f.data_referencia)}</td>
+      <td>${badgeSituacaoFup(f.situacao)}</td>
+      <td>${textoMotivo(f.motivo_atraso, f.observacao) || '—'}</td>
+      <td class="col-secondary">${f.observacao || '—'}</td>
+      <td style="white-space:nowrap">
+        <button class="small-action fup" onclick="abrirEditarFup(${f.id})">✎ Editar</button>
+        <button class="small-action" onclick="confirmarApagarFup(${f.id})">🗑</button>
+      </td>
+    </tr>
+  `;
+}
+
+async function loadFupTab(){
+  // lista de pedidos respeitando os filtros aplicados no topo (inclusive a pílula "Atrasados", se marcada)
+  const params = buildParamsSemBusca();
+  const busca = document.getElementById('f_busca').value;
+  const resPend = await fetch('/api/pedidos?' + params.toString());
+  let pendentes = await resPend.json();
+  pendentes = filtrarPorBusca(pendentes, busca, ['numero_pedido', 'numero_oe', 'nf', 'cod_cliente'], ['nome_cliente']);
+  pendentes = ordenarLista(pendentes, 'fupPendentes', valorOrdenacaoPedido);
+  vtFupPendentes.setData(pendentes, linhaFupPendente, 6);
+  if(!pendentes.length){
+    document.getElementById('tbodyFupPendentes').innerHTML = `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido encontrado com esses filtros.</td></tr>`;
+  }
+
+  const res = await fetch('/api/fup');
+  let fups = await res.json();
+
+  // aplica os mesmos filtros (status/tipo/busca/datas/atraso) ao histórico de FUPs,
+  // cruzando com a lista de pedidos que batem no filtro atual
+  const pedidosValidos = new Set(pendentes.map(p => p.numero_pedido));
+  const algumFiltroAtivo = [...params.keys()].some(k => k !== 'aba' && k !== 'campo_data') || !!busca;
+  if(algumFiltroAtivo){
+    fups = fups.filter(f => pedidosValidos.has(f.numero_pedido));
+  }
+  fups = ordenarLista(fups, 'fupHistorico', valorOrdenacaoFup);
+
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="n">${fups.length}</div><div class="l">Registros de FUP</div></div>
+    <div class="stat"><div class="n">${pendentes.length}</div><div class="l">Pedidos no filtro atual</div></div>
+  `;
+  document.getElementById('thead').innerHTML = `
+    ${thOrdenavelGenerico('fupHistorico', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('fupHistorico', 'data_referencia', 'Data')}
+    ${thOrdenavelGenerico('fupHistorico', 'situacao', 'Situação')}
+    ${thOrdenavelGenerico('fupHistorico', 'motivo', 'Motivo')}
+    ${thOrdenavelGenerico('fupHistorico', 'observacao', 'Observação', 'col-secondary')}
+    <th></th>
+  `;
+  document.getElementById('empty').style.display = fups.length ? 'none' : 'block';
+  document.getElementById('empty').innerHTML = 'Nenhum FUP registrado ainda. Use a tabela acima ou o formulário para registrar o primeiro.';
+  window.fupsCache = fups;
+  vtPedidos.setData(fups, linhaFupHistorico, 6);
+}
+
+// ---------------- Aba Avisos ----------------
+function linhaAviso(p){
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td>${p.tipo_entrega || '—'}</td>
+      <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
+      <td>${fmtDate(p.data_entrega_prevista)}</td>
+      <td><span class="atraso-tag">${p.dias_uteis_desde_faturamento}d</span></td>
+      <td class="col-secondary">${p.nf || '—'}</td>
+      <td>
+        <button class="small-action fup" onclick="preencherAviso('${p.numero_pedido}')">Registrar aviso</button>
+        <button class="small-action fup" onclick="abrirHistoricoAviso('${p.numero_pedido}')" title="Ver histórico de avisos">📋</button>
+      </td>
+    </tr>
+  `;
+}
+function linhaAvisoTratado(p){
+  const ultimo = (window.avisosRegistrosCache || []).filter(a => a.numero_pedido === p.numero_pedido)
+    .sort((a,b) => (b.data_registro > a.data_registro ? 1 : -1))[0];
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
+      <td>${fmtDate(p.data_entrega_prevista)}</td>
+      <td><span class="atraso-tag">${p.dias_uteis_desde_faturamento}d</span></td>
+      <td>${ultimo ? ultimo.motivo : '—'}</td>
+      <td class="col-secondary">${ultimo && ultimo.proxima_data_limite ? fmtDate(ultimo.proxima_data_limite) : '—'}</td>
+      <td>
+        ${ultimo ? `<button class="small-action fup" onclick="abrirEditarAviso(${ultimo.id})">✎</button>` : ''}
+        <button class="small-action fup" onclick="abrirHistoricoAviso('${p.numero_pedido}')" title="Ver histórico de avisos">📋</button>
+      </td>
+    </tr>
+  `;
+}
+
+async function loadAvisosTab(){
+  const params = buildParamsSemBusca();
+  const busca = document.getElementById('f_busca').value;
+  const res = await fetch('/api/avisos?' + params.toString());
+  const data = await res.json();
+
+  const resRegistros = await fetch('/api/avisos/registros');
+  window.avisosRegistrosCache = await resRegistros.json();
+
+  let avisos = filtrarPorBusca(data.avisos, busca, ['numero_pedido', 'nf'], ['nome_cliente']);
+  let tratados = filtrarPorBusca(data.tratados, busca, ['numero_pedido', 'nf'], ['nome_cliente']);
+  let historico = filtrarPorBusca(data.historico, busca, ['numero_pedido'], ['nome_cliente']);
+
+  avisos = ordenarLista(avisos, 'avisos', valorOrdenacaoAviso);
+  tratados = ordenarLista(tratados, 'avisosTratados', valorOrdenacaoAvisoTratado);
+  historico = ordenarLista(historico, 'avisosHistorico', valorOrdenacaoAviso);
+
+  document.getElementById('theadAvisos').innerHTML = `
+    ${thOrdenavelGenerico('avisos', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('avisos', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('avisos', 'tipo_entrega', 'Tipo')}
+    ${thOrdenavelGenerico('avisos', 'data_faturamento', 'Faturamento', 'col-secondary')}
+    ${thOrdenavelGenerico('avisos', 'data_entrega_prevista', 'Entrega original')}
+    ${thOrdenavelGenerico('avisos', 'dias_uteis_desde_faturamento', 'Dias s/ canhoto')}
+    ${thOrdenavelGenerico('avisos', 'nf', 'NF', 'col-secondary')}
+    <th></th>
+  `;
+  vtAvisos.setData(avisos, linhaAviso, 8);
+  if(!avisos.length){
+    document.getElementById('tbodyAvisos').innerHTML = `<tr><td colspan="8" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum aviso pendente 🎉</td></tr>`;
+  }
+
+  document.getElementById('theadAvisosTratados').innerHTML = `
+    ${thOrdenavelGenerico('avisosTratados', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('avisosTratados', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('avisosTratados', 'data_faturamento', 'Faturamento', 'col-secondary')}
+    ${thOrdenavelGenerico('avisosTratados', 'data_entrega_prevista', 'Entrega original')}
+    ${thOrdenavelGenerico('avisosTratados', 'dias_uteis_desde_faturamento', 'Dias s/ canhoto')}
+    ${thOrdenavelGenerico('avisosTratados', 'ultimo_motivo', 'Último motivo')}
+    ${thOrdenavelGenerico('avisosTratados', 'proxima_data_limite', 'Próxima verificação', 'col-secondary')}
+    <th></th>
+  `;
+  vtAvisosTratados.setData(tratados, linhaAvisoTratado, 8);
+  if(!tratados.length){
+    document.getElementById('tbodyAvisosTratados').innerHTML = `<tr><td colspan="8" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido em acompanhamento no momento.</td></tr>`;
+  }
+
+  document.getElementById('theadAvisosHistorico').innerHTML = `
+    ${thOrdenavelGenerico('avisosHistorico', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('avisosHistorico', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('avisosHistorico', 'status', 'Status atual')}
+    ${thOrdenavelGenerico('avisosHistorico', 'data_entrega_prevista', 'Entrega original', 'col-secondary')}
+    <th></th>
+  `;
+  vtAvisosHistorico.setData(historico, linhaAvisoHistorico, 5);
+  if(!historico.length){
+    document.getElementById('tbodyAvisosHistorico').innerHTML = `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido teve aviso registrado ainda.</td></tr>`;
+  }
+
+  window.avisosStatsCache = {avisos: avisos.length, tratados: tratados.length, historico: historico.length};
+
+  // --- sub-aba Transportadora ---
+  const resTransp = await fetch('/api/transportadora?' + params.toString());
+  const dataTransp = await resTransp.json();
+
+  const resTranspRegistros = await fetch('/api/transportadora/registros');
+  window.transportadoraRegistrosCache = await resTranspRegistros.json();
+
+  let transpPendentes = filtrarPorBusca(dataTransp.pendentes, busca, ['numero_pedido', 'nf'], ['nome_cliente']);
+  let transpConfirmados = filtrarPorBusca(dataTransp.confirmados, busca, ['numero_pedido', 'nf'], ['nome_cliente']);
+  let transpHistorico = filtrarPorBusca(dataTransp.historico, busca, ['numero_pedido'], ['nome_cliente']);
+
+  transpPendentes = ordenarLista(transpPendentes, 'transportadora', valorOrdenacaoAviso);
+  transpConfirmados = ordenarLista(transpConfirmados, 'transportadoraConfirmados', valorOrdenacaoAviso);
+  transpHistorico = ordenarLista(transpHistorico, 'transportadoraHistorico', valorOrdenacaoAviso);
+
+  document.getElementById('theadTransportadora').innerHTML = `
+    ${thOrdenavelGenerico('transportadora', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('transportadora', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('transportadora', 'data_faturamento', 'Faturamento', 'col-secondary')}
+    ${thOrdenavelGenerico('transportadora', 'nf', 'NF', 'col-secondary')}
+    <th>Última tentativa</th>
+    <th></th>
+  `;
+  vtTransportadora.setData(transpPendentes, linhaTransportadora, 6);
+  if(!transpPendentes.length){
+    document.getElementById('tbodyTransportadora').innerHTML = `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido pendente de verificação 🎉</td></tr>`;
+  }
+
+  document.getElementById('theadTransportadoraConfirmados').innerHTML = `
+    ${thOrdenavelGenerico('transportadoraConfirmados', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('transportadoraConfirmados', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('transportadoraConfirmados', 'data_faturamento', 'Faturamento', 'col-secondary')}
+    ${thOrdenavelGenerico('transportadoraConfirmados', 'nf', 'NF', 'col-secondary')}
+    <th>Quem chamou</th>
+    <th class="col-secondary">Quando</th>
+    <th>Observação</th>
+    <th></th>
+  `;
+  vtTransportadoraConfirmados.setData(transpConfirmados, linhaTransportadoraConfirmado, 8);
+  if(!transpConfirmados.length){
+    document.getElementById('tbodyTransportadoraConfirmados').innerHTML = `<tr><td colspan="8" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido confirmado ainda.</td></tr>`;
+  }
+
+  document.getElementById('theadTransportadoraHistorico').innerHTML = `
+    ${thOrdenavelGenerico('transportadoraHistorico', 'numero_pedido', 'Pedido')}
+    ${thOrdenavelGenerico('transportadoraHistorico', 'nome_cliente', 'Cliente')}
+    ${thOrdenavelGenerico('transportadoraHistorico', 'status', 'Status atual')}
+    ${thOrdenavelGenerico('transportadoraHistorico', 'data_faturamento', 'Faturamento', 'col-secondary')}
+    <th>Última observação</th>
+  `;
+  vtTransportadoraHistorico.setData(transpHistorico, linhaTransportadoraHistorico, 5);
+  if(!transpHistorico.length){
+    document.getElementById('tbodyTransportadoraHistorico').innerHTML = `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum pedido teve verificação registrada ainda.</td></tr>`;
+  }
+
+  window.transportadoraPedidosCache = [...transpPendentes, ...transpConfirmados, ...transpHistorico];
+  window.transportadoraStatsCache = {pendentes: transpPendentes.length, confirmados: transpConfirmados.length, historico: transpHistorico.length};
+
+  const subtabAtivo = document.querySelector('#avisosWrap .subtabs button.active')?.dataset.avisosSubtab || 'canhoto';
+  renderStatsAvisos(subtabAtivo);
+}
+
+function linhaAvisoHistorico(p){
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
+      <td class="col-secondary">${fmtDate(p.data_entrega_prevista)}</td>
+      <td><button class="small-action fup" onclick="abrirHistoricoAviso('${p.numero_pedido}')" title="Ver histórico de avisos">📋</button></td>
+    </tr>
+  `;
+}
+
+function linhaTransportadora(p){
+  const ultimo = (window.transportadoraRegistrosCache || []).filter(r => r.numero_pedido === p.numero_pedido)
+    .sort((a,b) => (b.data_registro > a.data_registro ? 1 : (a.data_registro > b.data_registro ? -1 : b.id - a.id)))[0];
+  return `
+    <tr ondblclick="abrirTransportadoraModal('${p.numero_pedido}')" style="cursor:pointer;">
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
+      <td class="col-secondary">${p.nf || '—'}</td>
+      <td>${ultimo ? (ultimo.observacao || 'Tentou, não atendeu') : '—'}</td>
+      <td><button class="small-action fup" onclick="abrirTransportadoraModal('${p.numero_pedido}')">Registrar</button></td>
+    </tr>
+  `;
+}
+function linhaTransportadoraConfirmado(p){
+  const ultimo = (window.transportadoraRegistrosCache || []).filter(r => r.numero_pedido === p.numero_pedido && r.chamado)
+    .sort((a,b) => (b.data_registro > a.data_registro ? 1 : (a.data_registro > b.data_registro ? -1 : b.id - a.id)))[0];
+  return `
+    <tr ondblclick="abrirTransportadoraModal('${p.numero_pedido}')" style="cursor:pointer;">
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
+      <td class="col-secondary">${p.nf || '—'}</td>
+      <td>${ultimo ? (ultimo.quem_chamou || '—') : '—'}</td>
+      <td class="col-secondary">${ultimo ? fmtDate(ultimo.data_registro) : '—'}</td>
+      <td>${ultimo ? (ultimo.observacao || '—') : '—'}</td>
+      <td><button class="small-action fup" onclick="abrirTransportadoraModal('${p.numero_pedido}')">Nova tentativa</button></td>
+    </tr>
+  `;
+}
+function linhaTransportadoraHistorico(p){
+  const ultimo = (window.transportadoraRegistrosCache || []).filter(r => r.numero_pedido === p.numero_pedido)
+    .sort((a,b) => (b.data_registro > a.data_registro ? 1 : (a.data_registro > b.data_registro ? -1 : b.id - a.id)))[0];
+  return `
+    <tr>
+      <td style="font-family:var(--mono)">${p.numero_pedido}</td>
+      <td>${p.nome_cliente || '—'}</td>
+      <td><span class="badge ${p.status}">${p.status || '—'}</span></td>
+      <td class="col-secondary">${fmtDate(p.data_faturamento)}</td>
+      <td>${ultimo ? (ultimo.observacao || (ultimo.chamado ? (ultimo.quem_chamou || 'Confirmado') : 'Tentou, não atendeu')) : '—'}</td>
+    </tr>
+  `;
+}
+
+function preencherAviso(numeroPedido){
+  document.getElementById('aviso_pedido').value = numeroPedido;
+  document.getElementById('aviso_pedido').scrollIntoView({behavior:'smooth', block:'center'});
+  document.getElementById('aviso_pedido').focus();
+}
+
+async function salvarAviso(){
+  const body = {
+    numero_pedido: document.getElementById('aviso_pedido').value.trim(),
+    data_registro: document.getElementById('aviso_data').value || new Date().toISOString().slice(0,10),
+    motivo: document.getElementById('aviso_motivo').value.trim(),
+    proxima_data_limite: document.getElementById('aviso_proxima_data').value || null,
+  };
+  if(!body.numero_pedido){ toast('Informe o número do pedido', true); return; }
+  if(!body.motivo){ toast('Informe o motivo', true); return; }
+  try{
+    const res = await fetch('/api/avisos/registros', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Aviso registrado');
+    document.getElementById('aviso_pedido').value = '';
+    document.getElementById('aviso_motivo').value = '';
+    document.getElementById('aviso_proxima_data').value = '';
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+function setAvisosSubtab(subtab, btn){
+  document.querySelectorAll('#avisosWrap .subtabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('avisosCanhotoWrap').style.display = (subtab === 'canhoto') ? 'block' : 'none';
+  document.getElementById('avisosTransportadoraWrap').style.display = (subtab === 'transportadora') ? 'block' : 'none';
+
+  const transportadoraAtiva = subtab === 'transportadora';
+  // filtros de tipo/status/atraso e as acoes de importar/exportar nao fazem
+  // sentido pra essa sub-aba: a lista ja e sempre Transportadora+Faturado
+  document.getElementById('pills_tipo').style.display = transportadoraAtiva ? 'none' : '';
+  document.getElementById('pills_atraso').style.display = transportadoraAtiva ? 'none' : '';
+  document.getElementById('pills_status').style.display = transportadoraAtiva ? 'none' : '';
+  document.getElementById('f_campo_data_wrap').style.display = transportadoraAtiva ? 'none' : '';
+  document.getElementById('upload_fup_lote_wrap').style.display = transportadoraAtiva ? 'none' : '';
+  document.getElementById('btn_exportar_excel').style.display = transportadoraAtiva ? 'none' : '';
+  if(transportadoraAtiva){
+    resetPillGroup('pills_tipo');
+    resetPillGroup('pills_atraso');
+    resetPillGroup('pills_status');
+    document.getElementById('f_campo_data').value = 'faturamento';
+  }else{
+    document.getElementById('f_campo_data').value = 'entrega';
+  }
+  renderStatsAvisos(subtab);
+  load();
+}
+
+function renderStatsAvisos(subtab){
+  if(subtab === 'transportadora'){
+    const s = window.transportadoraStatsCache || {pendentes:0, confirmados:0, historico:0};
+    document.getElementById('stats').innerHTML = `
+      <div class="stat atraso"><div class="n">${s.pendentes}</div><div class="l">Pendentes de verificar</div></div>
+      <div class="stat"><div class="n">${s.confirmados}</div><div class="l">Confirmados</div></div>
+      <div class="stat"><div class="n">${s.historico}</div><div class="l">Total no histórico</div></div>
+    `;
+  }else{
+    const s = window.avisosStatsCache || {avisos:0, tratados:0, historico:0};
+    document.getElementById('stats').innerHTML = `
+      <div class="stat atraso"><div class="n">${s.avisos}</div><div class="l">Avisos pendentes</div></div>
+      <div class="stat"><div class="n">${s.tratados}</div><div class="l">Em acompanhamento (tratados)</div></div>
+      <div class="stat"><div class="n">${s.historico}</div><div class="l">Total no histórico</div></div>
+    `;
+  }
+}
+
+function toggleTranspQuemChamou(){
+  const chamado = document.getElementById('transp_chamado').value === 'sim';
+  document.getElementById('transp_quem_chamou_wrap').style.display = chamado ? 'flex' : 'none';
+}
+
+let transpModalPedido = null;
+function abrirTransportadoraModal(numeroPedido){
+  transpModalPedido = numeroPedido;
+  const p = (window.transportadoraPedidosCache || []).find(x => x.numero_pedido === numeroPedido);
+  document.getElementById('transpModalPedidoNum').textContent = '#' + numeroPedido;
+  document.getElementById('transpModalContexto').textContent = p
+    ? `${p.nome_cliente || '—'} · Faturado em ${fmtDate(p.data_faturamento)} · NF ${p.nf || '—'}`
+    : '';
+  document.getElementById('transp_data').value = new Date().toISOString().slice(0,10);
+  document.getElementById('transp_chamado').value = 'sim';
+  document.getElementById('transp_quem_chamou').value = '';
+  document.getElementById('transp_observacao').value = '';
+  toggleTranspQuemChamou();
+  document.getElementById('transportadoraOverlay').classList.add('show');
+}
+function fecharTransportadoraModal(){
+  document.getElementById('transportadoraOverlay').classList.remove('show');
+  transpModalPedido = null;
+}
+
+async function salvarTransportadora(){
+  const chamado = document.getElementById('transp_chamado').value === 'sim';
+  const body = {
+    numero_pedido: transpModalPedido,
+    data_registro: document.getElementById('transp_data').value || new Date().toISOString().slice(0,10),
+    chamado: chamado,
+    quem_chamou: chamado ? document.getElementById('transp_quem_chamou').value.trim() || null : null,
+    observacao: document.getElementById('transp_observacao').value.trim() || null,
+  };
+  if(!body.numero_pedido){ toast('Nenhum pedido selecionado', true); return; }
+  if(chamado && !body.quem_chamou){ toast('Informe quem chamou', true); return; }
+  try{
+    const res = await fetch('/api/transportadora/registros', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast(chamado ? 'Transportadora confirmada' : 'Tentativa registrada');
+    fecharTransportadoraModal();
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+let avisoEmEdicaoId = null;
+function abrirEditarAviso(id){
+  const a = (window.avisosRegistrosCache || []).find(x => x.id === id);
+  if(!a){ toast('Registro não encontrado', true); return; }
+  avisoEmEdicaoId = id;
+  document.getElementById('editarAvisoPedidoNum').textContent = '#' + a.numero_pedido;
+  document.getElementById('editar_aviso_data').value = a.data_registro;
+  document.getElementById('editar_aviso_motivo').value = a.motivo || '';
+  document.getElementById('editar_aviso_proxima_data').value = a.proxima_data_limite || '';
+  document.getElementById('editarAvisoOverlay').classList.add('show');
+}
+function fecharEditarAviso(){
+  document.getElementById('editarAvisoOverlay').classList.remove('show');
+  avisoEmEdicaoId = null;
+}
+async function salvarEdicaoAviso(){
+  const a = (window.avisosRegistrosCache || []).find(x => x.id === avisoEmEdicaoId);
+  if(!a) return;
+  const motivo = document.getElementById('editar_aviso_motivo').value.trim();
+  if(!motivo){ toast('Informe o motivo', true); return; }
+  const body = {
+    numero_pedido: a.numero_pedido,
+    data_registro: document.getElementById('editar_aviso_data').value,
+    motivo: motivo,
+    proxima_data_limite: document.getElementById('editar_aviso_proxima_data').value || null,
+  };
+  try{
+    const res = await fetch(`/api/avisos/registros/${avisoEmEdicaoId}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Aviso atualizado');
+    fecharEditarAviso();
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+async function apagarAviso(id){
+  if(!confirm('Apagar este registro de aviso? Essa ação não pode ser desfeita.')) return;
+  try{
+    const res = await fetch(`/api/avisos/registros/${id}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Registro apagado');
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+async function abrirHistoricoAviso(numeroPedido){
+  document.getElementById('historicoPedidoNum').textContent = '#' + numeroPedido + ' — Histórico de Avisos';
+  document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Carregando…</div>';
+  document.getElementById('historicoOverlay').classList.add('show');
+  try{
+    const res = await fetch(`/api/pedidos/${numeroPedido}`);
+    if(!res.ok) throw new Error('Pedido não encontrado');
+    const data = await res.json();
+    if(!data.avisos.length){
+      document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Nenhum aviso registrado ainda para este pedido.</div>';
+      return;
+    }
+    document.getElementById('historicoLista').innerHTML = data.avisos.map(a => `
+      <div style="border:1px solid var(--border); border-radius:8px; padding:10px 12px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-dim); margin-bottom:4px;">
+          <span>${fmtDate(a.data_registro)}</span>
+          ${a.proxima_data_limite ? `<span class="atraso-tag">Próx. verificação: ${fmtDate(a.proxima_data_limite)}</span>` : ''}
+        </div>
+        <div style="font-weight:700;">${a.motivo}</div>
+        <div style="margin-top:6px; display:flex; gap:6px;">
+          <button class="small-action fup" onclick="fecharHistoricoModal(); abrirEditarAviso(${a.id})">✎ Editar</button>
+          <button class="small-action" onclick="apagarAviso(${a.id}); fecharHistoricoModal();">🗑 Apagar</button>
+        </div>
+      </div>
+    `).join('');
+  }catch(e){
+    document.getElementById('historicoLista').innerHTML = `<div style="color:var(--danger)">Erro: ${e.message}</div>`;
+  }
+}
+
+// ---------------- Aba Terceirização ----------------
+let debounceTercTimer;
+function preVerificarVinculo(){
+  clearTimeout(debounceTercTimer);
+  debounceTercTimer = setTimeout(async () => {
+    const texto = document.getElementById('terc_retorno_info').value.trim();
+    const preview = document.getElementById('terc_vinculo_preview');
+    if(!texto){ preview.textContent = ''; return; }
+    try{
+      const res = await fetch('/api/terceirizacao/extrair-vinculo?' + new URLSearchParams({informacoes_adicionais: texto}));
+      const data = await res.json();
+      preview.innerHTML = data.encontrado
+        ? `✓ Vínculo detectado: nota de saída <b style="color:var(--ok)">${data.numero_nota_saida}</b>`
+        : `⚠ Nenhum vínculo reconhecido automaticamente — escolha manualmente abaixo, se souber.`;
+    }catch(e){ preview.textContent = ''; }
+  }, 400);
+}
+
+async function carregarFornecedoresDatalist(){
+  try{
+    const res = await fetch('/api/terceirizacao/fornecedores');
+    const fornecedores = await res.json();
+    document.getElementById('terc_fornecedores_datalist').innerHTML =
+      fornecedores.map(f => `<option value="${f}"></option>`).join('');
+    const select = document.getElementById('terc_fornecedor_filtro');
+    const valorAtual = select.value;
+    select.innerHTML = '<option value="">Todos os fornecedores</option>' +
+      fornecedores.map(f => `<option value="${f}">${f}</option>`).join('');
+    select.value = valorAtual; // mantém a seleção ao recarregar
+  }catch(e){}
+}
+
+function setTercSubtab(subtab, btn){
+  document.querySelectorAll('#terceirizacaoWrap .subtabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tercLigacaoWrap').style.display = (subtab === 'ligacao') ? 'block' : 'none';
+  document.getElementById('tercSaidaWrap').style.display = (subtab === 'saida') ? 'block' : 'none';
+  document.getElementById('tercEntradaWrap').style.display = (subtab === 'entrada') ? 'block' : 'none';
+}
+
+function valorOrdenacaoTercPar(p, campo){
+  switch(campo){
+    case 'nota_saida': return p.nota_saida || '';
+    case 'data_saida': return p.data_saida || '';
+    case 'nota_retorno': return p.nota_retorno || '';
+    case 'data_retorno': return p.data_retorno || '';
+    case 'dias_lead_time': return p.dias_lead_time || 0;
+    case 'fornecedor': return (p.fornecedor || '').toLowerCase();
+    default: return '';
+  }
+}
+function valorOrdenacaoTercSaida(s, campo){
+  switch(campo){
+    case 'numero_nota': return s.numero_nota || '';
+    case 'data_nota': return s.data_nota || '';
+    case 'retornos_vinculados': return s.retornos_vinculados || 0;
+    case 'com_pdf': return s.com_pdf ? 1 : 0;
+    case 'fornecedor': return (s.fornecedor || '').toLowerCase();
+    default: return '';
+  }
+}
+function valorOrdenacaoTercSemVinculo(r, campo){
+  switch(campo){
+    case 'com_pdf': return r.chave_acesso ? 1 : 0;
+    case 'numero_nota': return r.numero_nota || '';
+    case 'data_nota': return r.data_nota || '';
+    default: return '';
+  }
+}
+function valorOrdenacaoTercRetorno(r, campo){
+  switch(campo){
+    case 'numero_nota': return r.numero_nota || '';
+    case 'data_nota': return r.data_nota || '';
+    case 'numero_nota_saida': return r.numero_nota_saida || '';
+    case 'com_pdf': return r.com_pdf ? 1 : 0;
+    case 'dias_lead_time': return r.dias_lead_time ?? -1;
+    case 'fornecedor': return (r.fornecedor || '').toLowerCase();
+    default: return '';
+  }
+}
+
+function badgeOrigem(comPdf){
+  return comPdf
+    ? '<span class="atraso-tag" style="color:var(--ok)" title="PDF importado: tem peso, itens e dados fiscais">📄 PDF</span>'
+    : '<span class="atraso-tag" style="color:var(--text-dim)" title="Cadastrada só manualmente: sem peso, itens nem dados fiscais">✍ Manual</span>';
+}
+function badgeBicro(tem){
+  return tem ? '<span class="atraso-tag" style="background:#fff3cd; color:#8a5a00; font-weight:700;" title="Esta nota tem item(ns) que devem voltar como BICRO — abra para ver quais">⚠ BICRO</span>' : '';
+}
+function badgeCfop(cfop){
+  if(!cfop) return '';
+  const estoque = /^(5|6)902/.test(cfop) && !/5124|6124/.test(cfop);
+  const estilo = estoque ? 'background:#fde2e2; color:#a11;' : /124/.test(cfop) ? 'color:var(--ok)' : 'color:var(--text-dim)';
+  const dica = estoque ? 'CFOP 5902: nota de entrada no estoque. No FlowLog só a 5124 deve ser lançada.' : 'CFOP da nota (lido do PDF)';
+  return `<span class="atraso-tag" style="${estilo}; font-weight:700;" title="${dica}">${estoque ? '⚠ ' : ''}${cfop.replace(/^(\d)(\d{3})$/, '$1.$2')}</span>`;
+}
+function badgeMultiplosRetornos(tem){
+  return tem ? '<span class="atraso-tag" style="background:#fff3cd; color:#8a5a00; font-weight:700;" title="Esta saída tem mais de um retorno vinculado. Confira qual é a nota 5124 (industrialização); a 5902 não deve ser lançada.">⚠ 2+ retornos</span>' : '';
+}
+function passaFiltroOrigem(comPdf){
+  const f = document.getElementById('terc_origem_filtro').value;
+  return !f || (f === 'pdf' ? comPdf : !comPdf);
+}
+
+function linhaTercPar(p){
+  return `
+    <tr ondblclick="abrirDetalhePar('${p.nota_saida}', '${p.nota_retorno}')" style="cursor:pointer;" title="Duplo clique para ver itens, pesos e valores">
+      <td style="font-family:var(--mono)">${p.nota_saida} ${badgeOrigem(p.saida_com_pdf)} ${badgeCfop(p.saida_cfop)} ${badgeBicro(p.tem_bicro)}</td>
+      <td>${fmtDate(p.data_saida)}</td>
+      <td style="font-family:var(--mono)">${p.nota_retorno} ${badgeOrigem(p.retorno_com_pdf)} ${badgeCfop(p.retorno_cfop)} ${badgeMultiplosRetornos(p.multiplos_retornos)} ${badgeBicro(p.tem_bicro)}</td>
+      <td>${fmtDate(p.data_retorno)}</td>
+      <td><span class="atraso-tag" style="color:var(--ok)">${p.dias_lead_time}d</span></td>
+      <td class="col-secondary">${p.fornecedor}</td>
+      <td ondblclick="event.stopPropagation()">
+        <button class="small-action fup" onclick="abrirEditarNotaRetorno('${p.nota_retorno}')" title="Editar a nota de retorno deste par">✎</button>
+        <button class="small-action" onclick="apagarNotaRetorno('${p.nota_retorno}')" title="Apagar a nota de retorno (desfaz o vínculo)">🗑</button>
+      </td>
+    </tr>
+  `;
+}
+function linhaTercSaida(s){
+  const corContagem = s.retornos_vinculados === 0 ? 'var(--text-dim)' : 'var(--ok)';
+  return `
+    <tr ondblclick="abrirDetalheNota('saida', '${s.numero_nota}')" style="cursor:pointer;" title="Duplo clique para ver itens, pesos e valores">
+      <td style="font-family:var(--mono)">${s.numero_nota} ${badgeCfop(s.cfop)} ${badgeMultiplosRetornos(s.multiplos_retornos)} ${badgeBicro(s.tem_bicro)}</td>
+      <td>${fmtDate(s.data_nota)}</td>
+      <td>${badgeOrigem(s.com_pdf)}</td>
+      <td><span style="color:${corContagem}; font-weight:700;">${s.retornos_vinculados}</span></td>
+      <td class="col-secondary">${s.fornecedor}</td>
+      <td ondblclick="event.stopPropagation()">
+        <button class="small-action fup" onclick="abrirEditarNotaSaida('${s.numero_nota}')" title="Editar">✎</button>
+        <button class="small-action" onclick="apagarNotaSaida('${s.numero_nota}')" title="Apagar">🗑</button>
+      </td>
+    </tr>
+  `;
+}
+function linhaTercSemVinculo(r){
+  return `
+    <tr ondblclick="abrirDetalheNota('retorno', '${r.numero_nota}')" style="cursor:pointer;" title="Duplo clique para ver itens, pesos e valores">
+      <td style="font-family:var(--mono)">${r.numero_nota}</td>
+      <td>${fmtDate(r.data_nota)}</td>
+      <td>${badgeOrigem(!!r.chave_acesso)}</td>
+      <td class="col-secondary" style="white-space:normal; max-width:320px;">${r.informacoes_adicionais || '—'}</td>
+      <td ondblclick="event.stopPropagation()">
+        <button class="small-action fup" onclick="abrirVincularManual('${r.numero_nota}')">Vincular</button>
+        <button class="small-action fup" onclick="abrirEditarNotaRetorno('${r.numero_nota}')" title="Editar">✎</button>
+        <button class="small-action" onclick="apagarNotaRetorno('${r.numero_nota}')" title="Apagar">🗑</button>
+      </td>
+    </tr>
+  `;
+}
+
+function linhaTercRetorno(r){
+  const vinculo = r.numero_nota_saida
+    ? `<span style="font-family:var(--mono); color:var(--ok)">${r.numero_nota_saida}</span>`
+    : `<span style="color:var(--text-dim)">—</span>`;
+  const leadTime = r.dias_lead_time !== null
+    ? `<span class="atraso-tag" style="color:var(--ok)">${r.dias_lead_time}d</span>`
+    : `<span style="color:var(--text-dim)">—</span>`;
+  return `
+    <tr ondblclick="abrirDetalheNota('retorno', '${r.numero_nota}')" style="cursor:pointer;" title="Duplo clique para ver itens, pesos e valores">
+      <td style="font-family:var(--mono)">${r.numero_nota} ${badgeCfop(r.cfop)} ${badgeMultiplosRetornos(r.multiplos_retornos)} ${badgeBicro(r.tem_bicro)}</td>
+      <td>${fmtDate(r.data_nota)}</td>
+      <td>${badgeOrigem(r.com_pdf)}</td>
+      <td>${vinculo}</td>
+      <td>${leadTime}</td>
+      <td class="col-secondary">${r.fornecedor}</td>
+      <td ondblclick="event.stopPropagation()">
+        <button class="small-action fup" onclick="abrirEditarNotaRetorno('${r.numero_nota}')" title="Editar">✎</button>
+        <button class="small-action" onclick="apagarNotaRetorno('${r.numero_nota}')" title="Apagar">🗑</button>
+      </td>
+    </tr>
+  `;
+}
+
+async function loadTerceirizacaoTab(){
+  await carregarFornecedoresDatalist();
+  const fornecedor = document.getElementById('terc_fornecedor_filtro').value.trim();
+  const params = fornecedor ? new URLSearchParams({fornecedor}) : new URLSearchParams();
+  const res = await fetch('/api/terceirizacao?' + params.toString());
+  const data = await res.json();
+
+  window.tercNotasSaidaCache = data.notas_saida;
+  window.tercParesCache = data.pares;
+  window.tercSemVinculoCache = data.sem_vinculo;
+  window.tercNotasRetornoCache = data.notas_retorno;
+
+  document.getElementById('statsTerc').innerHTML = `
+    <div class="stat"><div class="n">${data.stats.total_pares}</div><div class="l">Pares vinculados</div></div>
+    <div class="stat"><div class="n">${data.stats.lead_time_medio}d</div><div class="l">Lead time médio</div></div>
+    <div class="stat"><div class="n">${data.stats.lead_time_minimo}d</div><div class="l">Mínimo</div></div>
+    <div class="stat"><div class="n">${data.stats.lead_time_maximo}d</div><div class="l">Máximo</div></div>
+    <div class="stat atraso"><div class="n">${data.stats.aguardando_retorno_n}</div><div class="l">Sem nenhum retorno ainda</div></div>
+    <div class="stat atraso"><div class="n">${data.stats.sem_vinculo_n}</div><div class="l">Sem vínculo</div></div>
+    <div class="stat"><div class="n">${data.stats.saidas_com_pdf} / ${data.stats.saidas_com_pdf + data.stats.saidas_manuais}</div><div class="l">Saídas com PDF</div></div>
+    <div class="stat ${data.stats.saidas_manuais ? 'atraso' : ''}"><div class="n">${data.stats.saidas_manuais}</div><div class="l">Saídas só manuais</div></div>
+    <div class="stat"><div class="n">${data.stats.retornos_com_pdf} / ${data.stats.retornos_com_pdf + data.stats.retornos_manuais}</div><div class="l">Retornos com PDF</div></div>
+    <div class="stat ${data.stats.retornos_manuais ? 'atraso' : ''}"><div class="n">${data.stats.retornos_manuais}</div><div class="l">Retornos só manuais</div></div>
+  `;
+
+  const opcoesSaida = data.notas_saida.map(s => `<option value="${s.numero_nota}">${s.numero_nota} (${fmtDate(s.data_nota)})</option>`).join('');
+  document.getElementById('terc_retorno_saida_manual').innerHTML =
+    '<option value="">— nenhuma (deixar a extração automática decidir) —</option>' + opcoesSaida;
+  document.getElementById('editar_retorno_saida_vinculo').innerHTML =
+    '<option value="">— sem vínculo —</option>' + opcoesSaida;
+
+  renderTercSubtabAtiva();
+}
+
+// Re-renderiza as 4 tabelas a partir do cache (sem recarregar da API) —
+// usado tanto depois de um load() quanto a cada tecla digitada na busca,
+// pra não esperar o servidor só pra filtrar o que já está na tela.
+function renderTercSubtabAtiva(){
+  const busca = document.getElementById('terc_busca').value;
+
+  let pares = filtrarPorBusca(window.tercParesCache || [], busca, ['nota_saida', 'nota_retorno'], ['fornecedor']);
+  pares = pares.filter(p => passaFiltroOrigem(p.saida_com_pdf && p.retorno_com_pdf));  // 'PDF' = os dois lados com PDF; 'manual' = pelo menos um lado manual
+  pares = ordenarLista(pares, 'tercPares', valorOrdenacaoTercPar);
+  document.getElementById('theadTercPares').innerHTML = `
+    ${thOrdenavelGenerico('tercPares', 'nota_saida', 'Nota saída')}
+    ${thOrdenavelGenerico('tercPares', 'data_saida', 'Data saída')}
+    ${thOrdenavelGenerico('tercPares', 'nota_retorno', 'Nota retorno')}
+    ${thOrdenavelGenerico('tercPares', 'data_retorno', 'Data retorno')}
+    ${thOrdenavelGenerico('tercPares', 'dias_lead_time', 'Lead time')}
+    ${thOrdenavelGenerico('tercPares', 'fornecedor', 'Fornecedor', 'col-secondary')}
+    <th></th>
+  `;
+  document.getElementById('tbodyTercPares').innerHTML = pares.length
+    ? pares.map(linhaTercPar).join('')
+    : `<tr><td colspan="7" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum par vinculado encontrado.</td></tr>`;
+
+  let notasSaida = filtrarPorBusca(window.tercNotasSaidaCache || [], busca, ['numero_nota'], ['fornecedor']);
+  notasSaida = notasSaida.filter(n => passaFiltroOrigem(n.com_pdf));
+  notasSaida = ordenarLista(notasSaida, 'tercSaida', valorOrdenacaoTercSaida);
+  document.getElementById('theadTercSaida').innerHTML = `
+    ${thOrdenavelGenerico('tercSaida', 'numero_nota', 'Nota saída')}
+    ${thOrdenavelGenerico('tercSaida', 'data_nota', 'Data')}
+    ${thOrdenavelGenerico('tercSaida', 'com_pdf', 'Origem')}
+    ${thOrdenavelGenerico('tercSaida', 'retornos_vinculados', 'Retornos vinculados')}
+    ${thOrdenavelGenerico('tercSaida', 'fornecedor', 'Fornecedor', 'col-secondary')}
+    <th></th>
+  `;
+  document.getElementById('tbodyTercAguardando').innerHTML = notasSaida.length
+    ? notasSaida.map(linhaTercSaida).join('')
+    : `<tr><td colspan="6" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de saída encontrada.</td></tr>`;
+
+  let semVinculo = filtrarPorBusca(window.tercSemVinculoCache || [], busca, ['numero_nota'], []);
+  semVinculo = semVinculo.filter(n => passaFiltroOrigem(!!n.chave_acesso));
+  semVinculo = ordenarLista(semVinculo, 'tercSemVinculo', valorOrdenacaoTercSemVinculo);
+  document.getElementById('theadTercSemVinculo').innerHTML = `
+    ${thOrdenavelGenerico('tercSemVinculo', 'numero_nota', 'Nota retorno')}
+    ${thOrdenavelGenerico('tercSemVinculo', 'data_nota', 'Data')}
+    ${thOrdenavelGenerico('tercSemVinculo', 'com_pdf', 'Origem')}
+    <th class="col-secondary">Texto colado</th>
+    <th></th>
+  `;
+  document.getElementById('tbodyTercSemVinculo').innerHTML = semVinculo.length
+    ? semVinculo.map(linhaTercSemVinculo).join('')
+    : `<tr><td colspan="5" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma pendência de vínculo 🎉</td></tr>`;
+
+  let notasRetorno = filtrarPorBusca(window.tercNotasRetornoCache || [], busca, ['numero_nota', 'numero_nota_saida'], ['fornecedor']);
+  notasRetorno = notasRetorno.filter(n => passaFiltroOrigem(n.com_pdf));
+  notasRetorno = ordenarLista(notasRetorno, 'tercRetorno', valorOrdenacaoTercRetorno);
+  document.getElementById('theadTercRetorno').innerHTML = `
+    ${thOrdenavelGenerico('tercRetorno', 'numero_nota', 'Nota retorno')}
+    ${thOrdenavelGenerico('tercRetorno', 'data_nota', 'Data')}
+    ${thOrdenavelGenerico('tercRetorno', 'com_pdf', 'Origem')}
+    ${thOrdenavelGenerico('tercRetorno', 'numero_nota_saida', 'Vínculo (saída)')}
+    ${thOrdenavelGenerico('tercRetorno', 'dias_lead_time', 'Lead time')}
+    ${thOrdenavelGenerico('tercRetorno', 'fornecedor', 'Fornecedor', 'col-secondary')}
+    <th></th>
+  `;
+  document.getElementById('tbodyTercRetorno').innerHTML = notasRetorno.length
+    ? notasRetorno.map(linhaTercRetorno).join('')
+    : `<tr><td colspan="7" style="color:var(--text-dim); text-align:center; padding:20px">Nenhuma nota de retorno encontrada.</td></tr>`;
+}
+
+function exportarTerceirizacao(){
+  const fornecedor = document.getElementById('terc_fornecedor_filtro').value.trim();
+  const params = fornecedor ? new URLSearchParams({fornecedor}) : new URLSearchParams();
+  window.location = '/api/terceirizacao/exportar?' + params.toString();
+}
+
+// ---- Importar vários PDFs / reprocessar guardados ----
+function fecharLote(){ document.getElementById('loteOverlay').classList.remove('show'); }
+document.addEventListener('keydown', e => { if(e.key === 'Escape') fecharLote(); });
+
+const ROTULO_LOTE = {
+  criada:['✅ Criada','var(--ok)'], completada:['✅ Completada','var(--ok)'], pdf_guardado:['📎 PDF guardado','var(--ok)'],
+  ignorada:['⏭ Ignorada','var(--text-dim)'], erro:['🚫 Erro','#d33']
+};
+async function importarPdfsLote(input){
+  const arquivos = Array.from(input.files || []);
+  if(!arquivos.length) return;
+  const fd = new FormData();
+  arquivos.forEach(f => fd.append('files', f));
+  toast(`Importando ${arquivos.length} PDF(s)...`);
+  try{
+    const res = await fetch('/api/terceirizacao/importar-pdfs-lote', {method:'POST', body: fd});
+    const d = await res.json();
+    if(!res.ok) throw new Error(d.detail || 'Erro na importação em lote');
+    const resumo = Object.entries(d.contagem).map(([k, n]) => `${n} ${(ROTULO_LOTE[k] || [k])[0]}`).join(' · ');
+    document.getElementById('loteConteudo').innerHTML = `
+      <h3 style="margin:0 0 6px">📥 Importação em lote</h3>
+      <div style="margin-bottom:12px; color:var(--text-dim)">${d.total} arquivo(s): ${resumo}</div>
+      <div class="det-itens" style="max-height:60vh"><table><thead><tr><th>Arquivo</th><th>Nota</th><th>Tipo</th><th>Resultado</th><th>Observações</th></tr></thead><tbody>
+      ${d.resultados.map(r => { const [rot, cor] = ROTULO_LOTE[r.resultado] || [r.resultado, '']; return `<tr>
+        <td style="white-space:normal; font-size:11px">${escHtml(r.arquivo)}</td>
+        <td style="font-family:var(--mono)">${escHtml(r.numero_nota || '—')}</td>
+        <td>${r.tipo === 'saida' ? '📤 Saída' : r.tipo === 'retorno' ? '📥 Retorno' : '—'}</td>
+        <td style="color:${cor}; font-weight:700; white-space:nowrap">${rot}</td>
+        <td style="white-space:normal">${escHtml(r.mensagem)}${(r.avisos || []).map(a => `<div style="color:#b36b00">⚠ ${escHtml(a)}</div>`).join('')}</td></tr>`; }).join('')}
+      </tbody></table></div>`;
+    document.getElementById('loteOverlay').classList.add('show');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+  finally{ input.value = ''; }
+}
+
+async function reprocessarPdfsGuardados(){
+  if(!confirm('Reler todos os PDFs originais guardados com o leitor atual?\n\nItens e dados fiscais são atualizados. Data, fornecedor, vínculo e acabamento GE/BICRO não mudam.')) return;
+  toast('Reprocessando PDFs guardados...');
+  try{
+    const res = await fetch('/api/terceirizacao/reprocessar-pdfs', {method:'POST'});
+    const d = await res.json();
+    if(!res.ok) throw new Error(d.detail || 'Erro ao reprocessar');
+    document.getElementById('loteConteudo').innerHTML = `
+      <h3 style="margin:0 0 6px">🔄 Reprocessar PDFs guardados</h3>
+      <div style="margin-bottom:12px; color:var(--text-dim)">${d.reprocessadas} nota(s) reprocessada(s)${d.erros ? ` · ${d.erros} com erro` : ''}</div>
+      ${d.detalhes.length ? `<div class="det-itens"><table><thead><tr><th>Nota</th><th>Tipo</th><th>O que mudou</th></tr></thead><tbody>
+        ${d.detalhes.map(x => `<tr><td style="font-family:var(--mono)">${escHtml(x.numero_nota)}</td><td>${x.tipo === 'saida' ? '📤 Saída' : '📥 Retorno'}</td>
+          <td style="white-space:normal">${x.erro ? `<span style="color:#d33">🚫 ${escHtml(x.erro)}</span>` : `Itens: ${x.itens_antes} → ${x.itens_depois}`}</td></tr>`).join('')}</tbody></table></div>`
+        : '<div>Nenhuma nota mudou de quantidade de itens.</div>'}`;
+    document.getElementById('loteOverlay').classList.add('show');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+// ---- Detalhe da nota (duplo clique): cabeçalho, itens, pesos, valores ----
+let detalhePaineis = [];  // [{tipo, numero, dados, ordem:{campo, dir}}]
+
+function escHtml(t){
+  return String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtKg(v){
+  return (v === null || v === undefined) ? '—' : Number(v).toLocaleString('pt-BR', {minimumFractionDigits:3, maximumFractionDigits:3}) + ' kg';
+}
+function fmtQtd(v){
+  return (v === null || v === undefined) ? '—' : Number(v).toLocaleString('pt-BR', {maximumFractionDigits:3});
+}
+
+async function abrirDetalheNota(tipo, numero){ await abrirDetalhePaineis([[tipo, numero]]); }
+async function abrirDetalhePar(notaSaida, notaRetorno){ await abrirDetalhePaineis([['saida', notaSaida], ['retorno', notaRetorno]]); }
+
+let detalheLista = [];
+async function abrirDetalhePaineis(lista){
+  detalheLista = lista;
+  try{
+    detalhePaineis = await Promise.all(lista.map(async ([tipo, numero]) => {
+      const res = await fetch(`/api/terceirizacao/${tipo}/${encodeURIComponent(numero)}/detalhe`);
+      const dados = await res.json();
+      if(!res.ok) throw new Error(dados.detail || 'Erro ao carregar a nota');
+      return {tipo, numero, dados, ordem: {campo: null, dir: 1}};
+    }));
+  }catch(e){ toast('Erro: ' + e.message, true); return; }
+  renderDetalheNota();
+  document.getElementById('detalheNotaOverlay').classList.add('show');
+}
+function fecharDetalheNota(){
+  document.getElementById('detalheNotaOverlay').classList.remove('show');
+}
+document.addEventListener('keydown', e => { if(e.key === 'Escape') fecharDetalheNota(); });
+
+function selosAcabamento(lista){
+  // lista: [{acabamento, quantidade}] -> "200 GE + 200 BICRO" (ou só "GE" se tudo GE)
+  if(!lista || !lista.length) return '<span style="color:var(--text-dim)">—</span>';
+  const soma = {};
+  lista.forEach(x => { soma[x.acabamento] = (soma[x.acabamento] || 0) + (x.quantidade || 0); });
+  const chaves = Object.keys(soma).sort();
+  const selo = a => `<b style="padding:2px 7px; border-radius:6px; font-size:11px; ${a === 'BICRO' ? 'background:#fff3cd; color:#8a5a00' : 'background:#d8f3e3; color:#146c3c'}">${a}</b>`;
+  if(chaves.length === 1) return selo(chaves[0]);
+  return chaves.map(a => `${fmtQtd(soma[a])} ${selo(a)}`).join(' + ');
+}
+
+async function salvarAcabamentoItem(itemId, valor){
+  try{
+    const res = await fetch(`/api/terceirizacao/item/${itemId}/acabamento`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({acabamento: valor})
+    });
+    const d = await res.json();
+    if(!res.ok) throw new Error(d.detail || 'Erro ao salvar');
+    // recarrega os painéis (o retorno vinculado depende do acabamento da saída), mantendo a ordenação
+    const ordens = detalhePaineis.map(p => p.ordem);
+    detalhePaineis = await Promise.all(detalheLista.map(async ([tipo, numero], i) => {
+      const r = await fetch(`/api/terceirizacao/${tipo}/${encodeURIComponent(numero)}/detalhe`);
+      return {tipo, numero, dados: await r.json(), ordem: ordens[i] || {campo:null, dir:1}};
+    }));
+    renderDetalheNota();
+    toast(`Item marcado como ${valor}`);
+  }catch(e){ toast('Erro: ' + e.message, true); renderDetalheNota(); }
+}
+
+function ordenarItensDetalhe(idx, campo){
+  const o = detalhePaineis[idx].ordem;
+  o.dir = (o.campo === campo) ? -o.dir : 1;
+  o.campo = campo;
+  renderDetalheNota();
+}
+
+function renderPainelDetalhe(p, idx){
+  const d = p.dados, n = d.nota, c = d.conferencia;
+  const ehSaida = p.tipo === 'saida';
+  const meta = [
+    ['Data', fmtDate(n.data_nota)],
+    ['Fornecedor', escHtml(n.fornecedor)],
+    ['CNPJ do fornecedor', escHtml(n.cnpj_fornecedor || '—')],
+    ['Natureza da operação', escHtml(n.natureza_operacao || '—')],
+    ['Peso bruto', (n.peso_bruto == null && c.peso_calculado_pelos_itens) ? `${fmtKg(c.soma_peso_itens)} <small style="font-weight:400; color:var(--text-dim)">(calculado pelo catálogo)</small>` : fmtKg(n.peso_bruto)],
+    ['Peso líquido', fmtKg(n.peso_liquido)],
+    ['Valor dos produtos', fmtMoeda(n.valor_total_produtos)],
+    ['Valor total da nota', fmtMoeda(n.valor_total_nota)],
+  ];
+  if(d.cfop) meta.push(['CFOP', badgeCfop(d.cfop)]);
+  if(n.data_saida_entrada) meta.push([ehSaida ? 'Data de saída (DANFE)' : 'Data de entrada (DANFE)', fmtDate(n.data_saida_entrada)]);
+  if(n.valor_frete) meta.push(['Frete', fmtMoeda(n.valor_frete)]);
+  if(n.valor_ipi) meta.push(['IPI', fmtMoeda(n.valor_ipi)]);
+  if(n.transportador_nome) meta.push(['Transportadora', escHtml(n.transportador_nome)]);
+  if(n.numero_fatura) meta.push(['Fatura', escHtml(n.numero_fatura)]);
+  if(d.parcelas && d.parcelas.length) meta.push(['Vencimentos', d.parcelas.map(x => `${fmtDate(x.vencimento)} · ${fmtMoeda(x.valor)}`).join('<br>')]);
+  if(ehSaida){
+    const rv = d.retornos_vinculados || [];
+    meta.push(['Retornos vinculados', rv.length ? rv.map(r => `${escHtml(r.numero_nota)} (${fmtDate(r.data_nota)}, ${r.dias_lead_time}d)`).join('<br>') : '— nenhum ainda']);
+  } else {
+    const sv = d.saida_vinculada;
+    meta.push(['Saída vinculada', sv ? `${escHtml(sv.numero_nota)} (${fmtDate(sv.data_nota)}) · lead time ${sv.dias_lead_time}d` : '— sem vínculo']);
+  }
+  if(n.chave_acesso) meta.push(['Chave de acesso', `<span style="font-family:var(--mono); font-size:11px">${escHtml(n.chave_acesso)}</span>`]);
+
+  // ordenação dos itens
+  let itens = d.itens.slice();
+  const {campo, dir} = p.ordem;
+  if(campo){
+    itens.sort((a, b) => {
+      const va = a[campo] ?? (typeof a[campo] === 'number' ? 0 : ''), vb = b[campo] ?? (typeof b[campo] === 'number' ? 0 : '');
+      if(typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+      return String(va).localeCompare(String(vb), 'pt-BR', {numeric:true}) * dir;
+    });
+  }
+  const th = (cmp, rot, alinhar) => `<th style="cursor:pointer; ${alinhar ? 'text-align:right;' : ''}" onclick="ordenarItensDetalhe(${idx}, '${cmp}')">${rot}${campo === cmp ? (dir === 1 ? ' ▲' : ' ▼') : ''}</th>`;
+
+  let conf = '';
+  if(!d.com_pdf){
+    conf = `<div class="det-conf">✍ Nota cadastrada <b>manualmente</b>: não tem itens, pesos nem dados fiscais. Importe o PDF dela para completar.</div>`;
+  } else if(d.itens.length){
+    const linhas = [];
+    const difPeso = (c.soma_peso_itens - (c.peso_bruto_nota ?? 0));
+    if(c.peso_bruto_nota == null) linhas.push(c.peso_calculado_pelos_itens ? `ℹ A nota não informa peso. Peso calculado pelos itens (quantidade × catálogo): ${fmtKg(c.soma_peso_itens)}.` : 'ℹ A nota não informa peso e os itens não têm peso no catálogo.');
+    else linhas.push(c.peso_diverge
+      ? `⚠ <b>Peso não bate:</b> soma dos itens ${fmtKg(c.soma_peso_itens)} × peso bruto da nota ${fmtKg(c.peso_bruto_nota)} (diferença de ${fmtKg(Math.abs(difPeso))}). Confira o peso cadastrado dos itens no catálogo.`
+      : `✅ Peso confere: soma dos itens ${fmtKg(c.soma_peso_itens)} × peso bruto da nota ${fmtKg(c.peso_bruto_nota)}.`);
+    if(c.itens_sem_peso) linhas.push(`⚠ ${c.itens_sem_peso} item(ns) sem peso (não estão no catálogo) — a soma de peso fica incompleta.`);
+    linhas.push(c.valor_diverge
+      ? `⚠ <b>Valor não bate:</b> soma dos itens ${fmtMoeda(c.soma_valor_itens)} × valor dos produtos da nota ${fmtMoeda(c.valor_total_produtos)}.`
+      : `✅ Valor confere: ${fmtMoeda(c.soma_valor_itens)}.`);
+    conf = `<div class="det-conf ${(c.peso_diverge || c.valor_diverge || c.itens_sem_peso) ? 'alerta' : ''}">${linhas.join('<br>')}</div>`;
+  }
+
+  let avisoRetornos = '';
+  const estoque5902 = d.cfop && /^(5|6)902/.test(d.cfop) && !/5124|6124/.test(d.cfop);
+  if(estoque5902) avisoRetornos += `<div class="det-conf alerta">⚠ Esta nota é CFOP ${escHtml(d.cfop)} (entrada no estoque). No FlowLog só a nota 5124 deve ficar lançada — considere apagar esta.</div>`;
+  if(ehSaida && (d.retornos_vinculados || []).length > 1){
+    avisoRetornos += `<div class="det-conf alerta">⚠ Esta saída tem <b>${d.retornos_vinculados.length} retornos</b> vinculados. Confira qual é a 5124 e apague a outra:<br>${d.retornos_vinculados.map(r =>
+      `${escHtml(r.numero_nota)} — ${r.com_pdf ? (r.cfop ? 'CFOP ' + escHtml(r.cfop) : 'PDF sem CFOP') : '✍ manual (CFOP desconhecido, veja no ERP)'}`).join('<br>')}</div>`;
+  }
+  let avisoAcab = '';
+  if(!ehSaida && d.itens.length){
+    const sv = d.saida_vinculada;
+    avisoAcab = !sv ? `<div class="det-conf alerta">⚠ Sem nota de saída vinculada — não dá para saber como os itens deveriam voltar.</div>`
+      : !Object.keys(d.acabamento_esperado || {}).length ? `<div class="det-conf alerta">⚠ A saída ${escHtml(sv.numero_nota)} não tem itens (nota só manual) — importe o PDF dela para ver como deve voltar.</div>`
+      : `<div class="det-conf">Itens abaixo conforme o PDF deste retorno (o que realmente voltou). "Deve voltar como" vem da nota de saída ${escHtml(sv.numero_nota)}.</div>`;
+  }
+  const tabela = d.itens.length ? `
+    <div class="det-itens"><table>
+      <thead><tr>
+        ${th('codigo_produto', 'Código')}${th('descricao', 'Descrição')}${th('quantidade', 'Qtd.', true)}<th>Un.</th><th>${ehSaida ? 'Acabamento' : 'Deve voltar como'}</th>
+        ${th('peso_unitario', 'Peso unit.', true).replace('<th ','<th class="col-unit" ')}${th('peso_total', 'Peso total', true)}${th('valor_unitario', 'Valor unit.', true).replace('<th ','<th class="col-unit" ')}${th('valor_total', 'Valor total', true)}
+      </tr></thead>
+      <tbody>${itens.map(i => `<tr>
+        <td style="font-family:var(--mono)">${escHtml(i.codigo_produto)}</td>
+        <td style="white-space:normal">${escHtml(i.descricao)}</td>
+        <td style="text-align:right">${fmtQtd(i.quantidade)}</td><td>${escHtml(i.unidade || '')}</td>
+        <td style="white-space:nowrap">${ehSaida
+          ? `<select onchange="salvarAcabamentoItem(${i.id}, this.value)" style="padding:3px 6px; font-size:12px; font-weight:700; border-radius:6px; ${(i.acabamento || 'GE') === 'BICRO' ? 'background:#fff3cd; color:#8a5a00' : ''}">
+              <option value="GE" ${(i.acabamento || 'GE') === 'GE' ? 'selected' : ''}>GE</option>
+              <option value="BICRO" ${i.acabamento === 'BICRO' ? 'selected' : ''}>BICRO</option></select>`
+          : selosAcabamento((d.acabamento_esperado || {})[i.codigo_produto])}</td>
+        <td class="col-unit" style="text-align:right">${fmtKg(i.peso_unitario)}</td><td style="text-align:right">${fmtKg(i.peso_total)}</td>
+        <td class="col-unit" style="text-align:right">${fmtMoeda(i.valor_unitario)}</td><td style="text-align:right">${fmtMoeda(i.valor_total)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr>
+        <td colspan="2">Total · ${d.itens.length} item(ns)</td>
+        <td style="text-align:right">${fmtQtd(d.itens.reduce((a, i) => a + (i.quantidade || 0), 0))}</td><td></td><td></td><td class="col-unit"></td>
+        <td style="text-align:right">${fmtKg(c.soma_peso_itens)}</td><td class="col-unit"></td><td style="text-align:right">${fmtMoeda(c.soma_valor_itens)}</td>
+      </tr></tfoot>
+    </table></div>` : (d.com_pdf ? '<div style="color:var(--text-dim); font-size:13px">Nenhum item registrado nesta nota.</div>' : '');
+
+  const importarBtn = `<label class="upload-btn" style="display:inline-flex; align-items:center;">📎 ${d.com_pdf ? 'Guardar o PDF desta nota' : 'Importar PDF desta nota'}
+      <input type="file" accept=".pdf" onchange="importarPdfDoDetalhe(this, '${p.tipo}')" style="position:absolute; inset:0; opacity:0; cursor:pointer;"></label>`;
+  const acoes = d.pdf_disponivel
+    ? `<a class="small-action fup" style="text-decoration:none; padding:6px 10px;" href="/api/terceirizacao/${p.tipo}/${encodeURIComponent(p.numero)}/pdf" target="_blank" rel="noopener">📄 Ver PDF original</a>`
+    : `${importarBtn}<span>${d.com_pdf ? 'PDF original não guardado (nota importada antes dessa função) — envie o PDF dela de novo no botão ao lado para guardá-lo (os dados da nota não mudam).' : ''}</span>`;
+
+  return `<div class="det-painel">
+    <div class="det-titulo">${ehSaida ? '📤 Nota de saída' : '📥 Nota de retorno'} <span style="font-family:var(--mono)">${escHtml(p.numero)}</span> ${badgeOrigem(d.com_pdf)} ${badgeBicro(ehSaida ? d.itens.some(i => i.acabamento === 'BICRO') : Object.values(d.acabamento_esperado || {}).some(l => l.some(x => x.acabamento === 'BICRO')))}</div>
+    <div class="det-meta">${meta.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>
+    ${avisoRetornos}${conf}${avisoAcab}${tabela}
+    <div class="det-acoes">${acoes}</div>
+  </div>`;
+}
+
+function renderDetalheNota(){
+  document.getElementById('detalheNotaConteudo').innerHTML =
+    `<div class="det-paineis ${detalhePaineis.length > 1 ? 'dois' : ''}">${detalhePaineis.map(renderPainelDetalhe).join('')}</div>`;
+}
+
+// Importar PDF a partir do detalhe: leva pro formulário da aba certa (pré-preenchido pra revisar)
+function importarPdfDoDetalhe(input, tipo){
+  const aba = tipo === 'saida' ? 'saida' : 'entrada';
+  const btn = document.querySelector(`#terceirizacaoWrap .subtabs button[data-terc-subtab="${aba}"]`);
+  if(btn) setTercSubtab(aba, btn);
+  importarPdfNota(input, tipo);   // lê input.files de forma síncrona, antes de qualquer re-renderização
+  fecharDetalheNota();
+}
+
+// ---- Importação de notas por PDF (DANFE) ----
+// Guarda o payload lido do PDF até o usuário revisar e clicar em
+// "Registrar" — nada é salvo no banco antes disso (fluxo de 2 passos).
+let pdfPendente = { saida: null, retorno: null };
+
+async function importarCatalogoProdutos(input){
+  const file = input.files[0];
+  if(!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try{
+    const res = await fetch('/api/terceirizacao/catalogo/importar', {method:'POST', body: formData});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao importar catálogo');
+    toast(`Catálogo importado: ${data.criados} novo(s), ${data.atualizados} atualizado(s)${data.ignorados ? `, ${data.ignorados} ignorado(s)` : ''} · ${data.itens_recalculados} item(ns) de notas já importadas tiveram o peso recalculado`);
+  }catch(e){ toast('Erro: ' + e.message, true); }
+  finally{ input.value = ''; }
+}
+
+function pdfPendenteLimpar(tipo){
+  pdfPendente[tipo] = null;
+  const el = document.getElementById(`terc_${tipo}_resumo_pdf`);
+  if(el) el.innerHTML = '';
+}
+
+async function importarPdfNota(input, tipo){
+  const file = input.files[0];
+  if(!file) return;
+  const resumoEl = document.getElementById(`terc_${tipo}_resumo_pdf`);
+  resumoEl.innerHTML = '⏳ Lendo o PDF...';
+  const formData = new FormData();
+  formData.append('file', file);
+  try{
+    const res = await fetch(`/api/terceirizacao/${tipo}/importar-pdf`, {method:'POST', body: formData});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao ler o PDF');
+
+    if(data.status === 'erro_leitura'){
+      pdfPendente[tipo] = null;
+      resumoEl.innerHTML = `<div style="color:#e55">⚠ ${data.mensagem}</div>`;
+      return;
+    }
+
+    pdfPendente[tipo] = data.dados;
+    document.getElementById(`terc_${tipo}_numero`).value = data.dados.numero_nota || '';
+    document.getElementById(`terc_${tipo}_data`).value = data.dados.data_nota || '';
+    if(data.dados.fornecedor) document.getElementById(`terc_${tipo}_fornecedor`).value = data.dados.fornecedor;
+
+    const avisos = [];
+    if(data.status === 'duplicado') avisos.push(`🚫 ${data.mensagem}`);
+    else if(data.status === 'so_pdf') avisos.push(`📎 ${data.mensagem}`);
+    else if(data.status === 'enriquecer') avisos.push('ℹ️ Já existe um registro manual com esse número — os dados do PDF vão completá-lo ao registrar.');
+    else avisos.push('✅ Nota nova, pronta para registrar.');
+    if(data.aviso_direcao) avisos.push(`⚠ ${data.aviso_direcao}`);
+    (data.avisos_leitura || []).forEach(a => avisos.push(`⚠ ${a}`));
+
+    if(tipo === 'retorno'){
+      const select = document.getElementById('terc_retorno_saida_manual');
+      if(data.dados.numero_nota_saida){
+        if(select) select.value = data.dados.numero_nota_saida;
+        avisos.push(`🔗 Vínculo detectado automaticamente: nota de saída ${data.dados.numero_nota_saida}`);
+      } else if(select){
+        select.value = '';
+      }
+      if(data.aviso_vinculo) avisos.push(`⚠ ${data.aviso_vinculo} (use o campo "escolher a nota de saída manualmente" abaixo)`);
+    }
+
+    const detalhes = [
+      data.dados.peso_bruto != null ? `Peso bruto: ${data.dados.peso_bruto} kg` : null,
+      data.dados.valor_total_nota != null ? `Valor: R$ ${Number(data.dados.valor_total_nota).toFixed(2)}` : null,
+      data.dados.itens ? `${data.dados.itens.length} item(ns)` : null,
+    ].filter(Boolean).join(' · ');
+
+    resumoEl.innerHTML = avisos.map(a => `<div>${a}</div>`).join('')
+      + (detalhes ? `<div style="color:var(--text-dim)">${detalhes}</div>` : '')
+      + `<div><a href="#" onclick="pdfPendenteLimpar('${tipo}'); return false;">✖ cancelar importação</a></div>`;
+  }catch(e){
+    pdfPendente[tipo] = null;
+    resumoEl.innerHTML = `<div style="color:#e55">⚠ Erro: ${e.message}</div>`;
+  }finally{
+    input.value = '';
+  }
+}
+
+async function salvarNotaSaida(){
+  const numero = document.getElementById('terc_saida_numero').value.trim();
+  const dataNota = document.getElementById('terc_saida_data').value;
+  const fornecedor = document.getElementById('terc_saida_fornecedor').value.trim() || 'JJ LESTE GALVANIZACAO LTDA';
+  if(!numero || !dataNota){ toast('Preencha número e data da nota', true); return; }
+
+  const pendente = pdfPendente.saida;
+  const usaPdf = pendente && pendente.numero_nota === numero;
+  try{
+    let res;
+    if(usaPdf){
+      const payload = {...pendente, numero_nota: numero, data_nota: dataNota, fornecedor};
+      res = await fetch('/api/terceirizacao/saida/confirmar-importacao', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    } else {
+      res = await fetch('/api/terceirizacao/saida', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({numero_nota: numero, data_nota: dataNota, fornecedor})});
+    }
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast(data.status === 'so_pdf' ? 'PDF guardado (dados da nota mantidos)' : usaPdf ? 'Nota de saída importada do PDF' : 'Nota de saída registrada');
+    document.getElementById('terc_saida_numero').value = '';
+    document.getElementById('terc_saida_data').value = '';
+    document.getElementById('terc_saida_resumo_pdf').innerHTML = '';
+    pdfPendente.saida = null;
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+async function salvarNotaRetorno(){
+  const numero = document.getElementById('terc_retorno_numero').value.trim();
+  const dataNota = document.getElementById('terc_retorno_data').value;
+  const fornecedor = document.getElementById('terc_retorno_fornecedor').value.trim() || 'JJ LESTE GALVANIZACAO LTDA';
+  const infoAdicional = document.getElementById('terc_retorno_info').value.trim() || null;
+  const vinculoManualSelect = document.getElementById('terc_retorno_saida_manual').value || null;
+  if(!numero || !dataNota){ toast('Preencha número e data da nota', true); return; }
+
+  const pendente = pdfPendente.retorno;
+  const usaPdf = pendente && pendente.numero_nota === numero;
+  try{
+    let res;
+    if(usaPdf){
+      const payload = {
+        ...pendente,
+        numero_nota: numero,
+        data_nota: dataNota,
+        fornecedor,
+        numero_nota_saida: vinculoManualSelect || pendente.numero_nota_saida || null,
+      };
+      res = await fetch('/api/terceirizacao/retorno/confirmar-importacao', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    } else {
+      res = await fetch('/api/terceirizacao/retorno', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+        numero_nota: numero, data_nota: dataNota, fornecedor,
+        informacoes_adicionais: infoAdicional, numero_nota_saida: vinculoManualSelect,
+      })});
+    }
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    const numeroVinculado = usaPdf ? (data.nota && data.nota.numero_nota_saida) : data.numero_nota_saida;
+    if(data.status === 'so_pdf') toast('PDF guardado (dados da nota mantidos)');
+    else toast(numeroVinculado ? `Retorno registrado e vinculado à nota ${numeroVinculado}` : 'Retorno registrado, sem vínculo encontrado ainda');
+    document.getElementById('terc_retorno_numero').value = '';
+    document.getElementById('terc_retorno_data').value = '';
+    document.getElementById('terc_retorno_info').value = '';
+    document.getElementById('terc_vinculo_preview').innerHTML = '';
+    document.getElementById('terc_retorno_saida_manual').value = '';
+    document.getElementById('terc_retorno_resumo_pdf').innerHTML = '';
+    pdfPendente.retorno = null;
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+let notaRetornoParaVincular = null;
+function abrirVincularManual(numeroRetorno){
+  notaRetornoParaVincular = numeroRetorno;
+  const opcoes = (window.tercNotasSaidaCache || []).map(s => `${s.numero_nota} (${fmtDate(s.data_nota)})`).join(', ') || 'nenhuma nota de saída cadastrada ainda';
+  const escolha = prompt(`Vincular a nota de retorno ${numeroRetorno} a qual nota de saída?\n\nDisponíveis: ${opcoes}\n\nDigite o número da nota de saída:`);
+  if(!escolha) return;
+  vincularManual(numeroRetorno, escolha.trim());
+}
+async function vincularManual(numeroRetorno, numeroSaida){
+  try{
+    const res = await fetch(`/api/terceirizacao/retorno/${numeroRetorno}/vincular?` + new URLSearchParams({numero_nota_saida: numeroSaida}), {method:'PUT'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao vincular');
+    toast('Vínculo criado');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+// ---- Editar/apagar nota de saída ----
+let notaSaidaEmEdicaoOriginal = null;
+function abrirEditarNotaSaida(numeroNota){
+  const s = (window.tercNotasSaidaCache || []).find(x => x.numero_nota === numeroNota);
+  if(!s){ toast('Nota não encontrada', true); return; }
+  notaSaidaEmEdicaoOriginal = numeroNota;
+  document.getElementById('editar_saida_numero').value = s.numero_nota;
+  document.getElementById('editar_saida_data').value = s.data_nota;
+  document.getElementById('editar_saida_fornecedor').value = s.fornecedor;
+  document.getElementById('editarNotaSaidaOverlay').classList.add('show');
+}
+function fecharEditarNotaSaida(){
+  document.getElementById('editarNotaSaidaOverlay').classList.remove('show');
+  notaSaidaEmEdicaoOriginal = null;
+}
+async function salvarEdicaoNotaSaida(){
+  const body = {
+    numero_nota: document.getElementById('editar_saida_numero').value.trim(),
+    data_nota: document.getElementById('editar_saida_data').value,
+    fornecedor: document.getElementById('editar_saida_fornecedor').value.trim(),
+  };
+  if(!body.numero_nota || !body.data_nota){ toast('Preencha número e data', true); return; }
+  try{
+    const res = await fetch(`/api/terceirizacao/saida/${notaSaidaEmEdicaoOriginal}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Nota de saída atualizada');
+    fecharEditarNotaSaida();
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function apagarNotaSaida(numeroNota){
+  if(!confirm(`Apagar a nota de saída ${numeroNota}? Isso não pode ser desfeito.`)) return;
+  try{
+    const res = await fetch(`/api/terceirizacao/saida/${numeroNota}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Nota de saída apagada');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+// ---- Editar/apagar nota de retorno ----
+let notaRetornoEmEdicaoOriginal = null;
+async function abrirEditarNotaRetorno(numeroNota){
+  let r;
+  try{
+    const res = await fetch(`/api/terceirizacao/retorno/${numeroNota}`);
+    if(!res.ok) throw new Error('Nota não encontrada');
+    r = await res.json();
+  }catch(e){ toast('Erro: ' + e.message, true); return; }
+  notaRetornoEmEdicaoOriginal = numeroNota;
+  document.getElementById('editar_retorno_numero').value = r.numero_nota;
+  document.getElementById('editar_retorno_data').value = r.data_nota;
+  document.getElementById('editar_retorno_fornecedor').value = r.fornecedor;
+  document.getElementById('editar_retorno_info').value = r.informacoes_adicionais || '';
+  document.getElementById('editar_retorno_saida_vinculo').value = r.numero_nota_saida || '';
+  document.getElementById('editarNotaRetornoOverlay').classList.add('show');
+}
+function fecharEditarNotaRetorno(){
+  document.getElementById('editarNotaRetornoOverlay').classList.remove('show');
+  notaRetornoEmEdicaoOriginal = null;
+}
+async function salvarEdicaoNotaRetorno(){
+  const body = {
+    numero_nota: document.getElementById('editar_retorno_numero').value.trim(),
+    data_nota: document.getElementById('editar_retorno_data').value,
+    fornecedor: document.getElementById('editar_retorno_fornecedor').value.trim(),
+    numero_nota_saida: document.getElementById('editar_retorno_saida_vinculo').value || null,
+    informacoes_adicionais: document.getElementById('editar_retorno_info').value.trim() || null,
+  };
+  if(!body.numero_nota || !body.data_nota){ toast('Preencha número e data', true); return; }
+  try{
+    const res = await fetch(`/api/terceirizacao/retorno/${notaRetornoEmEdicaoOriginal}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Nota de retorno atualizada');
+    fecharEditarNotaRetorno();
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function apagarNotaRetorno(numeroNota){
+  if(!confirm(`Apagar a nota de retorno ${numeroNota}? Isso não pode ser desfeito.`)) return;
+  try{
+    const res = await fetch(`/api/terceirizacao/retorno/${numeroNota}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Nota de retorno apagada');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+// ---------------- Aba Cobrança ----------------
+let cobrancaSubtab = 'todos';
+function setCobrancaSubtab(subtab, btn){
+  cobrancaSubtab = subtab;
+  document.querySelectorAll('#cobrancaWrap .subtabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const seletorCampoData = document.getElementById('cob_campo_data');
+  if(subtab === 'em_aberto'){ seletorCampoData.value = 'vencimento'; seletorCampoData.disabled = true; }
+  else if(subtab === 'pago'){ seletorCampoData.value = 'pagamento'; seletorCampoData.disabled = true; }
+  else{ seletorCampoData.disabled = false; }
+  renderTabelaCobranca();
+}
+
+function fmtMoeda(v){
+  if(v === null || v === undefined) return '—';
+  return 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+async function uploadCobranca(input){
+  const file = input.files[0];
+  if(!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try{
+    const res = await fetch('/api/cobranca/importar', {method:'POST', body: formData});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao importar');
+    toast(`Importado: ${data.novos} novo(s), ${data.atualizados} atualizado(s), ${data.marcados_pagos} marcado(s) como pago${data.reapareceram ? `, ${data.reapareceram} reapareceu(ram)` : ''}`);
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+  input.value = '';
+}
+
+function diasEmAtraso(dataVencimento, dataFim){
+  if(!dataVencimento) return null;
+  const fim = dataFim ? new Date(dataFim + 'T00:00:00') : new Date().setHours(0,0,0,0);
+  const dias = Math.floor((fim - new Date(dataVencimento + 'T00:00:00')) / 86400000);
+  return dias;
+}
+
+function linhaCobranca(b){
+  const hojeISO = new Date().toISOString().slice(0,10);
+  const pendenteLigacao = b.status === 'Em aberto' && b.proxima_cobranca && b.proxima_cobranca <= hojeISO;
+  const tagReapareceu = b.reapareceu ? `<span class="atraso-tag" style="margin-left:6px">⚠ Reapareceu</span>` : '';
+  const tagPendente = pendenteLigacao ? `<span class="atraso-tag" style="margin-left:6px">🔔 Ligar hoje</span>` : '';
+  const dias = b.status === 'Pago'
+    ? diasEmAtraso(b.data_vencimento, b.data_pago_sistema)
+    : diasEmAtraso(b.data_vencimento);
+  const colunaExtra = cobrancaSubtab === 'pago'
+    ? `<td>${fmtDate(b.data_pago_sistema)}</td>`
+    : `<td>${fmtDate(b.data_vencimento)}</td>`;
+  let conteudoDias;
+  if(b.status === 'Pago'){
+    conteudoDias = (dias !== null && dias > 0) ? `Pago c/ ${dias}d atraso` : 'Pago em dia';
+  }else{
+    conteudoDias = (dias !== null && dias > 0) ? `<span class="atraso-tag">${dias}d</span>` : '—';
+  }
+  const colunaDiasAtraso = `<td>${conteudoDias}</td>`;
+  return `
+    <tr class="${pendenteLigacao ? 'linha-pendente' : (b.status === 'Pago' ? 'linha-paga' : '')}">
+      <td style="font-family:var(--mono)">${b.seu_numero}</td>
+      <td>${b.pagador || '—'}${tagReapareceu}${tagPendente}</td>
+      <td class="col-secondary">${b.cnpj_cpf || '—'}</td>
+      <td>${fmtMoeda(b.valor_titulo)}</td>
+      ${colunaExtra}
+      ${colunaDiasAtraso}
+      <td class="col-secondary">${b.motivo_cobranca_recente || '—'}</td>
+      <td>
+        <button class="small-action fup" onclick="preencherCobranca('${b.seu_numero}')" title="Registrar cobrança">📞</button>
+        <button class="small-action fup" onclick="abrirHistoricoCobranca('${b.seu_numero}')" title="Ver histórico">📋</button>
+        <button class="small-action fup" onclick="abrirEditarBoleto('${b.seu_numero}')" title="Editar">✎</button>
+        <button class="small-action" onclick="apagarBoleto('${b.seu_numero}')" title="Apagar">🗑</button>
+      </td>
+    </tr>
+  `;
+}
+
+function normalizarBusca(s){
+  return (s || '').toString()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
+    .toLowerCase()
+    .replace(/\s+/g, ''); // remove espaços (pra não depender de onde o espaço foi digitado)
+}
+
+function distanciaLevenshtein(a, b){
+  const dp = Array.from({length: a.length + 1}, () => new Array(b.length + 1).fill(0));
+  for(let i = 0; i <= a.length; i++) dp[i][0] = i;
+  for(let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for(let i = 1; i <= a.length; i++){
+    for(let j = 1; j <= b.length; j++){
+      const custo = a[i-1] === b[j-1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i-1][j] + 1, dp[i][j-1] + 1, dp[i-1][j-1] + custo);
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+// Busca "aproximada": aceita erro de digitação. Pra textos curtos (nosso
+// número, CNPJ, valor) exige correspondência exata, pra não gerar ruído.
+// Pra textos mais longos (nome do pagador), tolera diferenças de até ~30%
+// dos caracteres, testando janelas deslizantes do tamanho da busca.
+function contemAproximado(textoAlvo, consulta){
+  if(!consulta) return true;
+  const alvo = normalizarBusca(textoAlvo);
+  const q = normalizarBusca(consulta);
+  if(!alvo || !q) return false;
+  if(alvo.includes(q)) return true; // caminho rápido: correspondência exata
+
+  if(q.length < 4) return false; // buscas muito curtas: só correspondência exata, evita ruído
+
+  const tolerancia = Math.max(1, Math.floor(q.length * 0.3));
+  for(let len = Math.max(1, q.length - 2); len <= q.length + 2; len++){
+    for(let i = 0; i + len <= alvo.length; i++){
+      if(distanciaLevenshtein(alvo.substr(i, len), q) <= tolerancia) return true;
+    }
+  }
+  return false;
+}
+
+// Filtro de busca genérico, reutilizável em qualquer lista de objetos:
+// campos em camposExatos exigem correspondência exata (bom pra números/IDs,
+// evita "25391" encontrar "25392" por engano); camposFuzzy toleram erro de
+// digitação (bom pra nomes, tipo cliente).
+function filtrarPorBusca(lista, busca, camposExatos, camposFuzzy){
+  if(!busca || !busca.trim()) return lista;
+  const buscaNorm = busca.trim().toLowerCase();
+  return lista.filter(item => {
+    const bateExato = (camposExatos || []).some(campo => {
+      const v = item[campo];
+      return v !== null && v !== undefined && String(v).toLowerCase().includes(buscaNorm);
+    });
+    if(bateExato) return true;
+    return (camposFuzzy || []).some(campo => contemAproximado(item[campo], busca));
+  });
+}
+
+let cobrancaOrdenacao = { campo: null, direcao: 'asc' };
+
+function ordenarPorColunaCobranca(campo){
+  if(cobrancaOrdenacao.campo === campo){
+    cobrancaOrdenacao.direcao = cobrancaOrdenacao.direcao === 'asc' ? 'desc' : 'asc';
+  }else{
+    cobrancaOrdenacao.campo = campo;
+    cobrancaOrdenacao.direcao = 'asc';
+  }
+  renderTabelaCobranca();
+}
+
+function valorOrdenacaoCobranca(b, campo){
+  switch(campo){
+    case 'seu_numero': return (b.seu_numero || '').toLowerCase();
+    case 'pagador': return (b.pagador || '').toLowerCase();
+    case 'cnpj_cpf': return b.cnpj_cpf || '';
+    case 'valor_titulo': return b.valor_titulo ?? -Infinity;
+    case 'data_extra': return (cobrancaSubtab === 'pago' ? b.data_pago_sistema : b.data_vencimento) || '';
+    case 'dias_atraso': {
+      const dias = b.status === 'Pago' ? diasEmAtraso(b.data_vencimento, b.data_pago_sistema) : diasEmAtraso(b.data_vencimento);
+      return dias ?? -Infinity;
+    }
+    case 'ultima_cobranca': return (b.motivo_cobranca_recente || '').toLowerCase();
+    default: return '';
+  }
+}
+
+function filtrarListaCobranca(){
+  const emAberto = window.cobrancaCache?.em_aberto || [];
+  const pago = window.cobrancaCache?.pago || [];
+  let lista = cobrancaSubtab === 'pago' ? pago : cobrancaSubtab === 'em_aberto' ? emAberto : [...emAberto, ...pago];
+
+  // filtro de busca — nome do pagador aceita erro de digitação;
+  // números/identificadores exigem correspondência exata (evita confundir
+  // boletos parecidos, tipo "25391" encontrando "25392" por engano)
+  const busca = (document.getElementById('cob_busca').value || '').trim();
+  if(busca){
+    const buscaNorm = busca.toLowerCase();
+    lista = lista.filter(b => {
+      const camposExatos = [b.seu_numero, b.cnpj_cpf, b.valor_titulo != null ? String(b.valor_titulo) : ''];
+      const bateExato = camposExatos.some(c => c && String(c).toLowerCase().includes(buscaNorm));
+      return bateExato || contemAproximado(b.pagador, busca);
+    });
+  }
+
+  // filtro de data (vencimento ou pagamento, conforme o seletor)
+  const campoData = document.getElementById('cob_campo_data').value;
+  const de = document.getElementById('cob_data_de').value;
+  const ate = document.getElementById('cob_data_ate').value;
+  if(de || ate){
+    const chave = campoData === 'pagamento' ? 'data_pago_sistema' : 'data_vencimento';
+    lista = lista.filter(b => {
+      const v = b[chave];
+      if(!v) return false;
+      if(de && v < de) return false;
+      if(ate && v > ate) return false;
+      return true;
+    });
+  }
+
+  if(cobrancaOrdenacao.campo){
+    const campo = cobrancaOrdenacao.campo;
+    const dir = cobrancaOrdenacao.direcao === 'asc' ? 1 : -1;
+    return [...lista].sort((a, b) => {
+      const va = valorOrdenacaoCobranca(a, campo);
+      const vb = valorOrdenacaoCobranca(b, campo);
+      if(va < vb) return -1 * dir;
+      if(va > vb) return 1 * dir;
+      return 0;
+    });
+  }
+  return [...lista].sort((a,b) => (a.data_vencimento || '9999') > (b.data_vencimento || '9999') ? 1 : -1);
+}
+
+function renderStatsCobranca(lista){
+  const emAberto = lista.filter(b => b.status === 'Em aberto');
+  const pago = lista.filter(b => b.status === 'Pago');
+  const somaEmAberto = emAberto.reduce((soma, b) => soma + (b.valor_titulo || 0), 0);
+
+  document.getElementById('statsCobranca').innerHTML = `
+    <div class="stat atraso"><div class="n">${emAberto.length}</div><div class="l">Boletos em aberto</div></div>
+    <div class="stat"><div class="n">${pago.length}</div><div class="l">Boletos pagos</div></div>
+    <div class="stat atraso"><div class="n">${fmtMoeda(somaEmAberto)}</div><div class="l">Soma em aberto</div></div>
+  `;
+}
+
+function thOrdenavel(campo, label, extraClass){
+  const ativo = cobrancaOrdenacao.campo === campo;
+  const seta = ativo ? (cobrancaOrdenacao.direcao === 'asc' ? ' ▲' : ' ▼') : '';
+  return `<th class="th-ordenavel ${extraClass || ''}" onclick="ordenarPorColunaCobranca('${campo}')">${label}${seta}</th>`;
+}
+
+function renderTabelaCobranca(){
+  const lista = filtrarListaCobranca();
+  renderStatsCobranca(lista);
+
+  const colunaExtraLabel = cobrancaSubtab === 'pago' ? 'Data que pagou' : 'Vencimento';
+  document.getElementById('theadCobranca').innerHTML = `
+    ${thOrdenavel('seu_numero', 'Seu Número')}
+    ${thOrdenavel('pagador', 'Pagador')}
+    ${thOrdenavel('cnpj_cpf', 'CNPJ/CPF', 'col-secondary')}
+    ${thOrdenavel('valor_titulo', 'Valor título')}
+    ${thOrdenavel('data_extra', colunaExtraLabel)}
+    ${thOrdenavel('dias_atraso', 'Dias em atraso')}
+    ${thOrdenavel('ultima_cobranca', 'Última cobrança', 'col-secondary')}
+    <th></th>
+  `;
+  document.getElementById('tbodyCobranca').innerHTML = lista.length
+    ? lista.map(linhaCobranca).join('')
+    : `<tr><td colspan="8" style="color:var(--text-dim); text-align:center; padding:20px">Nenhum boleto encontrado com esses filtros.</td></tr>`;
+}
+
+async function atualizarBadgeCobranca(){
+  try{
+    const res = await fetch('/api/cobranca/pendentes-contagem');
+    const data = await res.json();
+    const badge = document.getElementById('badgeCobranca');
+    if(data.pendentes > 0){
+      badge.textContent = data.pendentes;
+      badge.style.display = 'inline-block';
+    }else{
+      badge.style.display = 'none';
+    }
+  }catch(e){}
+}
+
+async function loadCobrancaTab(){
+  const res = await fetch('/api/cobranca');
+  const data = await res.json();
+  window.cobrancaCache = data;
+
+  renderTabelaCobranca();
+  atualizarBadgeCobranca();
+}
+
+function preencherCobranca(seuNumero){
+  document.getElementById('cob_seu_numero').value = seuNumero;
+  document.getElementById('cob_seu_numero').scrollIntoView({behavior:'smooth', block:'center'});
+  document.getElementById('cob_seu_numero').focus();
+}
+
+async function salvarCobranca(){
+  const body = {
+    seu_numero: document.getElementById('cob_seu_numero').value.trim(),
+    data_registro: document.getElementById('cob_data').value || new Date().toISOString().slice(0,10),
+    motivo: document.getElementById('cob_motivo').value.trim(),
+    proxima_data_cobranca: document.getElementById('cob_proxima_data').value || null,
+  };
+  if(!body.seu_numero){ toast('Informe o Seu Número', true); return; }
+  if(!body.motivo){ toast('Informe o motivo', true); return; }
+  try{
+    const res = await fetch('/api/cobranca-registros', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Cobrança registrada');
+    document.getElementById('cob_seu_numero').value = '';
+    document.getElementById('cob_motivo').value = '';
+    document.getElementById('cob_proxima_data').value = '';
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+// ---- Editar/apagar boleto ----
+let boletoEmEdicao = null;
+function abrirEditarBoleto(seuNumero){
+  const lista = [...(window.cobrancaCache?.em_aberto || []), ...(window.cobrancaCache?.pago || [])];
+  const b = lista.find(x => x.seu_numero === seuNumero);
+  if(!b){ toast('Boleto não encontrado', true); return; }
+  boletoEmEdicao = seuNumero;
+  document.getElementById('editarBoletoNum').textContent = seuNumero;
+  document.getElementById('editar_boleto_status').value = b.status;
+  document.getElementById('editar_boleto_vencimento').value = b.data_vencimento || '';
+  document.getElementById('editar_boleto_valor_titulo').value = b.valor_titulo ?? '';
+  document.getElementById('editar_boleto_valor_pago').value = b.valor_pago ?? '';
+  document.getElementById('editarBoletoOverlay').classList.add('show');
+}
+function fecharEditarBoleto(){
+  document.getElementById('editarBoletoOverlay').classList.remove('show');
+  boletoEmEdicao = null;
+}
+async function salvarEdicaoBoleto(){
+  const body = {
+    status: document.getElementById('editar_boleto_status').value,
+    data_vencimento: document.getElementById('editar_boleto_vencimento').value || null,
+    valor_titulo: document.getElementById('editar_boleto_valor_titulo').value ? parseFloat(document.getElementById('editar_boleto_valor_titulo').value) : null,
+    valor_pago: document.getElementById('editar_boleto_valor_pago').value ? parseFloat(document.getElementById('editar_boleto_valor_pago').value) : null,
+  };
+  try{
+    const res = await fetch(`/api/cobranca/${boletoEmEdicao}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Boleto atualizado');
+    fecharEditarBoleto();
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function apagarBoleto(seuNumero){
+  if(!confirm(`Apagar o boleto ${seuNumero}? Isso não pode ser desfeito.`)) return;
+  try{
+    const res = await fetch(`/api/cobranca/${seuNumero}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Boleto apagado');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+// ---- Editar/apagar registro de cobrança ----
+let cobrancaRegistroEmEdicao = null;
+async function abrirHistoricoCobranca(seuNumero){
+  document.getElementById('historicoPedidoNum').textContent = seuNumero + ' — Histórico de cobrança';
+  document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Carregando…</div>';
+  document.getElementById('historicoOverlay').classList.add('show');
+  try{
+    const res = await fetch(`/api/cobranca/${seuNumero}`);
+    if(!res.ok) throw new Error('Boleto não encontrado');
+    const data = await res.json();
+    window.cobrancaRegistrosCache = data.registros;
+    if(!data.registros.length){
+      document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Nenhuma cobrança registrada ainda para este boleto.</div>';
+      return;
+    }
+    document.getElementById('historicoLista').innerHTML = data.registros.map(r => `
+      <div style="border:1px solid var(--border); border-radius:8px; padding:10px 12px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-dim); margin-bottom:4px;">
+          <span>${fmtDate(r.data_registro)}</span>
+          ${r.proxima_data_cobranca ? `<span class="atraso-tag">🔔 Ligar de novo: ${fmtDate(r.proxima_data_cobranca)}</span>` : ''}
+        </div>
+        <div style="font-weight:700;">${r.motivo}</div>
+        <div style="margin-top:6px; display:flex; gap:6px;">
+          <button class="small-action fup" onclick="fecharHistoricoModal(); abrirEditarCobranca(${r.id})">✎ Editar</button>
+          <button class="small-action" onclick="apagarCobrancaRegistro(${r.id}); fecharHistoricoModal();">🗑 Apagar</button>
+        </div>
+      </div>
+    `).join('');
+  }catch(e){
+    document.getElementById('historicoLista').innerHTML = `<div style="color:var(--danger)">Erro: ${e.message}</div>`;
+  }
+}
+function abrirEditarCobranca(id){
+  const r = (window.cobrancaRegistrosCache || []).find(x => x.id === id);
+  if(!r){ toast('Registro não encontrado', true); return; }
+  cobrancaRegistroEmEdicao = id;
+  document.getElementById('editarCobrancaNum').textContent = r.seu_numero;
+  document.getElementById('editar_cobranca_data').value = r.data_registro;
+  document.getElementById('editar_cobranca_motivo').value = r.motivo;
+  document.getElementById('editar_cobranca_proxima_data').value = r.proxima_data_cobranca || '';
+  document.getElementById('editarCobrancaOverlay').classList.add('show');
+}
+function fecharEditarCobranca(){
+  document.getElementById('editarCobrancaOverlay').classList.remove('show');
+  cobrancaRegistroEmEdicao = null;
+}
+async function salvarEdicaoCobranca(){
+  const r = (window.cobrancaRegistrosCache || []).find(x => x.id === cobrancaRegistroEmEdicao);
+  if(!r) return;
+  const motivo = document.getElementById('editar_cobranca_motivo').value.trim();
+  if(!motivo){ toast('Informe o motivo', true); return; }
+  const body = {
+    seu_numero: r.seu_numero,
+    data_registro: document.getElementById('editar_cobranca_data').value,
+    motivo: motivo,
+    proxima_data_cobranca: document.getElementById('editar_cobranca_proxima_data').value || null,
+  };
+  try{
+    const res = await fetch(`/api/cobranca-registros/${cobrancaRegistroEmEdicao}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Cobrança atualizada');
+    fecharEditarCobranca();
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function apagarCobrancaRegistro(id){
+  if(!confirm('Apagar este registro de cobrança? Essa ação não pode ser desfeita.')) return;
+  try{
+    const res = await fetch(`/api/cobranca-registros/${id}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Registro apagado');
+    load();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+function preencherFup(numeroPedido){
+  document.getElementById('fup_pedido').value = numeroPedido;
+  document.getElementById('fup_pedido').scrollIntoView({behavior:'smooth', block:'center'});
+  document.getElementById('fup_pedido').focus();
+}
+
+async function abrirHistoricoFup(numeroPedido){
+  document.getElementById('historicoPedidoNum').textContent = '#' + numeroPedido;
+  document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Carregando…</div>';
+  document.getElementById('historicoOverlay').classList.add('show');
+  try{
+    const res = await fetch(`/api/pedidos/${numeroPedido}`);
+    if(!res.ok) throw new Error('Pedido não encontrado');
+    const data = await res.json();
+    if(!data.fups.length){
+      document.getElementById('historicoLista').innerHTML = '<div style="color:var(--text-dim)">Nenhum FUP registrado ainda para este pedido.</div>';
+      return;
+    }
+    document.getElementById('historicoLista').innerHTML = data.fups.map(f => `
+      <div style="border:1px solid var(--border); border-radius:8px; padding:10px 12px;">
+        <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-dim); margin-bottom:4px;">
+          <span>${fmtDate(f.data_referencia)}</span>
+          ${f.previsao_atraso ? '<span class="atraso-tag">Previsão de atraso</span>' : ''}
+        </div>
+        <div style="font-weight:700; margin-bottom:2px;">${textoMotivo(f.motivo_atraso, f.observacao) || 'Sem motivo informado'}</div>
+        ${(f.observacao && f.motivo_atraso !== 'Outro') ? `<div style="font-size:12.5px; color:var(--text-dim);">${f.observacao}</div>` : ''}
+      </div>
+    `).join('');
+  }catch(e){
+    document.getElementById('historicoLista').innerHTML = `<div style="color:var(--danger)">Erro: ${e.message}</div>`;
+  }
+}
+function fecharHistoricoModal(){
+  document.getElementById('historicoOverlay').classList.remove('show');
+}
+
+// ---------------- Editar / apagar FUP ----------------
+let fupEmEdicaoId = null;
+
+async function abrirEditarFup(id){
+  const f = (window.fupsCache || []).find(x => x.id === id);
+  if(!f){ toast('Registro não encontrado', true); return; }
+  fupEmEdicaoId = id;
+  document.getElementById('editarFupPedidoNum').textContent = '#' + f.numero_pedido;
+  document.getElementById('editar_fup_data').value = f.data_referencia;
+  document.getElementById('editar_fup_situacao').value = f.situacao || 'atraso';
+  document.getElementById('editar_fup_obs').value = f.observacao || '';
+
+  await carregarOpcoesMotivo('editar_fup_motivo');
+  document.getElementById('editar_fup_motivo').value = f.motivo_atraso || '';
+  atualizarVisibilidadeMotivo('editar_fup_situacao', 'editar_fup_motivo_wrap');
+
+  document.getElementById('editarFupOverlay').classList.add('show');
+}
+function fecharEditarFup(){
+  document.getElementById('editarFupOverlay').classList.remove('show');
+  fupEmEdicaoId = null;
+}
+async function salvarEdicaoFup(){
+  const f = (window.fupsCache || []).find(x => x.id === fupEmEdicaoId);
+  if(!f) return;
+  const situacao = document.getElementById('editar_fup_situacao').value;
+  const body = {
+    numero_pedido: f.numero_pedido,
+    data_referencia: document.getElementById('editar_fup_data').value,
+    situacao: situacao,
+    motivo_atraso: situacao === 'ok' ? null : document.getElementById('editar_fup_motivo').value,
+    observacao: document.getElementById('editar_fup_obs').value,
+  };
+  if(situacao !== 'ok' && !body.motivo_atraso){ toast('Escolha um motivo', true); return; }
+  if(body.motivo_atraso === 'Outro' && !body.observacao.trim()){ toast('Observação é obrigatória quando o motivo é "Outro"', true); return; }
+  try{
+    const res = await fetch(`/api/fup/${fupEmEdicaoId}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('FUP atualizado');
+    fecharEditarFup();
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+async function confirmarApagarFup(id){
+  if(!confirm('Tem certeza que deseja apagar este registro de FUP? Essa ação não pode ser desfeita.')) return;
+  try{
+    const res = await fetch(`/api/fup/${id}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('FUP apagado');
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+async function carregarOpcoesMotivo(idSelect){
+  const res = await fetch('/api/fup/motivos');
+  const motivos = await res.json();
+  window.motivosFupCache = motivos;
+  document.getElementById(idSelect).innerHTML =
+    motivos.map(m => `<option value="${m.texto}">${m.texto}</option>`).join('');
+}
+
+async function carregarMotivos(){
+  await carregarOpcoesMotivo('fup_motivo');
+}
+
+function atualizarVisibilidadeMotivo(idSituacao, idMotivoWrap){
+  const situacao = document.getElementById(idSituacao).value;
+  document.getElementById(idMotivoWrap).style.display = situacao === 'ok' ? 'none' : 'flex';
+}
+function atualizarVisibilidadeMotivoFup(){
+  atualizarVisibilidadeMotivo('fup_situacao', 'fup_motivo_wrap');
+}
+
+async function salvarFup(){
+  const situacao = document.getElementById('fup_situacao').value;
+  const body = {
+    numero_pedido: document.getElementById('fup_pedido').value.trim(),
+    data_referencia: document.getElementById('fup_data').value || new Date().toISOString().slice(0,10),
+    situacao: situacao,
+    motivo_atraso: situacao === 'ok' ? null : document.getElementById('fup_motivo').value,
+    observacao: document.getElementById('fup_obs').value,
+  };
+  if(!body.numero_pedido){ toast('Informe o número do pedido', true); return; }
+  if(situacao !== 'ok' && !body.motivo_atraso){ toast('Escolha um motivo', true); return; }
+  if(body.motivo_atraso === 'Outro' && !body.observacao.trim()){ toast('Observação é obrigatória quando o motivo é "Outro"', true); return; }
+  try{
+    const res = await fetch('/api/fup', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('FUP registrado com sucesso');
+    document.getElementById('fup_pedido').value = '';
+    document.getElementById('fup_obs').value = '';
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+// ---------------- Gerenciar motivos (CRUD) ----------------
+async function abrirGerenciarMotivos(){
+  document.getElementById('gerenciarMotivosOverlay').classList.add('show');
+  await renderizarListaMotivos();
+}
+function fecharGerenciarMotivos(){
+  document.getElementById('gerenciarMotivosOverlay').classList.remove('show');
+}
+async function renderizarListaMotivos(){
+  const res = await fetch('/api/fup/motivos');
+  const motivos = await res.json();
+  window.motivosFupCache = motivos;
+  document.getElementById('listaMotivos').innerHTML = motivos.map(m => `
+    <div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border);">
+      <span id="motivo_texto_${m.id}" style="flex:1;">${m.texto}</span>
+      <input type="text" id="motivo_edit_${m.id}" value="${m.texto}" style="display:none; flex:1; background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:6px 8px; border-radius:6px;">
+      <button class="small-action fup" id="motivo_btn_editar_${m.id}" onclick="iniciarEdicaoMotivo(${m.id})">✎</button>
+      <button class="small-action fup" id="motivo_btn_salvar_${m.id}" style="display:none" onclick="salvarEdicaoMotivo(${m.id})">✓</button>
+      <button class="small-action" onclick="apagarMotivoFup(${m.id})">🗑</button>
+    </div>
+  `).join('');
+}
+function iniciarEdicaoMotivo(id){
+  document.getElementById(`motivo_texto_${id}`).style.display = 'none';
+  document.getElementById(`motivo_edit_${id}`).style.display = 'block';
+  document.getElementById(`motivo_btn_editar_${id}`).style.display = 'none';
+  document.getElementById(`motivo_btn_salvar_${id}`).style.display = 'inline-block';
+}
+async function salvarEdicaoMotivo(id){
+  const texto = document.getElementById(`motivo_edit_${id}`).value.trim();
+  if(!texto){ toast('Informe o texto do motivo', true); return; }
+  try{
+    const res = await fetch(`/api/fup/motivos/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({texto})});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast('Motivo atualizado');
+    await renderizarListaMotivos();
+    await carregarOpcoesMotivo('fup_motivo');
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function apagarMotivoFup(id){
+  if(!confirm('Apagar esse motivo? Registros de FUP já feitos com ele mantêm o texto, só some da lista pra escolher em novos registros.')) return;
+  try{
+    const res = await fetch(`/api/fup/motivos/${id}`, {method:'DELETE'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao apagar');
+    toast('Motivo apagado');
+    await renderizarListaMotivos();
+    await carregarOpcoesMotivo('fup_motivo');
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+async function adicionarNovoMotivo(){
+  const texto = document.getElementById('novo_motivo_texto').value.trim();
+  if(!texto){ toast('Digite o texto do motivo novo', true); return; }
+  try{
+    const res = await fetch('/api/fup/motivos', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({texto})});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao adicionar');
+    toast('Motivo adicionado');
+    document.getElementById('novo_motivo_texto').value = '';
+    await renderizarListaMotivos();
+    await carregarOpcoesMotivo('fup_motivo');
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+// ---------------- Painel de detalhes (mobile) ----------------
+function abrirDetalhePedidoMobile(numeroPedido){
+  if(window.innerWidth > 640) return; // essa tela só existe no celular; no desktop as colunas já mostram tudo
+  const p = (vtPedidos.items || []).find(x => x.numero_pedido === numeroPedido);
+  if(!p) return;
+  window._detalheMobilePedido = numeroPedido;
+  document.getElementById('detalheMobilePedidoNum').textContent = '#' + p.numero_pedido;
+  document.getElementById('detalheMobileConteudo').innerHTML = `
+    <div class="detalhe-linha"><span>Cliente</span><b>${p.nome_cliente || '—'}</b></div>
+    <div class="detalhe-linha"><span>Emissão</span><b>${fmtDate(p.data_emissao)}</b></div>
+    <div class="detalhe-linha"><span>Entrega original</span><b>${fmtDate(p.data_entrega_prevista)}</b></div>
+    <div class="detalhe-linha"><span>Nova data</span><b>${p.nova_data_entrega ? fmtDate(p.nova_data_entrega) : '—'}</b></div>
+    <div class="detalhe-linha"><span>Entrega efetiva</span><b>${p.data_entrega_real ? fmtDate(p.data_entrega_real) : '—'}</b></div>
+    <div class="detalhe-linha"><span>Tipo</span><b>${p.tipo_entrega || '—'}</b></div>
+    <div class="detalhe-linha"><span>OE</span><b>${p.numero_oe || '—'}</b></div>
+    <div class="detalhe-linha"><span>NF</span><b>${p.nf || '—'}</b></div>
+    <div class="detalhe-linha"><span>Motivo (FUP)</span><b>${p.motivo_atraso_fup || '—'}</b></div>
+    ${p.status === 'Cancelado' ? `<div class="detalhe-linha"><span>Motivo do cancelamento</span><b>${p.motivo_cancelamento || '—'}</b></div>
+    <div class="detalhe-linha"><span>Data do cancelamento</span><b>${p.data_cancelamento ? fmtDate(p.data_cancelamento) : '—'}</b></div>` : ''}
+  `;
+  const btnCancelar = document.getElementById('btnDetalheCancelar');
+  btnCancelar.textContent = p.status === 'Cancelado' ? (p.motivo_cancelamento ? '✎ Editar motivo do cancelamento' : '+ Registrar motivo do cancelamento') : 'Cancelar pedido';
+  document.getElementById('detalheMobileOverlay').classList.add('show');
+}
+function fecharDetalheMobile(){
+  document.getElementById('detalheMobileOverlay').classList.remove('show');
+}
+function detalheMobileNovaData(){
+  const numero = window._detalheMobilePedido;
+  const p = (vtPedidos.items || []).find(x => x.numero_pedido === numero);
+  fecharDetalheMobile();
+  abrirNovaDataModal(numero, (p && p.nova_data_entrega) || '');
+}
+function detalheMobileCancelar(){
+  const numero = window._detalheMobilePedido;
+  fecharDetalheMobile();
+  abrirCancelModal(numero);
+}
+function detalheMobileHistorico(){
+  const numero = window._detalheMobilePedido;
+  fecharDetalheMobile();
+  abrirHistoricoFup(numero);
+}
+
+// ---------------- Painel de filtros colapsável (mobile) ----------------
+function toggleFiltrosMobile(){
+  const panel = document.getElementById('filtrosPanel');
+  const aberto = panel.classList.toggle('mobile-open');
+  document.getElementById('filtrosToggleIcon').textContent = aberto ? '▴' : '▾';
+}
+
+// ---------------- Nova data de entrega ----------------
+let pedidoParaNovaData = null;
+function abrirNovaDataModal(numeroPedido, dataAtual){
+  pedidoParaNovaData = numeroPedido;
+  document.getElementById('novaDataPedidoNum').textContent = '#' + numeroPedido;
+  document.getElementById('nova_data_input').value = dataAtual || '';
+  document.getElementById('novaDataOverlay').classList.add('show');
+}
+function fecharNovaDataModal(){
+  document.getElementById('novaDataOverlay').classList.remove('show');
+  pedidoParaNovaData = null;
+}
+async function salvarNovaData(){
+  const novaData = document.getElementById('nova_data_input').value;
+  try{
+    const params = new URLSearchParams();
+    if(novaData) params.set('nova_data', novaData);
+    const res = await fetch(`/api/pedidos/${pedidoParaNovaData}/nova-data-entrega?` + params.toString(), {method:'POST'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao salvar');
+    toast(novaData ? 'Nova data de entrega registrada' : 'Renegociação removida, voltando à data original');
+    fecharNovaDataModal();
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+// ---------------- Cancelamento ----------------
+let pedidoParaCancelar = null;
+
+function abrirCancelModal(numeroPedido){
+  pedidoParaCancelar = numeroPedido;
+  const p = (vtPedidos.items || []).find(x => x.numero_pedido === numeroPedido);
+  document.getElementById('cancelPedidoNum').textContent = '#' + numeroPedido;
+  document.getElementById('cancel_motivo').value = (p && p.motivo_cancelamento) || '';
+  document.getElementById('cancel_data').value = (p && p.data_cancelamento) || new Date().toISOString().slice(0,10);
+  document.getElementById('cancelOverlay').classList.add('show');
+}
+function fecharCancelModal(){
+  document.getElementById('cancelOverlay').classList.remove('show');
+  pedidoParaCancelar = null;
+}
+async function confirmarCancelamento(){
+  const motivo = document.getElementById('cancel_motivo').value.trim();
+  const data_cancelamento = document.getElementById('cancel_data').value;
+  if(!motivo){ toast('Informe o motivo do cancelamento', true); return; }
+  try{
+    const params = new URLSearchParams({motivo, data_cancelamento});
+    const res = await fetch(`/api/pedidos/${pedidoParaCancelar}/cancelar?` + params.toString(), {method:'POST'});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao cancelar');
+    toast('Pedido cancelado');
+    fecharCancelModal();
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+}
+
+// ---------------- Exportar ----------------
+function exportar(){
+  const params = buildParams();
+  window.location = '/api/exportar?' + params.toString();
+}
+
+async function importarFupLote(input){
+  const file = input.files[0];
+  if(!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try{
+    const res = await fetch('/api/importar-fup-lote', {method:'POST', body: formData});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Erro ao importar');
+    let msg = `${data.fups_criados} FUP(s) criado(s)`;
+    if(data.datas_atualizadas > 0) msg += `, ${data.datas_atualizadas} data(s) atualizada(s)`;
+    if(data.pedidos_nao_encontrados.length > 0) msg += ` — ${data.pedidos_nao_encontrados.length} pedido(s) não encontrado(s): ${data.pedidos_nao_encontrados.slice(0,5).join(', ')}${data.pedidos_nao_encontrados.length > 5 ? '...' : ''}`;
+    toast(msg, data.pedidos_nao_encontrados.length > 0);
+    load();
+  }catch(e){
+    toast('Erro: ' + e.message, true);
+  }
+  input.value = '';
+}
+
+// ---------------- Monitoramento ----------------
+function toggleMonitoramento(){
+  const showing = document.getElementById('monitoramento').classList.toggle('show');
+  document.getElementById('appMain').classList.toggle('hide', showing);
+  document.getElementById('btnMonitor').classList.toggle('active', showing);
+  if(showing){ animarTrocaDeTela('#monitoramento main'); loadHistorico(); }
+}
+
+const palette = ['#ff7a1a','#5bb8e8','#3ecf8e','#ffb020','#ff5252','#b48cff','#4dd0e1','#f06292'];
+const chartOpts = {responsive:true, plugins:{legend:{labels:{color:'#1a1d1c'}}}, scales:{
+  x:{ticks:{color:'#66716b'}, grid:{color:'#e3e7e5'}},
+  y:{ticks:{color:'#66716b'}, grid:{color:'#e3e7e5'}}
+}};
+
+function destroyChart(id){ if(charts[id]) { charts[id].destroy(); charts[id] = null; } }
+
+let agruparOutrosMotivos = true;
+function setAgruparOutros(agrupar){
+  agruparOutrosMotivos = agrupar;
+  document.getElementById('btnAgruparOutros').classList.toggle('active', agrupar);
+  document.getElementById('btnMostrarTudo').classList.toggle('active', !agrupar);
+  loadHistorico();
+}
+
+async function loadHistorico(){
+  const params = new URLSearchParams();
+  const de = document.getElementById('hist_data_de').value;
+  const ate = document.getElementById('hist_data_ate').value;
+  if(de) params.set('data_de', de);
+  if(ate) params.set('data_ate', ate);
+  params.set('agrupar_outros', agruparOutrosMotivos ? 'true' : 'false');
+
+  const res = await fetch('/api/dashboard/historico?' + params.toString());
+  const d = await res.json();
+
+  document.getElementById('monitorStatsHistorico').innerHTML = `
+    <div class="stat"><div class="n">${d.total_fups}</div><div class="l">Registros de FUP no período</div></div>
+    <div class="stat"><div class="n">${d.distribuicao_situacao.ok}</div><div class="l">✓ Ok</div></div>
+    <div class="stat atraso"><div class="n">${d.distribuicao_situacao.previsto_atraso}</div><div class="l">⚠ Previsto atraso</div></div>
+    <div class="stat atraso"><div class="n">${d.distribuicao_situacao.atraso}</div><div class="l">✗ Atraso</div></div>
+  `;
+
+  const motivosLabels = d.motivos_atraso.map(x => x[0].length > 40 ? x[0].slice(0,40)+'…' : x[0]);
+  const motivosValues = d.motivos_atraso.map(x => x[1]);
+  destroyChart('motivos');
+  charts.motivos = new Chart(document.getElementById('chartMotivos'), {
+    type:'bar',
+    data:{labels:motivosLabels, datasets:[{data:motivosValues, backgroundColor:'#48d597'}]},
+    options:{...chartOpts, indexAxis:'y', plugins:{legend:{display:false}}}
+  });
+
+  const timelineLabels = d.fup_timeline.map(x => fmtDate(x[0]));
+  const timelineValues = d.fup_timeline.map(x => x[1]);
+  destroyChart('timeline');
+  charts.timeline = new Chart(document.getElementById('chartTimeline'), {
+    type:'line',
+    data:{labels:timelineLabels, datasets:[{data:timelineValues, borderColor:'#3ecf8e', backgroundColor:'#3ecf8e33', fill:true, tension:.3}]},
+    options:{...chartOpts, plugins:{legend:{display:false}}}
+  });
+
+  destroyChart('situacao');
+  charts.situacao = new Chart(document.getElementById('chartSituacao'), {
+    type:'doughnut',
+    data:{
+      labels:['✓ Ok', '⚠ Previsto atraso', '✗ Atraso'],
+      datasets:[{data:[d.distribuicao_situacao.ok, d.distribuicao_situacao.previsto_atraso, d.distribuicao_situacao.atraso], backgroundColor:['#3ecf8e','#ffb020','#ff5252']}]
+    },
+    options:{responsive:true, plugins:{legend:{labels:{color:'#1a1d1c'}}}}
+  });
+
+  const taxa = d.taxa_acerto_previsto;
+  const taxaDiv = document.getElementById('taxaAcertoTexto');
+  if(taxa.total_previstos === 0){
+    taxaDiv.innerHTML = `<div style="color:var(--text-dim)">Nenhum "Previsto atraso" registrado ainda nesse período.</div>`;
+  }else{
+    taxaDiv.innerHTML = `
+      <div style="font-size:42px; font-weight:700; color:${taxa.percentual >= 50 ? 'var(--warn)' : 'var(--ok)'};">${taxa.percentual}%</div>
+      <div style="color:var(--text-dim); margin-top:6px; font-size:12.5px;">${taxa.total_confirmados} de ${taxa.total_previstos} pedidos previstos como atraso realmente atrasaram</div>
+    `;
+  }
+
+  const clientesLabels = d.top_clientes_atraso_historico.map(x => x[0].length > 30 ? x[0].slice(0,30)+'…' : x[0]);
+  const clientesValues = d.top_clientes_atraso_historico.map(x => x[1]);
+  destroyChart('clientesHistorico');
+  charts.clientesHistorico = new Chart(document.getElementById('chartClientesHistorico'), {
+    type:'bar',
+    data:{labels:clientesLabels, datasets:[{data:clientesValues, backgroundColor:'#5bb8e8'}]},
+    options:{...chartOpts, indexAxis:'y', plugins:{legend:{display:false}}}
+  });
+}
+
+document.getElementById('fup_data').value = new Date().toISOString().slice(0,10);
+document.getElementById('aviso_data').value = new Date().toISOString().slice(0,10);
+document.getElementById('terc_saida_data').value = new Date().toISOString().slice(0,10);
+document.getElementById('terc_retorno_data').value = new Date().toISOString().slice(0,10);
+document.getElementById('cob_data').value = new Date().toISOString().slice(0,10);
+document.getElementById('fupPendentesWrap').style.display = 'none';
+carregarMotivos();
+atualizarBadgeCobranca();
+atualizarVisibilidadeMotivoFup();
+load();
+</script>
+
+</body>
+</html>
