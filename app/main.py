@@ -36,6 +36,10 @@ from .cobranca import importar_boletos
 
 app = FastAPI(title="FlowLog (self-hosted)")
 
+# Backup protegido por senha (passo 1 do lançamento da v2)
+from .backup import router as router_backup  # noqa: E402
+app.include_router(router_backup)
+
 
 @app.exception_handler(Exception)
 async def erro_inesperado_handler(request, exc: Exception):
