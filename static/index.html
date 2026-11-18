@@ -376,6 +376,11 @@
       <label class="upload-btn">🚚 OE<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
       <label class="upload-btn">📦 Pedidos Mubec<input type="file" accept=".xlsx,.xls" onchange="uploadFile(this)"></label>
     </div>
+    <button class="icon-btn" id="btnBackup" type="button" onclick="abrirBackup()" title="Baixar backup (todos os dados + PDFs)">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>
+      </svg>
+    </button>
     <button class="icon-btn" id="btnMonitor" title="Monitoramento" onclick="toggleMonitoramento()">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/>
@@ -894,6 +899,19 @@
   </div>
 </div>
 
+<div class="overlay" id="backupOverlay" onclick="if(event.target===this) fecharBackup()">
+  <div class="modal" style="max-width:440px;">
+    <h3>Backup</h3>
+    <p id="backupTexto" style="font-size:14px; line-height:1.45;"></p>
+    <div id="backupCampos"></div>
+    <p id="backupErro" style="color:var(--danger, #e5534b); font-size:13px; display:none;"></p>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+      <button type="button" onclick="fecharBackup()">Fechar</button>
+      <button type="button" class="primary" id="backupBotao" onclick="confirmarBackup()">Baixar</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="editarBoletoOverlay">
   <div class="modal">
     <h3>Editar boleto — <span id="editarBoletoNum"></span></h3>
@@ -1090,6 +1108,62 @@ function limparFiltros(){
   document.getElementById('f_campo_data').value = 'entrega';
   load();
 }
+
+// ---------------------------------------------------------------------
+// Backup protegido por senha (só lê os dados; nada muda no sistema)
+// ---------------------------------------------------------------------
+let backupModo = 'baixar';
+const campoSenha = (id, rotulo) => `<label>${rotulo}<input type="password" id="${id}" autocomplete="off" style="width:100%;"></label>`;
+async function abrirBackup(){
+  let definida = true;
+  try { definida = (await (await fetch('/api/backup/senha')).json()).definida; } catch(e) { toast('Sem conexão com o servidor.', true); return; }
+  backupModo = definida ? 'baixar' : 'definir';
+  document.getElementById('backupErro').style.display = 'none';
+  if(definida){
+    document.getElementById('backupTexto').innerHTML = 'Baixa um arquivo .zip com <b>todos os dados</b> do FlowLog e os PDFs guardados. Baixar não muda nada no sistema.';
+    document.getElementById('backupCampos').innerHTML = campoSenha('backupSenha', 'Senha de administrador');
+    document.getElementById('backupBotao').textContent = 'Baixar backup';
+  } else {
+    document.getElementById('backupTexto').innerHTML = 'Ainda não existe senha. Crie a senha de administrador (mínimo 8 caracteres). <b>Guarde em lugar seguro</b>: ela não pode ser recuperada. É a mesma senha que a versão nova vai usar.';
+    document.getElementById('backupCampos').innerHTML = campoSenha('backupNova', 'Nova senha') + campoSenha('backupNova2', 'Repita a senha');
+    document.getElementById('backupBotao').textContent = 'Criar senha';
+  }
+  document.getElementById('backupOverlay').classList.add('show');
+  setTimeout(() => { const i = document.querySelector('#backupCampos input'); if(i) i.focus(); }, 50);
+}
+function fecharBackup(){ document.getElementById('backupOverlay').classList.remove('show'); }
+function erroBackup(msg){ const p = document.getElementById('backupErro'); p.textContent = msg; p.style.display = 'block'; }
+async function confirmarBackup(){
+  const botao = document.getElementById('backupBotao');
+  const fd = new FormData();
+  if(backupModo === 'definir'){
+    const a = document.getElementById('backupNova').value, b = document.getElementById('backupNova2').value;
+    if(a.length < 8){ erroBackup('A senha precisa ter pelo menos 8 caracteres.'); return; }
+    if(a !== b){ erroBackup('As duas senhas não são iguais.'); return; }
+    fd.append('nova', a);
+    const r = await fetch('/api/backup/senha', { method: 'POST', body: fd });
+    if(!r.ok){ erroBackup((await r.json().catch(() => ({}))).detail || 'Erro ao criar a senha.'); return; }
+    toast('Senha criada. Agora digite a senha para baixar o backup.');
+    abrirBackup();
+    return;
+  }
+  const senha = document.getElementById('backupSenha').value;
+  if(!senha){ erroBackup('Digite a senha.'); return; }
+  fd.append('senha', senha);
+  botao.disabled = true; botao.textContent = 'Gerando…';
+  try {
+    const r = await fetch('/api/backup', { method: 'POST', body: fd });
+    if(!r.ok){ erroBackup((await r.json().catch(() => ({}))).detail || 'Erro ao gerar o backup.'); return; }
+    const nome = ((r.headers.get('content-disposition') || '').match(/filename="?([^";]+)/) || [])[1] || 'flowlog_backup.zip';
+    const blob = await r.blob();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nome;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    fecharBackup();
+    toast('Backup baixado: ' + nome);
+  } finally { botao.disabled = false; botao.textContent = 'Baixar backup'; }
+}
+document.addEventListener('keydown', (e) => { if(e.key === 'Enter' && document.getElementById('backupOverlay').classList.contains('show')) confirmarBackup(); });
 
 function toast(msg, isError=false){
   const t = document.getElementById('toast');
