@@ -18,13 +18,15 @@ from .models import NotaSaida, NotaRetorno, NotaItem
 # Reconhece o padrão observado: "/obs.nfe116858 nfe9186 jjleste /" — e variações
 # como "OBS:No NFE116921 No NFE9196" (com texto extra entre os dois números) e
 # números que vieram com ponto no meio por engano (ex: "117.104" = 117104).
-PADRAO_VINCULO = re.compile(r"nfe\s*([\d.]+?)[^\d]{0,25}?nfe\s*([\d.]+)", re.IGNORECASE)
+PADRAO_VINCULO = re.compile(r"nfe\s*([\d.,]+?)[^\d]{0,25}?nfe\s*[a-z]*\s*([\d.]+)", re.IGNORECASE)
+# Texto da Moriah: "RETORNO DA NOTA DE N°117.711D E 30/09/2026"
+PADRAO_VINCULO_MORIAH = re.compile(r"retorno\s+da\s+nota\s+de\s+n[°ºo]?\s*([\d.]+)", re.IGNORECASE)
 
 
 def _normalizar_numero(bruto: str) -> str:
     """Remove pontos que às vezes aparecem no meio do número por engano
     (ex: separador de milhar digitado sem querer: '117.104' -> '117104')."""
-    return bruto.replace(".", "").lstrip("0") or "0"
+    return bruto.replace(".", "").replace(",", "").lstrip("0") or "0"
 
 
 def extrair_numero_nota_saida(texto: Optional[str]) -> Optional[str]:
@@ -32,7 +34,7 @@ def extrair_numero_nota_saida(texto: Optional[str]) -> Optional[str]:
     saída vinculada, se o padrão for reconhecido. Retorna None se não achar."""
     if not texto:
         return None
-    match = PADRAO_VINCULO.search(texto)
+    match = PADRAO_VINCULO.search(texto) or PADRAO_VINCULO_MORIAH.search(texto)
     if not match:
         return None
     return _normalizar_numero(match.group(1))
@@ -56,8 +58,9 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
     uma nota de saída pode ter mais de um retorno vinculado, ex: devolução
     parcial em mais de uma remessa), e notas de retorno sem vínculo
     encontrado (precisam de atenção manual)."""
-    query_saida = select(NotaSaida)
-    query_retorno = select(NotaRetorno)
+    # v2: nota apagada na tela nova não conta (a saída volta para "aguardando retorno")
+    query_saida = select(NotaSaida).where(NotaSaida.apagada_em == None)  # noqa: E711
+    query_retorno = select(NotaRetorno).where(NotaRetorno.apagada_em == None)  # noqa: E711
     if fornecedor:
         query_saida = query_saida.where(NotaSaida.fornecedor == fornecedor)
         query_retorno = query_retorno.where(NotaRetorno.fornecedor == fornecedor)
@@ -76,6 +79,16 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
         select(NotaItem.numero_nota).where(NotaItem.tipo_nota == "saida", NotaItem.acabamento == "BICRO")
     ).all())
 
+    # CFOP de cada nota (vem dos itens do PDF; nota manual não tem)
+    cfop_por_nota: dict = {}
+    for tipo_n, numero_n, cfop_n in session.exec(
+        select(NotaItem.tipo_nota, NotaItem.numero_nota, NotaItem.cfop).where(NotaItem.cfop != None).distinct()  # noqa: E711
+    ).all():
+        cfop_por_nota.setdefault((tipo_n, numero_n), set()).add(cfop_n)
+
+    def cfop_de(tipo_n, numero_n):
+        return "/".join(sorted(cfop_por_nota.get((tipo_n, numero_n), []))) or None
+
     pares = []
     sem_vinculo = []
     for r in retornos:
@@ -93,6 +106,9 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
             "saida_com_pdf": bool(s.chave_acesso),
             "retorno_com_pdf": bool(r.chave_acesso),
             "tem_bicro": s.numero_nota in saidas_bicro,
+            "saida_cfop": cfop_de("saida", s.numero_nota),
+            "retorno_cfop": cfop_de("retorno", r.numero_nota),
+            "multiplos_retornos": len(retornos_por_saida.get(s.numero_nota, [])) > 1,
         })
 
     # Todas as notas de saída aparecem aqui — não somem mais assim que um
@@ -104,6 +120,8 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
             "fornecedor": s.fornecedor,
             "retornos_vinculados": len(retornos_por_saida.get(s.numero_nota, [])),
             "tem_bicro": s.numero_nota in saidas_bicro,
+            "cfop": cfop_de("saida", s.numero_nota),
+            "multiplos_retornos": len(retornos_por_saida.get(s.numero_nota, [])) > 1,
             "com_pdf": bool(s.chave_acesso),  # False = só cadastro manual, nunca teve o PDF importado
         }
         for s in saidas
@@ -124,6 +142,8 @@ def montar_pares(session: Session, fornecedor: Optional[str] = None) -> dict:
             "dias_lead_time": calcular_lead_time_dias(s.data_nota, r.data_nota) if s else None,
             "com_pdf": bool(r.chave_acesso),
             "tem_bicro": bool(s) and s.numero_nota in saidas_bicro,
+            "cfop": cfop_de("retorno", r.numero_nota),
+            "multiplos_retornos": bool(s) and len(retornos_por_saida.get(s.numero_nota, [])) > 1,
         })
 
     dias_lista = [p["dias_lead_time"] for p in pares]

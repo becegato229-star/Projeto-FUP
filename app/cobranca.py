@@ -17,6 +17,7 @@ assumir uma posição fixa.
 from datetime import date, datetime
 from typing import Optional
 
+import re
 import pandas as pd
 from sqlmodel import Session, select
 
@@ -33,8 +34,12 @@ def _to_date(value) -> Optional[date]:
         return value.date()
     if isinstance(value, date):
         return value
+    texto = str(value).strip()
     try:
-        return pd.to_datetime(value, dayfirst=True).date()
+        # "2026-10-06" (ano primeiro) não pode virar 10/06: lê sem dayfirst
+        if re.match(r"^\d{4}-\d{2}-\d{2}", texto):
+            return pd.to_datetime(texto[:10], format="%Y-%m-%d").date()
+        return pd.to_datetime(texto, dayfirst=True).date()
     except Exception:
         return None
 
@@ -121,7 +126,14 @@ def importar_boletos(file_bytes, session: Session) -> dict:
         boleto.valor_titulo = _to_float(row.get("Valor Título (R$)")) or boleto.valor_titulo
         boleto.valor_pago = _to_float(row.get("Valor Pago (R$)"))
         boleto.status_planilha = row.get("Status") or boleto.status_planilha
-        boleto.status = "Em aberto"
+        if "Nosso Número" in df.columns and not pd.isna(row.get("Nosso Número")):
+            nosso = str(row.get("Nosso Número")).strip()
+            boleto.nosso_numero = nosso[:-2] if nosso.endswith(".0") else nosso
+        # v2: "Negociado" continua negociado enquanto estiver no relatório;
+        # boleto apagado na tela nova volta se ainda estiver no relatório.
+        boleto.status = "Negociado" if boleto.status == "Negociado" else "Em aberto"
+        boleto.apagado_em = None
+        boleto.apagado_por = None
         boleto.updated_at = datetime.utcnow()
 
         session.add(boleto)
@@ -133,7 +145,7 @@ def importar_boletos(file_bytes, session: Session) -> dict:
     session.commit()
 
     # Regra automática: quem estava "Em aberto" e não veio nessa planilha, pagou.
-    em_aberto = session.exec(select(Boleto).where(Boleto.status == "Em aberto")).all()
+    em_aberto = session.exec(select(Boleto).where(Boleto.status.in_(["Em aberto", "Negociado"]))).all()
     marcados_pagos = 0
     for boleto in em_aberto:
         if boleto.seu_numero not in numeros_na_planilha:

@@ -2,6 +2,7 @@ from datetime import date, datetime
 from .fuso import hoje_brasil
 from typing import List, Optional
 from sqlmodel import SQLModel, Field
+from sqlalchemy import UniqueConstraint
 
 
 class Pedido(SQLModel, table=True):
@@ -40,6 +41,16 @@ class Pedido(SQLModel, table=True):
     dias_uteis_desde_faturamento: int = 0
     motivo_atraso_fup: Optional[str] = None      # último motivo de atraso lançado no FUP (espelhado p/ facilitar filtro)
 
+    # --- v2 (colunas novas, vazias nos pedidos antigos) ---
+    vendedor: Optional[str] = None               # "Nome representante" da Carteira de pedidos
+    transportadora_nome: Optional[str] = None    # "Nome transportadora" da Carteira de pedidos
+    nova_data_quem: Optional[str] = None         # quem pediu a nova data: "Cliente" | "MUBEC"
+    nova_data_motivo: Optional[str] = None
+    nova_data_por: Optional[str] = None          # quem registrou a nova data
+    cancelado_por: Optional[str] = None
+    uf: Optional[str] = None                     # "U.F." do Dashboard de vendas (pela NF)
+    municipio: Optional[str] = None              # "Município" do Dashboard de vendas (pela NF)
+
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -52,6 +63,7 @@ class FupRegistro(SQLModel, table=True):
     motivo_atraso: Optional[str] = None
     observacao: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    registrado_por: Optional[str] = None  # v2: nome de quem registrou (vazio nos antigos)
 
 
 class FupRegistroCreate(SQLModel):
@@ -70,6 +82,9 @@ class MotivoFup(SQLModel, table=True):
     editar, apagar) — substitui a lista fixa que só eu conseguia mudar."""
     id: Optional[int] = Field(default=None, primary_key=True)
     texto: str = Field(unique=True)
+    # v2: motivo já usado em FUP não se apaga, só se desativa (some dos
+    # formulários e continua no histórico). None = registro antigo = ativo.
+    ativo: Optional[bool] = True
 
 
 class MotivoFupCreate(SQLModel):
@@ -87,6 +102,10 @@ class AvisoRegistro(SQLModel, table=True):
     motivo: str                                  # texto livre, ex: "liguei pra transportadora, falou X"
     proxima_data_limite: Optional[date] = None    # "soneca": se passar sem canhoto, volta pra lista de Avisos
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    # v2 (vazios nos registros antigos): NF a que o acompanhamento se refere
+    # (vazio = vale para todas as NFs do pedido) e quem registrou
+    nf: Optional[str] = None
+    registrado_por: Optional[str] = None
 
 
 class AvisoRegistroCreate(SQLModel):
@@ -150,6 +169,8 @@ class NotaSaida(_CamposDanfe, table=True):
     data_nota: date
     fornecedor: str = Field(default="JJ LESTE GALVANIZACAO LTDA", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    apagada_em: Optional[datetime] = None  # v2: apagada na tela nova (some das listas; dá para desfazer)
+    apagada_por: Optional[str] = None
 
 
 class NotaSaidaCreate(SQLModel):
@@ -176,6 +197,8 @@ class NotaRetorno(_CamposDanfe, table=True):
     informacoes_adicionais: Optional[str] = None  # texto colado, guardado pra referência/auditoria
     vinculo_manual: bool = False  # True se o vínculo foi escolhido manualmente (não veio da extração automática)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    apagada_em: Optional[datetime] = None  # v2: apagada na tela nova (some das listas; dá para desfazer)
+    apagada_por: Optional[str] = None
 
 
 class NotaRetornoCreate(SQLModel):
@@ -319,6 +342,14 @@ class Boleto(SQLModel, table=True):
     motivo_cobranca_recente: Optional[str] = None  # último motivo espelhado (facilita listagem)
     proxima_cobranca: Optional[date] = None  # espelhado do último registro — quando ligar de novo
 
+    # --- v2 (colunas novas, vazias nos boletos antigos) ---
+    nosso_numero: Optional[str] = None     # "Nosso Número" do banco
+    status_motivo: Optional[str] = None    # por que o status foi mudado à mão (obrigatório na v2)
+    status_por: Optional[str] = None
+    status_em: Optional[datetime] = None
+    apagado_em: Optional[datetime] = None  # apagado na tela nova (some da lista; volta se reaparecer no relatório)
+    apagado_por: Optional[str] = None
+
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -341,6 +372,8 @@ class CobrancaRegistro(SQLModel, table=True):
     motivo: str  # texto livre, ex: "liguei, cliente disse que paga sexta"
     proxima_data_cobranca: Optional[date] = None  # quando ligar de novo, se souber
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    registrado_por: Optional[str] = None  # v2
+    grupo: Optional[str] = None           # v2: mesma conversa com o cliente, vários boletos
 
 
 class CobrancaRegistroCreate(SQLModel):
@@ -381,6 +414,13 @@ class TransportadoraRegistro(SQLModel, table=True):
     quem_chamou: Optional[str] = None
     observacao: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    # v2 (vazios nos registros antigos; antigo com chamado=True = "coleta chamada")
+    nf: Optional[str] = None                       # vazio = vale para todas as NFs do pedido
+    evento: Optional[str] = None                   # "chamada" | "coletado"
+    hora: Optional[str] = None                     # "HH:MM" da chamada
+    codigo_coleta: Optional[str] = None
+    previsao_retirada: Optional[date] = None
+    registrado_por: Optional[str] = None
 
 
 class TransportadoraRegistroCreate(SQLModel):
@@ -393,3 +433,179 @@ class TransportadoraRegistroCreate(SQLModel):
 
 class ItemAcabamentoPayload(SQLModel):
     acabamento: str  # "GE" ou "BICRO"
+
+
+# =======================================================================
+# v2 — Configurações (prazos, feriados, listas, senha, histórico de
+# importações e backups). Tudo em tabelas novas: o banco antigo não muda.
+# =======================================================================
+class Configuracao(SQLModel, table=True):
+    """Pares chave/valor: prazos editáveis e o hash da senha de
+    administrador. Valor ausente = usa o padrão do código."""
+    chave: str = Field(primary_key=True)
+    valor: Optional[str] = None
+    atualizado_em: datetime = Field(default_factory=datetime.utcnow)
+    atualizado_por: Optional[str] = None
+
+
+class Feriado(SQLModel, table=True):
+    """Dia que não conta como dia útil (atrasos, avisos, prazos)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    data: date = Field(index=True, unique=True)
+    nome: str
+    abrangencia: Optional[str] = None  # "Nacional", "Estadual · SP", "Municipal · São Paulo", "Ponte / recesso da MUBEC"
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+    criado_por: Optional[str] = None
+
+
+class OpcaoLista(SQLModel, table=True):
+    """Opções das listas usadas nos formulários (menos os motivos de FUP,
+    que continuam na tabela MotivoFup por compatibilidade com a tela antiga)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    lista: str = Field(index=True)  # "problemas" | "solucoes" | "causas" | "responsaveis" | "quemchama"
+    texto: str
+    ativo: Optional[bool] = True
+    fixo: Optional[bool] = False  # "Outro": não pode ser apagado nem desativado
+    ordem: Optional[int] = 0
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ImportacaoRegistro(SQLModel, table=True):
+    """Histórico de importações (planilhas e PDFs), para a aba Importar."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    tipo: str = Field(index=True)  # "follow" | "oe" | "expedicao" | "carteira" | "boletos" | "catalogo" | "pdfs"
+    arquivo: Optional[str] = None
+    quando: datetime = Field(default_factory=datetime.utcnow)
+    por: Optional[str] = None
+    resumo: Optional[str] = None
+    avisos_json: Optional[str] = None  # lista de textos
+
+
+class BackupRegistro(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    quando: datetime = Field(default_factory=datetime.utcnow)
+    por: Optional[str] = None
+    arquivo: Optional[str] = None
+    tamanho_bytes: Optional[int] = None
+
+
+# =======================================================================
+# v2 — várias NFs por pedido e itens do pedido (tabelas novas)
+# =======================================================================
+class NotaFiscalPedido(SQLModel, table=True):
+    """Uma NF de um pedido (entrega parcial = várias NFs). Vem da planilha
+    Pedidos Mubec 2.0 (aba Expedição). NF cancelada continua aqui, marcada."""
+    __table_args__ = (UniqueConstraint("numero_pedido", "nf", name="uq_nf_pedido"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    numero_pedido: str = Field(index=True)
+    nf: str = Field(index=True)
+    data_faturamento: Optional[date] = None
+    data_entrega: Optional[date] = None
+    canhoto: Optional[str] = None
+    cancelada: Optional[bool] = False
+    cancelada_motivo: Optional[str] = None
+    cancelada_em: Optional[datetime] = None
+    cancelada_por: Optional[str] = None
+    origem: Optional[str] = None  # "planilha" | "migracao" (veio do campo nf antigo do pedido)
+    # True = o pedido veio na última planilha da expedição e esta NF não veio
+    # (ex.: número digitado errado e corrigido). Não conta, mas não é apagada.
+    fora_da_planilha: Optional[bool] = False
+    atualizado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PedidoItem(SQLModel, table=True):
+    """Um item de pedido, da Carteira de pedidos (Gd_Edicao). Quando o
+    pedido sai da carteira (faturado), os itens ficam guardados com
+    na_carteira = False — nunca são apagados por isso."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    numero_pedido: str = Field(index=True)
+    linha: int = 0                        # ordem dentro do pedido (linhas repetidas ficam as duas)
+    codigo_item: Optional[str] = None
+    alternativo: Optional[str] = None
+    descricao: Optional[str] = None
+    quantidade: Optional[float] = None
+    unidade: Optional[str] = None
+    data_entrega: Optional[date] = None
+    situacao_item: Optional[str] = None
+    na_carteira: Optional[bool] = True
+    origem: Optional[str] = "carteira"
+    atualizado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ItemFaturado(SQLModel, table=True):
+    """Um item de nota fiscal de venda, do Dashboard de vendas do Mega.
+    A planilha não traz o número do pedido: liga ao pedido pela NF (que vem
+    da planilha da expedição). Chave: NF + "Seq. Item NF". Nunca é apagado."""
+    __table_args__ = (UniqueConstraint("nf", "seq", name="uq_item_faturado"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nf: str = Field(index=True)
+    seq: int = 0
+    data_emissao: Optional[date] = None
+    codigo_item: Optional[str] = None
+    alternativo: Optional[str] = None
+    descricao: Optional[str] = None
+    unidade: Optional[str] = None
+    quantidade: Optional[float] = None
+    valor_unitario: Optional[float] = None
+    valor_total: Optional[float] = None
+    cod_cliente: Optional[str] = None
+    nome_cliente: Optional[str] = None
+    cod_representante: Optional[str] = None
+    nome_representante: Optional[str] = None
+    uf: Optional[str] = None
+    municipio: Optional[str] = None
+    grupo_estoque: Optional[str] = None
+    tipo_venda: Optional[str] = None
+    atualizado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CasoPosVenda(SQLModel, table=True):
+    """v2 — caso de pós-venda (problema depois da entrega). Coordenação: Norma.
+    Status com as palavras dela: Encontrar solução → Em andamento → Resolvido / Recusado."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    numero: str = Field(index=True, unique=True)          # "PV-001"
+    aberto_em: date = Field(default_factory=hoje_brasil)
+    aberto_por: Optional[str] = None
+    numero_pedido: Optional[str] = Field(default=None, index=True)
+    nf: Optional[str] = Field(default=None, index=True)
+    cliente: Optional[str] = None
+    vendedor: Optional[str] = None
+    tipo_entrega: Optional[str] = None
+    canhoto_em: Optional[date] = None                     # data da entrega com canhoto (início dos 30 dias)
+    justificativa: Optional[str] = None                   # aberto fora do prazo de 30 dias
+    problema: Optional[str] = None
+    descricao: Optional[str] = None                       # o que o cliente disse
+    contato: Optional[str] = None
+    telefone: Optional[str] = None
+    responsavel: Optional[str] = None
+    prazo_solucao: Optional[date] = None
+    status: str = "Encontrar solução"
+    solucao: Optional[str] = None
+    causa: Optional[str] = None
+    endereco: Optional[str] = None                        # para o romaneio (digitado)
+    apagado_em: Optional[datetime] = None
+    apagado_por: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AtualizacaoPosVenda(SQLModel, table=True):
+    """Uma atualização do caso (linha do tempo). Guarda o antes e o depois para o Desfazer."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    caso_id: int = Field(index=True)
+    data: date = Field(default_factory=hoje_brasil)
+    por: Optional[str] = None
+    texto: str
+    abertura: Optional[bool] = False                      # a abertura do caso não se desfaz
+    status_antes: Optional[str] = None
+    status_depois: Optional[str] = None
+    solucao_antes: Optional[str] = None
+    solucao_depois: Optional[str] = None
+    causa_antes: Optional[str] = None
+    causa_depois: Optional[str] = None
+    responsavel_antes: Optional[str] = None
+    responsavel_depois: Optional[str] = None
+    prazo_antes: Optional[date] = None
+    prazo_depois: Optional[date] = None
+    desfeita_em: Optional[datetime] = None                # "Desfazer" não apaga: marca e some da linha do tempo
+    desfeita_por: Optional[str] = None
+    criado_em: datetime = Field(default_factory=datetime.utcnow)

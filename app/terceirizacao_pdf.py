@@ -40,9 +40,14 @@ RE_HORA = re.compile(r"(\d{2}:\d{2}:\d{2})")
 RE_MOEDA = re.compile(r"\d[\d.]*,\d{2,3}")
 
 RE_ITEM = re.compile(
-    r"^(\d+)\s+(.+?)\s+(\d{8})\s+(\d{2,4})\s+(\d\.\d{3})\s+([A-Za-z]{1,4})\s+"
+    r"^(\d+)\.?\s+(.+?)\s+(\d{8})\s+(\d{2,4})\s+(\d\.\d{3})\s+([A-Za-z]{1,4})\s+"
     r"([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$"
 )
+
+# Linha que PARECE item de produto (NCM de 8 dígitos + CST + CFOP + unidade)
+# mesmo quando o RE_ITEM não a reconhece — usada só pra avisar que uma linha
+# foi ignorada, em vez de sumir em silêncio.
+RE_LINHA_PARECE_ITEM = re.compile(r"\d{8}\s+\d{2,4}\s+\d\.\d{3}\s+[A-Za-z]{1,4}\s+[\d.,]+")
 
 NOME_MUBEC_TRECHO = "MUBEC"
 
@@ -101,6 +106,14 @@ def _extrair_itens(texto: str) -> list:
             "valor_ipi": _num_br(v_ipi),
         })
     return itens
+
+
+def _linhas_nao_lidas(texto: str) -> list:
+    """Linhas que parecem item de produto mas o RE_ITEM não conseguiu ler."""
+    return [
+        l.strip() for l in texto.split("\n")
+        if RE_LINHA_PARECE_ITEM.search(l) and not RE_ITEM.match(l.strip())
+    ]
 
 
 def _detectar_direcao(itens: list) -> Optional[str]:
@@ -319,5 +332,7 @@ def parse_danfe_pdf(conteudo_pdf: bytes) -> dict:
         "informacoes_complementares": informacoes_complementares,
         "vinculo_nota_saida": vinculo_nota_saida,
         "itens": itens,
+        "cfops": sorted({i["cfop"] for i in itens if i.get("cfop")}),
+        "linhas_nao_lidas": _linhas_nao_lidas(texto),
         "texto_bruto": texto,
     }

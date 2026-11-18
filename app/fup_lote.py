@@ -77,7 +77,7 @@ def _normalizar_situacao(texto: Optional[str]) -> Optional[str]:
     return None
 
 
-def importar_fup_em_lote(file_bytes, session: Session) -> dict:
+def importar_fup_em_lote(file_bytes, session: Session, por: Optional[str] = None) -> dict:
     df = pd.read_excel(file_bytes)
     df.columns = [str(c) for c in df.columns]
     colunas_normalizadas = {_normalizar_cabecalho(c): c for c in df.columns}
@@ -122,8 +122,12 @@ def importar_fup_em_lote(file_bytes, session: Session) -> dict:
         # --- Nova Data de Entrega (só mexe se a célula tiver algo) ---
         if col_nova_data:
             nova_data = _to_date(row.get(col_nova_data))
-            if nova_data:
+            if nova_data and nova_data != pedido.nova_data_entrega:
                 pedido.nova_data_entrega = nova_data
+                # quem pediu/motivo eram da data anterior: não valem para a nova
+                pedido.nova_data_quem = None
+                pedido.nova_data_motivo = None
+                pedido.nova_data_por = por
                 session.add(pedido)
                 datas_atualizadas += 1
 
@@ -145,6 +149,7 @@ def importar_fup_em_lote(file_bytes, session: Session) -> dict:
             situacao=situacao,
             motivo_atraso=motivo_atraso,
             observacao=texto_fup,
+            registrado_por=por,
         )
         session.add(fup)
         fups_criados += 1

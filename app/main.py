@@ -10,7 +10,7 @@ from datetime import date, datetime
 from typing import List, Optional
 
 import pandas as pd
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select, SQLModel
@@ -26,19 +26,37 @@ from .models import (
     SnapshotPedidoDiario,
     TransportadoraRegistro, TransportadoraRegistroCreate,
 )
-from .importer import importar_planilha, recalcular_status_e_atrasos
+from .importer import importar_planilha, recalcular_status_e_atrasos, migrar_nfs_antigas
 from .fup_lote import importar_fup_em_lote
 from .fuso import hoje_brasil
 from .snapshot import capturar_snapshot_do_dia, loop_captura_diaria
 from .terceirizacao import extrair_numero_nota_saida, montar_pares
 from .terceirizacao_pdf import parse_danfe_pdf
 from .cobranca import importar_boletos
+from .configuracoes import semear_feriados, semear_listas, registrar_importacao, conferir_senha, senha_definida, definir_senha
+from .rotas_novo import router as router_novo, usuario_atual
+from .models import BackupRegistro
 
 app = FastAPI(title="FlowLog (self-hosted)")
+app.include_router(router_novo)
+from .rotas_pedidos import router as router_pedidos  # noqa: E402
+app.include_router(router_pedidos)
+from .rotas_avisos import router as router_avisos  # noqa: E402
+app.include_router(router_avisos)
+from .rotas_cobranca import router as router_cobranca  # noqa: E402
+app.include_router(router_cobranca)
+from .rotas_terceirizacao import router as router_terceirizacao  # noqa: E402
+app.include_router(router_terceirizacao)
+from .rotas_posvenda import router as router_posvenda  # noqa: E402
+app.include_router(router_posvenda)
 
-# Backup protegido por senha (passo 1 do lançamento da v2)
-from .backup import router as router_backup  # noqa: E402
-app.include_router(router_backup)
+
+from .configuracoes import SenhaBloqueada  # noqa: E402
+
+
+@app.exception_handler(SenhaBloqueada)
+async def senha_bloqueada_handler(request, exc):
+    return JSONResponse(status_code=429, content={"detail": "Muitas tentativas de senha errada. Espere 1 minuto e tente de novo."})
 
 
 @app.exception_handler(Exception)
@@ -73,6 +91,11 @@ async def erro_inesperado_handler(request, exc: Exception):
 async def on_startup():
     init_db()
     with Session(engine) as session:
+        # v2: feriados e listas iniciais, só na primeira vez (tabelas vazias)
+        semear_feriados(session)
+        semear_listas(session)
+        # v2: copia a NF única de cada pedido antigo para a tabela de NFs (uma vez)
+        migrar_nfs_antigas(session)
         # recalcula status/atraso de todos os pedidos com a lógica mais recente
         # (sem isso, correções de cálculo só apareceriam na próxima importação)
         recalcular_status_e_atrasos(session)
@@ -101,8 +124,12 @@ async def on_startup():
 # ---------------------------------------------------------------------
 # Import de planilhas
 # ---------------------------------------------------------------------
+_TIPO_IMPORTACAO = {"follow_up_vendas": "follow", "oe": "oe", "pedidos_mubec": "expedicao", "carteira": "carteira", "vendas": "vendas"}
+
+
 @app.post("/api/importar")
-async def importar(file: UploadFile = File(...), session: Session = Depends(get_session)):
+async def importar(file: UploadFile = File(...), session: Session = Depends(get_session),
+                   por: Optional[str] = Depends(usuario_atual)):
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Envie um arquivo Excel (.xlsx ou .xls)")
     content = await file.read()
@@ -119,6 +146,11 @@ async def importar(file: UploadFile = File(...), session: Session = Depends(get_
             session.rollback()
             raise HTTPException(409, f"Conflito ao salvar os dados. Detalhe técnico: {_detalhe_integrity_error(e2)}")
     recalcular_status_e_atrasos(session)
+    registrar_importacao(
+        session, _TIPO_IMPORTACAO.get(resultado.get("tipo_detectado"), resultado.get("tipo_detectado") or "planilha"),
+        file.filename, resultado.get("resumo") or f"{resultado.get('registros_processados', 0)} linhas lidas (aba {resultado.get('aba_usada')})",
+        resultado.get("avisos"), por,
+    )
     return resultado
 
 
@@ -332,7 +364,8 @@ def _recalcular_motivo_espelhado(numero_pedido: str, session: Session):
 @app.get("/api/fup/motivos")
 def listar_motivos(session: Session = Depends(get_session)):
     motivos = session.exec(select(MotivoFup).order_by(MotivoFup.id)).all()
-    return motivos
+    # v2: motivo desativado em Configurações › Listas some dos formulários
+    return [m for m in motivos if m.ativo is not False]
 
 
 @app.post("/api/fup/motivos")
@@ -379,6 +412,9 @@ def apagar_motivo(motivo_id: int, session: Session = Depends(get_session)):
     motivo = session.get(MotivoFup, motivo_id)
     if not motivo:
         raise HTTPException(404, "Motivo não encontrado")
+    # v2: motivo já usado em FUP não se apaga (some do histórico); só se desativa
+    if session.exec(select(FupRegistro).where(FupRegistro.motivo_atraso == motivo.texto)).first():
+        raise HTTPException(400, "Este motivo já foi usado em FUPs: desative em /novo › Configurações › Listas em vez de apagar.")
     session.delete(motivo)
     session.commit()
     return {"ok": True}
@@ -979,6 +1015,31 @@ def _status_importacao(Model, numero_nota: Optional[str], chave_acesso: Optional
     return "novo"
 
 
+def _restaurar_se_apagada(Model, numero_nota: Optional[str], session: Session) -> bool:
+    """v2: importar de novo o PDF de uma nota apagada na tela nova traz a nota de volta."""
+    nota = session.get(Model, numero_nota) if numero_nota else None
+    if nota is not None and getattr(nota, "apagada_em", None):
+        nota.apagada_em = None
+        nota.apagada_por = None
+        session.add(nota)
+        session.flush()
+        return True
+    return False
+
+
+def _status_importacao_com_pdf(tipo_nota: str, Model, numero_nota: Optional[str], chave_acesso: Optional[str], session: Session) -> str:
+    """Igual a _status_importacao, mas separa um caso: a nota JÁ foi importada
+    (mesma chave de acesso) só que o PDF original nunca foi guardado — notas
+    importadas antes dessa função existir. Aí o status é 'so_pdf': o PDF é
+    guardado e os dados da nota (datas editadas, acabamento etc.) não mudam."""
+    status = _status_importacao(Model, numero_nota, chave_acesso, session)
+    if status == "duplicado" and chave_acesso and numero_nota:
+        existente = session.get(Model, numero_nota)
+        if existente and existente.chave_acesso == chave_acesso and not os.path.isfile(_caminho_pdf(tipo_nota, numero_nota)):
+            return "so_pdf"
+    return status
+
+
 def _resolver_pesos_itens(itens: List[NotaPdfItemPayload], session: Session) -> list:
     """Cruza cada item pelo código com o catálogo de produtos (ProdutoCatalogo)
     e calcula o peso do item na nota (quantidade × peso unitário do catálogo).
@@ -1076,7 +1137,8 @@ def _payload_de_dados_pdf(dados: dict) -> dict:
 
 
 @app.post("/api/terceirizacao/catalogo/importar")
-async def importar_catalogo_produtos(file: UploadFile = File(...), session: Session = Depends(get_session)):
+async def importar_catalogo_produtos(file: UploadFile = File(...), session: Session = Depends(get_session),
+                                     por: Optional[str] = Depends(usuario_atual)):
     """Importa (upsert, nunca duplica) a planilha Gd_Produtos do ERP —
     é dela que vem o peso por unidade de cada código de produto, usado
     pra calcular o peso de cada item das notas de Terceirização."""
@@ -1087,8 +1149,17 @@ async def importar_catalogo_produtos(file: UploadFile = File(...), session: Sess
         df = pd.read_excel(io.BytesIO(content))
     except Exception as e:
         raise HTTPException(400, f"Não consegui ler o Excel: {e}")
+    resultado = _importar_catalogo_df(df, session)
+    registrar_importacao(session, "catalogo", file.filename, _resumo_catalogo(resultado), resultado["avisos"], por)
+    return resultado
 
-    colunas = {c.strip(): c for c in df.columns}
+
+def _resumo_catalogo(r: dict) -> str:
+    return f"{r['criados'] + r['atualizados']} produtos · {r['criados']} novos · {r['itens_recalculados']} itens de notas recalculados"
+
+
+def _importar_catalogo_df(df, session: Session) -> dict:
+    colunas = {str(c).strip(): c for c in df.columns}
     col_codigo = colunas.get("Cód.Item")
     if not col_codigo:
         raise HTTPException(400, "Essa planilha não tem a coluna 'Cód.Item' esperada (exporte o Gd_Produtos do ERP)")
@@ -1104,6 +1175,27 @@ async def importar_catalogo_produtos(file: UploadFile = File(...), session: Sess
     def _numero(valor):
         return float(valor) if pd.notna(valor) else None
 
+    # Coluna que não veio na planilha não apaga o que já existe no catálogo
+    # (ex.: Gd_Produtos exportado sem "Peso Líquido"/"Peso Bruto" apagava
+    # o peso de todos os itens da Terceirização). E célula vazia nunca
+    # substitui um valor que já existe.
+    leitores = {
+        "descricao": (col_desc, _texto),
+        "ncm": (col_ncm, _texto),
+        "unidade": (col_unid, _texto),
+        "peso_liquido": (col_peso_liq, _numero),
+        "peso_bruto": (col_peso_bru, _numero),
+    }
+    avisos = []
+    if not col_peso_liq and not col_peso_bru:
+        avisos.append(
+            "A planilha veio sem as colunas \"Peso Líquido\" e \"Peso Bruto\". "
+            "Os pesos que o FlowLog já tinha foram mantidos. Para atualizar pesos, "
+            "exporte de novo com essas colunas."
+        )
+    elif not col_peso_liq:
+        avisos.append("A planilha veio sem a coluna \"Peso Líquido\" (a que calcula o peso das notas). Os pesos líquidos foram mantidos.")
+
     criados = atualizados = ignorados = 0
     for _, linha in df.iterrows():
         bruto = linha.get(col_codigo)
@@ -1115,28 +1207,29 @@ async def importar_catalogo_produtos(file: UploadFile = File(...), session: Sess
             ignorados += 1
             continue
 
-        dados_produto = dict(
-            descricao=_texto(linha.get(col_desc)) if col_desc else None,
-            ncm=_texto(linha.get(col_ncm)) if col_ncm else None,
-            unidade=_texto(linha.get(col_unid)) if col_unid else None,
-            peso_liquido=_numero(linha.get(col_peso_liq)) if col_peso_liq else None,
-            peso_bruto=_numero(linha.get(col_peso_bru)) if col_peso_bru else None,
-            atualizado_em=datetime.utcnow(),
-        )
+        dados_produto = {
+            campo: ler(linha.get(coluna))
+            for campo, (coluna, ler) in leitores.items()
+            if coluna
+        }
         existente = session.get(ProdutoCatalogo, codigo)
         if existente:
             for campo, valor in dados_produto.items():
-                setattr(existente, campo, valor)
+                if valor is not None:
+                    setattr(existente, campo, valor)
+            existente.atualizado_em = datetime.utcnow()
             session.add(existente)
             atualizados += 1
         else:
-            session.add(ProdutoCatalogo(codigo_item=codigo, **dados_produto))
+            session.add(ProdutoCatalogo(codigo_item=codigo, atualizado_em=datetime.utcnow(), **dados_produto))
             criados += 1
     session.commit()
-    itens_recalculados = _recalcular_pesos_itens_existentes(session)
+    itens_recalculados = _recalcular_pesos_itens_existentes(session) if col_peso_liq else 0
+    if ignorados:
+        avisos.append(f"{ignorados} linha(s) sem \"Cód.Item\" foram ignoradas.")
     return {
         "ok": True, "criados": criados, "atualizados": atualizados, "ignorados": ignorados,
-        "itens_recalculados": itens_recalculados,
+        "itens_recalculados": itens_recalculados, "avisos": avisos,
     }
 
 
@@ -1155,14 +1248,22 @@ async def importar_pdf_nota_saida(file: UploadFile = File(...), session: Session
     if dados["direcao"] == "retorno":
         aviso_direcao = "Pelo CFOP dos itens, este PDF parece ser uma nota de RETORNO, não de saída. Confira antes de importar."
 
-    status = _status_importacao(NotaSaida, dados["numero_nota"], dados["chave_acesso"], session)
+    status = _status_importacao_com_pdf("saida", NotaSaida, dados["numero_nota"], dados["chave_acesso"], session)
+    _existente = session.get(NotaSaida, dados["numero_nota"])
+    apagada = bool(_existente is not None and getattr(_existente, "apagada_em", None))
+    if status == "duplicado" and apagada:
+        status = "restaurada"  # v2: a nota tinha sido apagada; ao gravar, ela volta
     payload = _payload_de_dados_pdf(dados)
     if status != "duplicado":
         payload["pdf_token"] = _guardar_pdf_temporario(conteudo)
     return {
         "status": status,
         "aviso_direcao": aviso_direcao,
-        "mensagem": "Esta nota já foi importada anteriormente." if status == "duplicado" else None,
+        "avisos_leitura": _avisos_leitura(dados),
+        "apagada": apagada,
+        "mensagem": ("Esta nota tinha sido apagada no FlowLog. Ao gravar, ela volta para a lista." if apagada else
+                     "Esta nota já foi importada anteriormente." if status == "duplicado" else
+                     "Esta nota já foi importada, mas o PDF original não estava guardado. Ao registrar, só o PDF é guardado — os dados da nota não mudam." if status == "so_pdf" else None),
         "dados": payload,
     }
 
@@ -1171,9 +1272,17 @@ async def importar_pdf_nota_saida(file: UploadFile = File(...), session: Session
 def confirmar_importacao_nota_saida(payload: NotaPdfPayload, session: Session = Depends(get_session)):
     if not payload.numero_nota or not payload.data_nota:
         raise HTTPException(422, "Número e data da nota são obrigatórios")
-    status = _status_importacao(NotaSaida, payload.numero_nota, payload.chave_acesso, session)
+    restaurada = _restaurar_se_apagada(NotaSaida, payload.numero_nota, session)
+    status = _status_importacao_com_pdf("saida", NotaSaida, payload.numero_nota, payload.chave_acesso, session)
+    if status == "duplicado" and restaurada:
+        session.commit()
+        return {"status": "restaurada", "nota": session.get(NotaSaida, payload.numero_nota)}
     if status == "duplicado":
         raise HTTPException(409, "Esta nota já foi importada anteriormente.")
+    if status == "so_pdf":  # só guarda o PDF; não mexe em nenhum dado da nota
+        session.commit()  # grava a volta da nota, se ela tinha sido apagada
+        _fixar_pdf(payload.pdf_token, "saida", payload.numero_nota)
+        return {"status": "so_pdf", "nota": session.get(NotaSaida, payload.numero_nota)}
 
     campos = payload.dict(exclude={"numero_nota", "numero_nota_saida", "vinculo_detectado_automaticamente", "itens", "informacoes_complementares", "parcelas", "pdf_token"})
     campos["parcelas_json"] = json.dumps(payload.parcelas, ensure_ascii=False) if payload.parcelas else None
@@ -1181,6 +1290,8 @@ def confirmar_importacao_nota_saida(payload: NotaPdfPayload, session: Session = 
     if status == "enriquecer":
         nota = session.get(NotaSaida, payload.numero_nota)
         for campo, valor in campos.items():
+            if campo in ("data_nota", "fornecedor") and getattr(nota, campo):
+                continue  # nota lançada à mão: a data e o fornecedor dela valem (o PDF só completa)
             setattr(nota, campo, valor)
         session.add(nota)
     else:
@@ -1209,7 +1320,11 @@ async def importar_pdf_nota_retorno(file: UploadFile = File(...), session: Sessi
     if dados["direcao"] == "saida":
         aviso_direcao = "Pelo CFOP dos itens, este PDF parece ser uma nota de SAÍDA, não de retorno. Confira antes de importar."
 
-    status = _status_importacao(NotaRetorno, dados["numero_nota"], dados["chave_acesso"], session)
+    status = _status_importacao_com_pdf("retorno", NotaRetorno, dados["numero_nota"], dados["chave_acesso"], session)
+    _existente = session.get(NotaRetorno, dados["numero_nota"])
+    apagada = bool(_existente is not None and getattr(_existente, "apagada_em", None))
+    if status == "duplicado" and apagada:
+        status = "restaurada"  # v2: a nota tinha sido apagada; ao gravar, ela volta
     payload = _payload_de_dados_pdf(dados)
     if status != "duplicado":
         payload["pdf_token"] = _guardar_pdf_temporario(conteudo)
@@ -1220,7 +1335,11 @@ async def importar_pdf_nota_retorno(file: UploadFile = File(...), session: Sessi
         "status": status,
         "aviso_direcao": aviso_direcao,
         "aviso_vinculo": aviso_vinculo,
-        "mensagem": "Esta nota já foi importada anteriormente." if status == "duplicado" else None,
+        "avisos_leitura": _avisos_leitura(dados),
+        "apagada": apagada,
+        "mensagem": ("Esta nota tinha sido apagada no FlowLog. Ao gravar, ela volta para a lista." if apagada else
+                     "Esta nota já foi importada anteriormente." if status == "duplicado" else
+                     "Esta nota já foi importada, mas o PDF original não estava guardado. Ao registrar, só o PDF é guardado — os dados da nota não mudam." if status == "so_pdf" else None),
         "dados": payload,
     }
 
@@ -1229,9 +1348,17 @@ async def importar_pdf_nota_retorno(file: UploadFile = File(...), session: Sessi
 def confirmar_importacao_nota_retorno(payload: NotaPdfPayload, session: Session = Depends(get_session)):
     if not payload.numero_nota or not payload.data_nota:
         raise HTTPException(422, "Número e data da nota são obrigatórios")
-    status = _status_importacao(NotaRetorno, payload.numero_nota, payload.chave_acesso, session)
+    restaurada = _restaurar_se_apagada(NotaRetorno, payload.numero_nota, session)
+    status = _status_importacao_com_pdf("retorno", NotaRetorno, payload.numero_nota, payload.chave_acesso, session)
+    if status == "duplicado" and restaurada:
+        session.commit()
+        return {"status": "restaurada", "nota": session.get(NotaRetorno, payload.numero_nota)}
     if status == "duplicado":
         raise HTTPException(409, "Esta nota já foi importada anteriormente.")
+    if status == "so_pdf":  # só guarda o PDF; não mexe em nenhum dado da nota
+        session.commit()  # grava a volta da nota, se ela tinha sido apagada
+        _fixar_pdf(payload.pdf_token, "retorno", payload.numero_nota)
+        return {"status": "so_pdf", "nota": session.get(NotaRetorno, payload.numero_nota)}
 
     vinculo_manual = bool(payload.numero_nota_saida) and (payload.numero_nota_saida != payload.vinculo_detectado_automaticamente)
     campos = payload.dict(exclude={"numero_nota", "numero_nota_saida", "vinculo_detectado_automaticamente", "itens", "informacoes_complementares", "parcelas", "pdf_token"})
@@ -1241,8 +1368,10 @@ def confirmar_importacao_nota_retorno(payload: NotaPdfPayload, session: Session 
     if status == "enriquecer":
         nota = session.get(NotaRetorno, payload.numero_nota)
         for campo, valor in campos.items():
+            if campo in ("data_nota", "fornecedor") and getattr(nota, campo):
+                continue  # nota lançada à mão: a data e o fornecedor dela valem (o PDF só completa)
             setattr(nota, campo, valor)
-        if payload.numero_nota_saida:  # só sobrescreve o vínculo se o PDF/revisão trouxe um — nunca apaga um vínculo manual já existente
+        if payload.numero_nota_saida and not (nota.numero_nota_saida and nota.vinculo_manual):  # ligação escolhida à mão nunca é trocada pelo PDF
             nota.numero_nota_saida = payload.numero_nota_saida
             nota.vinculo_manual = vinculo_manual
         session.add(nota)
@@ -1260,6 +1389,167 @@ def confirmar_importacao_nota_retorno(payload: NotaPdfPayload, session: Session 
     session.refresh(nota)
     _fixar_pdf(payload.pdf_token, "retorno", payload.numero_nota)
     return {"status": status, "nota": nota}
+
+
+def _avisos_leitura(dados: dict) -> list:
+    """Alertas sobre a leitura do PDF: coisas que o usuário precisa saber
+    antes de confiar nos itens (linha não lida, soma que não fecha, nota
+    de estoque que não deveria ser lançada)."""
+    avisos = []
+    itens = dados.get("itens") or []
+    nao_lidas = dados.get("linhas_nao_lidas") or []
+    if nao_lidas:
+        avisos.append(f"{len(nao_lidas)} linha(s) de item do PDF não foram lidas: " + " | ".join(l[:70] for l in nao_lidas[:3]))
+    total = dados.get("valor_total_produtos")
+    if itens and total is not None:
+        soma = sum(i.get("valor_total") or 0 for i in itens)
+        if abs(soma - total) > 0.05:
+            brl = lambda v: "R$ " + f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            avisos.append(
+                f"A soma dos itens lidos ({brl(soma)}) não bate com o valor dos produtos da nota ({brl(total)}): "
+                f"faltam {brl(total - soma)}, algum item pode não ter sido lido."
+            )
+    cfops = set(dados.get("cfops") or [])
+    if cfops and cfops <= {"5902", "6902"}:
+        avisos.append("CFOP 5902 é a nota de entrada no estoque, não a de industrialização (5124). No FlowLog só a 5124 deve ser lançada.")
+    return avisos
+
+
+@app.post("/api/terceirizacao/importar-pdfs-lote")
+async def importar_pdfs_em_lote(files: List[UploadFile] = File(...), session: Session = Depends(get_session),
+                                por: Optional[str] = Depends(usuario_atual)):
+    """Importa vários PDFs de uma vez, sem passo de revisão. Detecta sozinho
+    se é saída ou retorno (pelo CFOP). Nota nova é criada; nota que já existia
+    só manual é completada SEM mexer em data, fornecedor ou vínculo; nota já
+    importada que ficou sem PDF guardado só guarda o PDF; nota já importada
+    com PDF e nota de estoque (CFOP 5902) são ignoradas."""
+    resultados = []
+    for arquivo in files:
+        r = {"arquivo": arquivo.filename, "numero_nota": None, "tipo": None, "resultado": "erro", "mensagem": "", "avisos": []}
+        resultados.append(r)
+        try:
+            conteudo = await arquivo.read()
+            dados = parse_danfe_pdf(conteudo)
+        except Exception as e:
+            r["mensagem"] = f"Não consegui ler o PDF: {e}"
+            continue
+        r["numero_nota"] = dados["numero_nota"]
+        r["tipo"] = dados["direcao"]
+        if not dados["numero_nota"]:
+            r["mensagem"] = "Não identifiquei o número da nota."
+            continue
+        r["avisos"] = _avisos_leitura(dados)
+        cfops = set(dados.get("cfops") or [])
+        if cfops and cfops <= {"5902", "6902"}:
+            r["resultado"] = "ignorada"
+            r["mensagem"] = "CFOP 5902 (nota de estoque) — só a 5124 entra no FlowLog."
+            continue
+        if dados["direcao"] not in ("saida", "retorno"):
+            r["mensagem"] = "Não consegui identificar se é saída ou retorno (CFOP dos itens)."
+            continue
+        if not dados["data_emissao"] or not dados["fornecedor"]:
+            r["mensagem"] = "Faltou data de emissão ou fornecedor no PDF — importe esta nota individualmente."
+            continue
+
+        tipo = dados["direcao"]
+        Model = NotaSaida if tipo == "saida" else NotaRetorno
+        voltou = _restaurar_se_apagada(Model, dados["numero_nota"], session)
+        if voltou:
+            session.commit()
+            r["avisos"].append("Esta nota tinha sido apagada no FlowLog e voltou.")
+        status = _status_importacao_com_pdf(tipo, Model, dados["numero_nota"], dados["chave_acesso"], session)
+        if status == "duplicado" and voltou:
+            r["resultado"] = "restaurada"
+            r["mensagem"] = "Nota que tinha sido apagada voltou para a lista."
+            continue
+        if status == "duplicado":
+            r["resultado"] = "ignorada"
+            r["mensagem"] = "Já importada e com PDF guardado."
+            continue
+
+        payload = NotaPdfPayload(**_payload_de_dados_pdf(dados))
+        payload.pdf_token = _guardar_pdf_temporario(conteudo)
+        existente = session.get(Model, dados["numero_nota"])
+        if status == "enriquecer" and existente:
+            payload.data_nota = existente.data_nota          # a data pode ter sido ajustada à mão
+            payload.fornecedor = existente.fornecedor
+            if tipo == "retorno" and existente.numero_nota_saida:
+                payload.numero_nota_saida = existente.numero_nota_saida
+        try:
+            if tipo == "saida":
+                confirmar_importacao_nota_saida(payload, session)
+            else:
+                confirmar_importacao_nota_retorno(payload, session)
+        except HTTPException as e:
+            session.rollback()
+            r["mensagem"] = str(e.detail)
+            continue
+        r["resultado"] = {"novo": "criada", "enriquecer": "completada", "so_pdf": "pdf_guardado"}[status]
+        r["mensagem"] = {
+            "novo": "Nota nova registrada.",
+            "enriquecer": "Nota que já existia (manual) completada com os dados do PDF.",
+            "so_pdf": "Nota já importada: só o PDF foi guardado.",
+        }[status]
+        if tipo == "retorno":
+            nota = session.get(NotaRetorno, dados["numero_nota"])
+            r["vinculo"] = nota.numero_nota_saida if nota else None
+            if not r["vinculo"]:
+                r["avisos"].append("Sem vínculo com nota de saída — vincule manualmente.")
+            elif not session.get(NotaSaida, r["vinculo"]):
+                r["avisos"].append(f"Vinculada à saída {r['vinculo']}, que ainda não está no FlowLog.")
+    contagem = {}
+    for r in resultados:
+        contagem[r["resultado"]] = contagem.get(r["resultado"], 0) + 1
+    registrar_importacao(
+        session, "pdfs", f"{len(resultados)} PDF(s)",
+        f"{len(resultados)} PDFs · " + " · ".join(f"{n} {k}" for k, n in contagem.items()),
+        [f"{r.get('arquivo')}: {r.get('mensagem')}" for r in resultados if r.get("resultado") not in ("importado", "completado")][:20],
+        por,
+    )
+    return {"total": len(resultados), "contagem": contagem, "resultados": resultados}
+
+
+@app.post("/api/terceirizacao/reprocessar-pdfs")
+def reprocessar_pdfs_guardados(session: Session = Depends(get_session)):
+    """Relê com o leitor atual todos os PDFs originais guardados e atualiza
+    itens e dados fiscais das notas. Não mexe em data, fornecedor nem vínculo
+    (podem ter sido ajustados à mão) e mantém o acabamento GE/BICRO marcado."""
+    detalhes, reprocessadas, erros = [], 0, 0
+    for tipo, Model in (("saida", NotaSaida), ("retorno", NotaRetorno)):
+        pasta = os.path.join(PASTA_PDFS, tipo)
+        if not os.path.isdir(pasta):
+            continue
+        for nome in sorted(os.listdir(pasta)):
+            if not nome.endswith(".pdf"):
+                continue
+            numero = nome[:-4]
+            nota = session.get(Model, numero)
+            if not nota:
+                continue
+            try:
+                with open(os.path.join(pasta, nome), "rb") as f:
+                    dados = parse_danfe_pdf(f.read())
+                if dados["numero_nota"] != numero:
+                    raise ValueError("o número no PDF não bate com o da nota")
+                antes = session.exec(select(NotaItem).where(NotaItem.tipo_nota == tipo, NotaItem.numero_nota == numero)).all()
+                payload = NotaPdfPayload(**_payload_de_dados_pdf(dados))
+                campos = payload.dict(exclude={"numero_nota", "numero_nota_saida", "vinculo_detectado_automaticamente", "itens", "informacoes_complementares", "parcelas", "pdf_token", "data_nota", "fornecedor"})
+                campos["parcelas_json"] = json.dumps(payload.parcelas, ensure_ascii=False) if payload.parcelas else None
+                if tipo == "retorno":
+                    campos["informacoes_adicionais"] = payload.informacoes_complementares
+                for campo, valor in campos.items():
+                    setattr(nota, campo, valor)
+                session.add(nota)
+                _salvar_itens_da_nota(tipo, numero, payload.itens, session)
+                session.commit()
+                reprocessadas += 1
+                if len(antes) != len(payload.itens):
+                    detalhes.append({"tipo": tipo, "numero_nota": numero, "itens_antes": len(antes), "itens_depois": len(payload.itens)})
+            except Exception as e:
+                session.rollback()
+                erros += 1
+                detalhes.append({"tipo": tipo, "numero_nota": numero, "erro": str(e)})
+    return {"reprocessadas": reprocessadas, "erros": erros, "detalhes": detalhes}
 
 
 @app.put("/api/terceirizacao/item/{item_id}/acabamento")
@@ -1286,6 +1576,13 @@ def _modelo_da_nota(tipo: str):
     if tipo == "retorno":
         return NotaRetorno
     raise HTTPException(404, "Tipo de nota inválido")
+
+
+def _cfop_da_nota(tipo_nota: str, numero_nota: str, session: Session) -> Optional[str]:
+    cfops = session.exec(
+        select(NotaItem.cfop).where(NotaItem.tipo_nota == tipo_nota, NotaItem.numero_nota == numero_nota, NotaItem.cfop != None).distinct()  # noqa: E711
+    ).all()
+    return "/".join(sorted(cfops)) or None
 
 
 @app.get("/api/terceirizacao/{tipo}/{numero_nota}/detalhe")
@@ -1320,13 +1617,16 @@ def detalhe_nota_terceirizacao(tipo: str, numero_nota: str, session: Session = D
 
     extra = {}
     if tipo == "saida":
-        retornos = session.exec(select(NotaRetorno).where(NotaRetorno.numero_nota_saida == numero_nota)).all()
+        retornos = session.exec(select(NotaRetorno).where(NotaRetorno.numero_nota_saida == numero_nota, NotaRetorno.apagada_em == None)).all()  # noqa: E711
         extra["retornos_vinculados"] = [
-            {"numero_nota": r.numero_nota, "data_nota": r.data_nota, "dias_lead_time": (r.data_nota - nota.data_nota).days}
-            for r in sorted(retornos, key=lambda r: r.data_nota)
+            {"numero_nota": r.numero_nota, "data_nota": r.data_nota, "dias_lead_time": (r.data_nota - nota.data_nota).days,
+             "com_pdf": bool(r.chave_acesso), "cfop": _cfop_da_nota("retorno", r.numero_nota, session)}
+            for r in sorted(retornos, key=lambda r: r.numero_nota)
         ]
     else:
         saida = session.get(NotaSaida, nota.numero_nota_saida) if nota.numero_nota_saida else None
+        if saida is not None and getattr(saida, "apagada_em", None):
+            saida = None  # v2: saída apagada conta como não lançada
         esperado = {}
         if nota.numero_nota_saida:
             itens_saida = session.exec(
@@ -1345,6 +1645,7 @@ def detalhe_nota_terceirizacao(tipo: str, numero_nota: str, session: Session = D
     return {
         "tipo": tipo,
         "nota": dados,
+        "cfop": "/".join(sorted({i.cfop for i in itens if i.cfop})) or None,
         "com_pdf": bool(nota.chave_acesso),
         "pdf_disponivel": os.path.isfile(_caminho_pdf(tipo, numero_nota)),
         "parcelas": parcelas,
@@ -1353,6 +1654,7 @@ def detalhe_nota_terceirizacao(tipo: str, numero_nota: str, session: Session = D
             "soma_peso_itens": round(soma_peso, 3),
             "peso_bruto_nota": peso_nota,
             "itens_sem_peso": itens_sem_peso,
+            "peso_calculado_pelos_itens": bool(itens) and peso_nota is None and soma_peso > 0,
             "peso_diverge": peso_diverge,
             "soma_valor_itens": round(soma_valor, 2),
             "valor_total_produtos": nota.valor_total_produtos,
@@ -1389,8 +1691,8 @@ def exportar_terceirizacao(
     máximo e ponderado por peso) — a aba pensada pra responder "quais
     itens demoram mais, com qual fornecedor". Respeita o filtro de
     fornecedor ativo na tela, igual à exportação de Pedidos."""
-    query_saida = select(NotaSaida)
-    query_retorno = select(NotaRetorno)
+    query_saida = select(NotaSaida).where(NotaSaida.apagada_em == None)  # noqa: E711
+    query_retorno = select(NotaRetorno).where(NotaRetorno.apagada_em == None)  # noqa: E711
     if fornecedor:
         query_saida = query_saida.where(NotaSaida.fornecedor == fornecedor)
         query_retorno = query_retorno.where(NotaRetorno.fornecedor == fornecedor)
@@ -1559,12 +1861,13 @@ def exportar_terceirizacao(
 # registros de uma vez. Nunca mexe em campos que vêm do ERP.
 # ---------------------------------------------------------------------
 @app.post("/api/importar-fup-lote")
-async def importar_fup_lote_endpoint(file: UploadFile = File(...), session: Session = Depends(get_session)):
+async def importar_fup_lote_endpoint(file: UploadFile = File(...), session: Session = Depends(get_session),
+                                     por: Optional[str] = Depends(usuario_atual)):
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Envie um arquivo Excel (.xlsx ou .xls)")
     content = await file.read()
     try:
-        resultado = importar_fup_em_lote(io.BytesIO(content), session)
+        resultado = importar_fup_em_lote(io.BytesIO(content), session, por)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except IntegrityError:
@@ -1576,6 +1879,9 @@ async def importar_fup_lote_endpoint(file: UploadFile = File(...), session: Sess
         )
     for numero in resultado.get("pedidos_com_fup_novo", []):
         _recalcular_motivo_espelhado(numero, session)
+    registrar_importacao(session, "fup", file.filename,
+                         f"{resultado['fups_criados']} FUPs · {resultado['datas_atualizadas']} datas mudadas",
+                         [f"Pedidos não encontrados: {', '.join(resultado['pedidos_nao_encontrados'][:20])}"] if resultado["pedidos_nao_encontrados"] else None, por)
     return resultado
 
 
@@ -1813,7 +2119,8 @@ def dashboard_historico(
 # Totalmente independente do fluxo de Pedidos/Avisos/FUP.
 # ---------------------------------------------------------------------
 @app.post("/api/cobranca/importar")
-async def importar_cobranca(file: UploadFile = File(...), session: Session = Depends(get_session)):
+async def importar_cobranca(file: UploadFile = File(...), session: Session = Depends(get_session),
+                            por: Optional[str] = Depends(usuario_atual)):
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Envie um arquivo Excel (.xlsx ou .xls)")
     content = await file.read()
@@ -1828,14 +2135,25 @@ async def importar_cobranca(file: UploadFile = File(...), session: Session = Dep
             "Conflito ao salvar os dados — provavelmente duas importações "
             "aconteceram ao mesmo tempo. Aguarde um instante e tente de novo.",
         )
+    registrar_importacao(session, "boletos", file.filename, _resumo_boletos(resultado), None, por)
     return resultado
+
+
+def _resumo_boletos(r: dict) -> str:
+    partes = []
+    for chave, rotulo in (("registros_processados", "boletos"), ("novos", "novos"), ("marcados_pagos", "viraram Pago"),
+                          ("reapareceram", "voltaram a aparecer")):
+        if isinstance(r.get(chave), int):
+            partes.append(f"{r[chave]} {rotulo}")
+    return " · ".join(partes) or "importado"
 
 
 @app.get("/api/cobranca")
 def listar_cobranca(session: Session = Depends(get_session)):
-    boletos = session.exec(select(Boleto)).all()
+    # v2: boleto apagado na tela nova some daqui também; "Negociado" conta como em aberto
+    boletos = [b for b in session.exec(select(Boleto)).all() if not b.apagado_em]
     em_aberto = sorted(
-        [b for b in boletos if b.status == "Em aberto"],
+        [b for b in boletos if b.status != "Pago"],
         key=lambda b: b.data_vencimento or date.max,
     )
     pagos = sorted(
@@ -1861,8 +2179,8 @@ def contar_cobrancas_pendentes(session: Session = Depends(get_session)):
     ANTES da rota /api/cobranca/{seu_numero} nesse arquivo, senão
     "pendentes-contagem" seria interpretado como um número de boleto."""
     hoje = hoje_brasil()
-    boletos = session.exec(select(Boleto).where(Boleto.status == "Em aberto")).all()
-    pendentes = sum(1 for b in boletos if b.proxima_cobranca and b.proxima_cobranca <= hoje)
+    boletos = session.exec(select(Boleto).where(Boleto.status != "Pago")).all()
+    pendentes = sum(1 for b in boletos if not b.apagado_em and b.proxima_cobranca and b.proxima_cobranca <= hoje)
     return {"pendentes": pendentes}
 
 
@@ -1884,6 +2202,8 @@ def editar_boleto(seu_numero: str, dados: BoletoEditar, session: Session = Depen
     boleto = session.get(Boleto, seu_numero)
     if not boleto:
         raise HTTPException(404, "Boleto não encontrado")
+    if dados.status not in ("Em aberto", "Negociado", "Pago"):
+        raise HTTPException(400, "Status inválido (use Em aberto, Negociado ou Pago)")
     boleto.status = dados.status
     if dados.data_vencimento is not None:
         boleto.data_vencimento = dados.data_vencimento
@@ -2019,9 +2339,176 @@ def debug_schema(session: Session = Depends(get_session)):
 
 
 # ---------------------------------------------------------------------
+# Backup — só leitura, não altera nada no banco nem nos PDFs.
+# Gera um .zip com uma cópia consistente do banco (API de backup do
+# SQLite, segura mesmo com o sistema em uso) + todos os PDFs guardados
+# (menos os temporários de prévia). O zip é montado numa pasta temporária
+# fora do volume /data e apagado logo depois do download.
+# ---------------------------------------------------------------------
+def _apagar_pasta_temporaria(pasta: str):
+    shutil.rmtree(pasta, ignore_errors=True)
+
+
+def _gerar_backup_zip():
+    """Monta o zip (cópia consistente do banco + PDFs guardados, sem os
+    temporários) numa pasta temporária fora do volume /data. Só lê."""
+    import sqlite3
+    import tempfile
+    import zipfile
+    from .fuso import agora_brasil
+
+    pasta_tmp = tempfile.mkdtemp(prefix="flowlog_backup_")
+    try:
+        copia_banco = os.path.join(pasta_tmp, "flowlog.db")
+        # Abre o banco real só para leitura.
+        origem = sqlite3.connect(f"file:{os.path.abspath(DB_PATH)}?mode=ro", uri=True, timeout=30)
+        destino = sqlite3.connect(copia_banco)
+        try:
+            origem.backup(destino)
+        finally:
+            destino.close()
+            origem.close()
+
+        carimbo = agora_brasil().strftime("%Y-%m-%d_%H%M")
+        nome_zip = f"flowlog_backup_{carimbo}.zip"
+        caminho_zip = os.path.join(pasta_tmp, nome_zip)
+        with zipfile.ZipFile(caminho_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.write(copia_banco, "flowlog.db")
+            if os.path.isdir(PASTA_PDFS):
+                for raiz, pastas, arquivos in os.walk(PASTA_PDFS):
+                    pastas[:] = [p for p in pastas if not (raiz == PASTA_PDFS and p == "tmp")]
+                    for arquivo in arquivos:
+                        completo = os.path.join(raiz, arquivo)
+                        zf.write(completo, os.path.join("pdfs", os.path.relpath(completo, PASTA_PDFS)))
+        os.remove(copia_banco)
+    except Exception:
+        _apagar_pasta_temporaria(pasta_tmp)
+        raise
+    return pasta_tmp, caminho_zip, nome_zip
+
+
+@app.get("/api/backup/senha")
+def backup_senha_definida(session: Session = Depends(get_session)):
+    """Mesma janela de backup da tela antiga que foi ao ar em 18/11 (passo 1)."""
+    return {"definida": senha_definida(session)}
+
+
+@app.post("/api/backup/senha")
+def backup_definir_senha(nova: str = Form(""), atual: str = Form(""), session: Session = Depends(get_session),
+                         por: Optional[str] = Depends(usuario_atual)):
+    """Primeira vez: define a senha. Depois: só troca quem sabe a atual."""
+    if senha_definida(session) and not conferir_senha(session, atual):
+        raise HTTPException(401, "Senha atual errada.")
+    try:
+        definir_senha(session, nova, por)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@app.post("/api/backup")
+def baixar_backup(senha: str = Form(""), session: Session = Depends(get_session),
+                  por: Optional[str] = Depends(usuario_atual)):
+    """Backup protegido pela senha de administrador (sem login, qualquer
+    pessoa com o link baixaria os dados da empresa)."""
+    from starlette.background import BackgroundTask
+    from .configuracoes import agora_brasil as agora_local
+
+    if not senha_definida(session):
+        raise HTTPException(403, "Defina a senha de administrador primeiro (Configurações › Backup).")
+    if not conferir_senha(session, senha):
+        raise HTTPException(401, "Senha errada. Nada foi baixado.")
+    pasta_tmp, caminho_zip, nome_zip = _gerar_backup_zip()
+    try:
+        session.add(BackupRegistro(quando=agora_local(), por=por, arquivo=nome_zip,
+                                   tamanho_bytes=os.path.getsize(caminho_zip)))
+        session.commit()
+    except Exception:
+        session.rollback()  # o histórico nunca impede o backup
+    return FileResponse(
+        caminho_zip,
+        media_type="application/zip",
+        filename=nome_zip,
+        background=BackgroundTask(_apagar_pasta_temporaria, pasta_tmp),
+    )
+
+
+# ---------------------------------------------------------------------
+# v2 — importar "qualquer planilha": reconhece o tipo pelas colunas
+# ---------------------------------------------------------------------
+def _parece_boletos(conteudo: bytes) -> bool:
+    try:
+        bruto = pd.read_excel(io.BytesIO(conteudo), header=None, nrows=15)
+    except Exception:
+        return False
+    return any(str(v).strip() == "Pagador" for v in bruto.values.flatten())
+
+
+def _parece_catalogo(conteudo: bytes) -> bool:
+    try:
+        cab = pd.read_excel(io.BytesIO(conteudo), nrows=0)
+    except Exception:
+        return False
+    return "Cód.Item" in {str(c).strip() for c in cab.columns}
+
+
+@app.post("/api/v2/importar")
+async def importar_qualquer_planilha(files: List[UploadFile] = File(...), session: Session = Depends(get_session),
+                                     por: Optional[str] = Depends(usuario_atual)):
+    """Uma ou várias planilhas de uma vez. Cada uma é reconhecida pelas
+    colunas e importada pelo mesmo código da tela antiga. Uma planilha com
+    problema não impede as outras."""
+    resultados = []
+    for f in files:
+        nome = f.filename or "planilha"
+        conteudo = await f.read()
+        item = {"arquivo": nome}
+        try:
+            if not nome.lower().endswith((".xlsx", ".xls")):
+                raise ValueError("Não é uma planilha Excel (.xlsx ou .xls).")
+            if _parece_catalogo(conteudo):
+                df = pd.read_excel(io.BytesIO(conteudo))
+                r = _importar_catalogo_df(df, session)
+                registrar_importacao(session, "catalogo", nome, _resumo_catalogo(r), r["avisos"], por)
+                item.update(tipo="catalogo", resumo=_resumo_catalogo(r), avisos=r["avisos"], ok=True)
+            elif _parece_boletos(conteudo):
+                r = importar_boletos(io.BytesIO(conteudo), session)
+                registrar_importacao(session, "boletos", nome, _resumo_boletos(r), None, por)
+                item.update(tipo="boletos", resumo=_resumo_boletos(r), avisos=[], ok=True)
+            else:
+                r = importar_planilha(io.BytesIO(conteudo), session)
+                recalcular_status_e_atrasos(session)
+                tipo = _TIPO_IMPORTACAO.get(r.get("tipo_detectado"), r.get("tipo_detectado") or "planilha")
+                resumo = r.get("resumo") or f"{r.get('registros_processados', 0)} linhas lidas (aba {r.get('aba_usada')})"
+                registrar_importacao(session, tipo, nome, resumo, r.get("avisos"), por)
+                item.update(tipo=tipo, resumo=resumo, avisos=r.get("avisos") or [], ok=True)
+        except HTTPException as e:
+            session.rollback()
+            item.update(ok=False, erro=str(e.detail))
+        except (ValueError, IntegrityError) as e:
+            session.rollback()
+            item.update(ok=False, erro=str(e)[:300])
+        except Exception as e:  # uma planilha com problema não derruba as outras
+            import traceback
+            traceback.print_exc()
+            session.rollback()
+            item.update(ok=False, erro=f"Erro inesperado ao ler esta planilha: {type(e).__name__}: {str(e)[:200]}")
+        resultados.append(item)
+    return {"resultados": resultados}
+
+
+# ---------------------------------------------------------------------
 # Frontend estático
 # ---------------------------------------------------------------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/novo")
+def tela_nova():
+    return FileResponse(
+        "static/novo/index.html",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 @app.get("/")
