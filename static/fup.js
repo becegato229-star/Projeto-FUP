@@ -50,8 +50,7 @@
         ${lista.length > st.limite ? `<button type="button" class="btn sec" style="align-self:center" data-mais>Mostrar mais</button>` : ''}`;
     }
     el.innerHTML = `
-      <div class="fl-cabeca fl-entra"><div class="txt"><h1>FUP</h1>
-        <p>Acompanhamento da produção com o Calebe: quais pedidos vão atrasar e por quê. "Para revisar" = atrasado ou vence em até ${st.janela} dias úteis, ainda sem FUP de hoje.</p></div>
+      <div class="fl-cabeca fl-entra"><div class="txt"><h1>FUP</h1></div>
         <div class="fl-acoes-topo"><button type="button" class="btn sec" data-lote>${FL.icone.enviar} Importar FUP em lote</button></div></div>
       <div class="fl-entra d1" style="display:flex;flex-direction:column;gap:12px">
         <div class="fl-barra-abas">${FL.htmlAbas(abas, st.aba, 'Abas do FUP')}${st.aba === 'hist' ? '' : FL.botaoFiltros(st.filtros)}</div>
@@ -80,7 +79,7 @@
     return `<div class="fl-tabela-caixa"><table class="fl-tabela"><thead><tr><th>Data</th><th>Pedido · cliente</th><th>Situação</th><th>Motivo · observação</th><th>Registrado por</th></tr></thead><tbody>
       ${vis.length ? vis.map((f) => `<tr><td class="nw">${FL.data(f.data)}</td><td><b>${esc(f.pedido)}</b><span class="sub">${esc(f.cliente || '')}</span></td>
         <td><span class="selo ${SELO_SIT[f.situacao]}">${esc(SIT[f.situacao] || f.situacao)}</span></td><td>${esc(f.motivo || '—')}<span class="sub">${esc(f.observacao || '')}</span></td>
-        <td>${esc(f.por || '—')}</td></tr>`).join('') : '<tr><td colspan="5" class="vazio">Nenhum FUP registrado ainda.</td></tr>'}
+        <td>${esc(f.por || '—')}</td></tr>`).join('') : '<tr><td colspan="5" class="vazio">Nenhum FUP registrado.</td></tr>'}
       </tbody></table></div>
       ${st.hist.length > st.limiteHist ? '<button type="button" class="btn sec" style="align-self:center" data-mais-hist>Mostrar mais</button>' : ''}`;
   }
@@ -97,9 +96,9 @@
       });
       return `Calebe, bom dia! FUP de hoje (${FL.dataCurta(st.hoje)}):\n\n${linhas.join('\n')}\n\nPode me passar a previsão de cada um? Se algum vai atrasar, me diz o motivo.`;
     };
-    const g = FL.gaveta({ sobre: 'FUP · ' + FL.plural(ped.length, 'PEDIDO', 'PEDIDOS'), titulo: 'Mensagem para o Calebe', sub: 'Copie e cole no WhatsApp. Quando ele responder, registre tudo de uma vez.', semAutor: true, cancelar: 'Fechar', botao: 'Copiar mensagem',
+    const g = FL.gaveta({ sobre: 'FUP · ' + FL.plural(ped.length, 'PEDIDO', 'PEDIDOS'), titulo: 'Mensagem para o Calebe', semAutor: true, cancelar: 'Fechar', botao: 'Copiar mensagem',
       html: `<div class="chips" role="group" aria-label="Opções da mensagem"><button type="button" class="chip" data-op="motivo" aria-pressed="true">Incluir último motivo</button><button type="button" class="chip" data-op="nova" aria-pressed="true">Incluir nova data</button></div>
-        <div class="campo"><label for="msgTexto">Mensagem <span style="font-weight:400">(dá para editar antes de copiar)</span></label><textarea id="msgTexto" rows="14" style="font-size:14px;line-height:1.5">${esc(montar())}</textarea></div>
+        <div class="campo"><label for="msgTexto">Mensagem <span style="font-weight:400">(editável)</span></label><textarea id="msgTexto" rows="14" style="font-size:14px;line-height:1.5">${esc(montar())}</textarea></div>
         <button type="button" class="link" style="align-self:flex-start" data-ir-respostas>Já tenho as respostas: registrar agora</button>`,
       aoAbrir: (gv) => gv.addEventListener('click', (e) => {
         const b = e.target.closest('[data-op]');
@@ -125,7 +124,7 @@
     const imp = (await FL.api('GET', '/api/v2/importacoes', null, { silencioso: true })) || {};
     const ult = (imp.fup || [])[0];
     const rev = st.dados.filter((p) => p.revisar);
-    const g = FL.gaveta({ sobre: 'FUP', titulo: 'Importar FUP em lote', sub: 'Para quando as respostas vierem numa planilha.', semAutor: false, cancelar: 'Fechar',
+    const g = FL.gaveta({ sobre: 'FUP', titulo: 'Importar FUP em lote', semAutor: false, cancelar: 'Fechar',
       html: `<ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:12px;font-size:14px;line-height:1.45">
           <li><b>Baixe a planilha</b> dos pedidos para revisar (${rev.length}) ou dos marcados.
             <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"><button type="button" class="btn sec" data-baixar="revisar" ${rev.length ? '' : 'disabled'}>Pedidos para revisar</button><button type="button" class="btn sec" data-baixar="marcados" ${marcados().length ? '' : 'disabled'}>Pedidos marcados (${marcados().length})</button></div></li>

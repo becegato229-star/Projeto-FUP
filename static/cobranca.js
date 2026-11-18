@@ -65,8 +65,7 @@
   // ------------------------------------------------------------------
   function cabecalho() {
     const u = st.ultimaImp;
-    return `<div class="fl-cabeca fl-entra"><div class="txt"><h1>Cobrança</h1>
-      <p>Boletos vencidos do relatório do banco. Saiu do relatório = pago (dá para mudar à mão). Clique no boleto para ver as cobranças do cliente.</p></div>
+    return `<div class="fl-cabeca fl-entra"><div class="txt"><h1>Cobrança</h1></div>
       <div class="fl-acoes-topo" style="flex-direction:column;align-items:flex-end;gap:6px">
         <button type="button" class="btn sec" data-importar>${FL.icone.enviar} Importar relatório do banco</button>
         <span style="font-size:12px;color:var(--texto2)">Última importação: ${u ? FL.dataHora(u.quando) + (u.por ? ' · ' + esc(u.por) : '') : 'nunca'}</span>
@@ -92,10 +91,10 @@
     const abas = [{ id: 'todos', rotulo: 'Todos', qtd: todos.length }, { id: 'aberto', rotulo: 'Em aberto', qtd: abertos.length }, { id: 'pago', rotulo: 'Pagos', qtd: pagos.length }];
     el.innerHTML = cabecalho() + `
       <div class="fl-cartoes fl-entra d1">
-        <button type="button" class="fl-cartao" data-cartao="aberto"><span class="v">${brlCurto(soma(abertos))}</span><span class="r">${FL.plural(abertos.length, 'boleto em aberto', 'boletos em aberto')}${negociados.length ? ' (' + FL.plural(negociados.length, 'negociado', 'negociados') + ')' : ''}</span><span class="s">soma do valor dos títulos</span></button>
-        <button type="button" class="fl-cartao" data-cartao="hoje"><span class="v" style="color:${st.clientesHoje ? 'var(--alerta)' : '#000'}">${FL.num(st.clientesHoje)}</span><span class="r">Clientes para cobrar hoje</span><span class="s">nunca cobrados ou chegou a data</span></button>
+        <button type="button" class="fl-cartao" data-cartao="aberto"><span class="v">${brlCurto(soma(abertos))}</span><span class="r">${FL.plural(abertos.length, 'boleto em aberto', 'boletos em aberto')}${negociados.length ? ' (' + FL.plural(negociados.length, 'negociado', 'negociados') + ')' : ''}</span><span class="s">valor dos títulos</span></button>
+        <button type="button" class="fl-cartao" data-cartao="hoje"><span class="v" style="color:${st.clientesHoje ? 'var(--alerta)' : '#000'}">${FL.num(st.clientesHoje)}</span><span class="r">Clientes para cobrar hoje</span><span class="s">sem cobrança ou data vencida</span></button>
         <button type="button" class="fl-cartao" data-cartao="30"><span class="v">${brlCurto(soma(abertos.filter((b) => (b.dias || 0) > 30)))}</span><span class="r">Vencido há mais de 30 dias</span><span class="s">em aberto</span></button>
-        <button type="button" class="fl-cartao" data-cartao="pago"><span class="v" style="color:var(--verde-escuro, #1E7A52)">${brlCurto(soma(pagos30))}</span><span class="r">Pagos nos últimos 30 dias</span><span class="s">saíram do relatório ou marcados à mão</span></button>
+        <button type="button" class="fl-cartao" data-cartao="pago"><span class="v" style="color:var(--verde-escuro, #1E7A52)">${brlCurto(soma(pagos30))}</span><span class="r">Pagos nos últimos 30 dias</span><span class="s"></span></button>
       </div>
       <div class="fl-entra d1" style="display:flex;flex-direction:column;gap:12px">
         <div class="fl-barra-abas">${FL.htmlAbas(abas, st.aba, 'Abas da cobrança')}${FL.botaoFiltros(st.filtros)}</div>
@@ -144,8 +143,8 @@
     const regs = registrosDoCliente(b.cliente);
     const agora = Date.now();
     const avisos = [];
-    if (b.voltou) avisos.push(['aviso', 'Este boleto tinha sido marcado como Pago e voltou a aparecer no relatório do banco.']);
-    if (dev && b.cobrar_hoje) avisos.push(['aviso', b.ultima && b.ultima.proxima ? `Era para cobrar de novo em ${FL.data(b.ultima.proxima)}.` : (b.ultima ? 'A última cobrança não marcou quando cobrar de novo.' : 'Ninguém cobrou este cliente ainda.')]);
+    if (b.voltou) avisos.push(['aviso', 'Estava Pago e voltou ao relatório do banco.']);
+    if (dev && b.cobrar_hoje) avisos.push(['aviso', b.ultima && b.ultima.proxima ? `Cobrança prevista para ${FL.data(b.ultima.proxima)}.` : (b.ultima ? 'Última cobrança sem próxima data.' : 'Cliente ainda não cobrado.')]);
     if (b.status_motivo) avisos.push(['aviso info', `Status mudado à mão para ${b.status}${b.status_por ? ' por ' + b.status_por : ''}${b.status_em ? ' em ' + FL.dataHora(b.status_em) : ''}: ${b.status_motivo}`]);
     const dados = [['Emissão', FL.data(b.emissao)], ['Valor pago', b.valor_pago != null ? FL.brl(b.valor_pago) : '—'],
       ['Pagamento', b.pagamento_banco ? FL.data(b.pagamento_banco) + ' (banco)' : (b.pago_em ? FL.data(b.pago_em) + ' (saiu do relatório)' : '—')],
@@ -169,9 +168,9 @@
               <span style="font-size:14px">${esc(g.texto)}</span>
               ${g.proxima ? `<span style="font-size:12px;color:var(--texto2)">Cobrar de novo em ${FL.data(g.proxima)}</span>` : ''}
               ${pode ? `<button type="button" class="link" style="font-size:12px;align-self:flex-start" data-desfazer-cob="${esc(g.grupo)}" data-b="${esc(b.num)}">Desfazer</button>` : ''}</li>`;
-          }).join('')}</ol>` : '<p style="margin:0;font-size:14px;color:var(--texto2)">Ninguém cobrou este cliente ainda.</p>'}
+          }).join('')}</ol>` : '<p style="margin:0;font-size:14px;color:var(--texto2)">Sem cobranças registradas.</p>'}
           ${abertosCli.length ? `<button type="button" class="btn" style="align-self:flex-start" data-acao="cobrar" data-b="${esc(b.num)}">${ICO_FONE} Registrar cobrança</button>`
-            : '<p class="aviso info">Tudo pago. Se um boleto voltar no relatório do banco, ele reaparece aqui marcado.</p>'}
+            : '<p class="aviso info">Nenhum boleto em aberto.</p>'}
         </div>
       </div></div>`;
   }
@@ -202,7 +201,7 @@
         <div class="campo"><span class="rot" id="cobProxRot">Cobrar de novo em <span style="font-weight:400">(obrigatório)</span></span>
           <div class="chips" role="group" aria-labelledby="cobProxRot">${atalhos.map((x) => `<button type="button" class="chip" data-prox="${x[1]}" aria-pressed="false">${esc(x[0])}</button>`).join('')}</div>
           <label for="cobOutra" style="font-size:13px;padding-top:4px">Ou escolha outra data</label><input id="cobOutra" type="date" min="${FL.somarDias(st.hoje, 1)}">
-          <span class="dica">Até essa data o cliente sai de "Cobrar hoje". Se o boleto sumir do relatório do banco antes, ele vira Pago.</span></div>`,
+          </div>`,
       aoAbrir: (g) => {
         g.addEventListener('click', (e) => {
           const bb = e.target.closest('[data-bol]');
@@ -231,7 +230,7 @@
   function formStatus(b) {
     let novo = b.status;
     FL.gaveta({ sobre: 'BOLETO ' + b.num + ' · ' + (b.pagador || ''), titulo: 'Mudar status', sub: `${FL.brl(b.valor)} · vence ${FL.data(b.vencimento)} · hoje: ${b.status}`, botao: 'Salvar status',
-      html: `<p style="margin:0;padding:12px 14px;background:var(--c1);border-radius:var(--r-badge, 6px);font-size:14px;line-height:1.45">O sistema marca como <b>Pago</b> quando o boleto some do relatório do banco. Use <b>Negociado</b> quando o cliente combinar outra forma ou data de pagar: o boleto continua em aberto, com o combinado anotado. Use também para corrigir quando a regra errar.</p>
+      html: `
         <div class="campo"><span class="rot" id="stRot">Status correto</span>
           <div class="seg" style="grid-template-columns:repeat(3,1fr)" role="group" aria-labelledby="stRot">${['Em aberto', 'Negociado', 'Pago'].map((s) => `<button type="button" data-st="${s}" aria-pressed="${s === novo}">${s}</button>`).join('')}</div></div>
         <div class="campo"><label for="stMotivo">O que foi combinado / por que está mudando <span style="font-weight:400">(obrigatório)</span></label><textarea id="stMotivo" rows="3" maxlength="500"></textarea></div>`,

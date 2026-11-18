@@ -43,8 +43,7 @@
     const sel = lista.find((a) => chave(a) === st.sel) || lista[0] || null;
     if (sel) st.sel = chave(sel);
     el.innerHTML = `
-      <div class="fl-cabeca fl-entra"><div class="txt"><h1>Avisos de canhoto</h1>
-        <p>Notas faturadas que passaram do prazo sem canhoto. Prazo: ${st.prazos ? `${st.prazos.aviso_entrega} dias úteis para Entrega, ${st.prazos.aviso_transportadora} para Transportadora, ${st.prazos.aviso_retira} para Retira` : '—'} (ajustável em Configurações).</p></div></div>
+      <div class="fl-cabeca fl-entra"><div class="txt"><h1>Avisos de canhoto</h1></div></div>
       <div class="fl-entra d1" style="display:flex;flex-direction:column;gap:12px">
         <div class="fl-barra-abas">${FL.htmlAbas(abas, st.aba, 'Abas dos avisos')}${FL.botaoFiltros(st.filtros)}</div>
         ${FL.htmlChipsAtivos(DEFS, st.filtros)}
@@ -80,10 +79,10 @@
   }
 
   function painel(a) {
-    if (!a) return `<aside class="fl-painel"><div class="cab"><span class="sobre">AVISOS</span><h2>Nenhum aviso selecionado</h2></div><div class="meio"><p style="margin:0;color:var(--texto2)">Escolha um aviso na tabela.</p></div></aside>`;
+    if (!a) return `<aside class="fl-painel"><div class="cab"><span class="sobre">AVISOS</span><h2>Nenhum aviso selecionado</h2></div><div class="meio"><p style="margin:0;color:var(--texto2)">Nenhum aviso selecionado.</p></div></aside>`;
     const ult = a.registros[a.registros.length - 1];
     let alerta = '', info = '';
-    if (a.situacao === 'atencao' && !ult) alerta = `Sem canhoto há ${FL.plural(a.dias, 'dia útil', 'dias úteis')} (prazo: ${a.prazo}). Ninguém registrou acompanhamento ainda.`;
+    if (a.situacao === 'atencao' && !ult) alerta = `Sem canhoto há ${FL.plural(a.dias, 'dia útil', 'dias úteis')} (prazo: ${a.prazo}). Sem acompanhamento registrado.`;
     else if (a.situacao === 'atencao') alerta = `A data para verificar de novo (${FL.dataCurta(ult.proxima)}) passou e o canhoto não chegou.`;
     else if (a.situacao === 'acomp') info = ult.proxima ? `Em acompanhamento até ${FL.dataCurta(ult.proxima)}. Se o canhoto não chegar até lá, volta para Precisam de atenção.` : 'Marcado como tratado na tela antiga, sem data para verificar de novo. Registre um acompanhamento com data para voltar a controlar.';
     else info = a.canhoto ? 'Canhoto recebido. O aviso fica só no histórico.' : 'Pedido cancelado. O aviso fica só no histórico.';
@@ -101,7 +100,7 @@
             return `<div class="cartao-mini"><b style="font-size:13px">${FL.dataCurta(g.data)}${g.por ? ' · ' + esc(g.por) : ''}</b><span style="font-size:14px;line-height:1.4">${esc(g.texto)}</span>
               ${g.proxima ? `<span style="font-size:12px;${venceu ? 'color:var(--alerta);font-weight:700' : 'color:var(--texto2)'}">Verificar de novo em ${FL.dataCurta(g.proxima)}${venceu ? ' · venceu' : ''}</span>` : ''}
               ${g.pode_desfazer ? `<button type="button" class="link" style="align-self:flex-start;font-size:13px" data-desfazer="${g.id}">Desfazer</button>` : ''}</div>`;
-          }).join('') : '<p style="margin:0;font-size:14px;color:var(--texto2)">Ninguém registrou nada ainda.</p>'}
+          }).join('') : '<p style="margin:0;font-size:14px;color:var(--texto2)">Sem registros.</p>'}
         </div></div>
       <div class="pe">${a.situacao !== 'hist' ? '<button type="button" class="btn grande" data-registrar>Registrar acompanhamento</button>' : ''}
         <span style="font-size:12px;color:var(--texto2);line-height:1.4">${a.situacao === 'hist' ? 'Saiu dos avisos quando o canhoto entrou na importação.' : 'O aviso sai daqui sozinho quando o canhoto entrar na importação.'}</span></div></aside>`;
@@ -115,7 +114,7 @@
         <div class="campo"><span class="rot" id="avProxRot">Verificar de novo em <span style="font-weight:400">(obrigatório)</span></span>
           <div class="chips" role="group" aria-labelledby="avProxRot">${atalhos.map((x) => `<button type="button" class="chip" data-prox="${x[1]}" aria-pressed="false">${esc(x[0])}</button>`).join('')}</div>
           <label for="avOutra" style="font-size:13px;padding-top:4px">Ou escolha outra data</label><input id="avOutra" type="date" min="${FL.somarDias(st.hoje, 1)}">
-          <span class="dica">Até essa data o aviso fica em <b>Em acompanhamento</b>. Se ela passar e o canhoto não tiver chegado, ele volta para <b>Precisam de atenção</b>.</span></div>`,
+          </div>`,
       aoAbrir: (g) => {
         g.addEventListener('click', (e) => { const b = e.target.closest('[data-prox]'); if (!b) return; prox = b.dataset.prox; g.querySelector('#avOutra').value = ''; g.querySelectorAll('[data-prox]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); });
         g.querySelector('#avOutra').addEventListener('change', (e) => { prox = e.target.value; g.querySelectorAll('[data-prox]').forEach((x) => x.setAttribute('aria-pressed', 'false')); });

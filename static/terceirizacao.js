@@ -53,8 +53,7 @@
   // Desenho
   // ------------------------------------------------------------------
   function cabecalho() {
-    return `<div class="fl-cabeca fl-entra"><div class="txt"><h1>Terceirização</h1>
-      <p>Notas de saída para a galvanização e de retorno. Clique na nota para ver os itens e a conferência.</p></div>
+    return `<div class="fl-cabeca fl-entra"><div class="txt"><h1>Terceirização</h1></div>
       <div class="fl-acoes-topo">
         <button type="button" class="btn" data-importar>${FL.icone.enviar} Importar PDF</button>
         <button type="button" class="btn sec" data-manual>+ Nota à mão</button>
@@ -86,7 +85,7 @@
         <button type="button" class="fl-cartao" data-cartao="aguardando"><span class="v" style="color:${r.aguardando_atrasadas ? 'var(--alerta)' : '#000'}">${FL.num(r.aguardando)}</span><span class="r">Aguardando retorno</span><span class="s">${tTxt(r.aguardando_peso)} no fornecedor${r.aguardando_atrasadas ? ' · ' + r.aguardando_atrasadas + ' há mais de ' + st.diasAlerta + ' dias' : ''}</span></button>
         <button type="button" class="fl-cartao" data-cartao="pares"><span class="v">${r.lead_mediana != null ? FL.num(r.lead_mediana, r.lead_mediana % 1 ? 1 : 0) + ' dias' : '—'}</span><span class="r">Lead time (mediana)</span><span class="s">${r.lead_min != null ? 'mín. ' + r.lead_min + ' · máx. ' + r.lead_max + ' dias' : 'nenhum par ainda'}</span></button>
         <button type="button" class="fl-cartao" data-cartao="mes"><span class="v">${FL.num(r.voltaram_mes)}</span><span class="r">Voltaram neste mês</span><span class="s">${tTxt(r.voltaram_mes_peso)} em notas de retorno</span></button>
-        <button type="button" class="fl-cartao" data-cartao="pendentes"><span class="v" style="color:${r.pendentes ? 'var(--alerta)' : '#000'}">${FL.num(r.pendentes)}</span><span class="r">Notas com pendência</span><span class="s">sem PDF, sem ligação, peso…</span></button>
+        <button type="button" class="fl-cartao" data-cartao="pendentes"><span class="v" style="color:${r.pendentes ? 'var(--alerta)' : '#000'}">${FL.num(r.pendentes)}</span><span class="r">Notas com pendência</span><span class="s"></span></button>
       </div>
       <div class="fl-entra d1" style="display:flex;flex-direction:column;gap:12px">
         <div class="fl-barra-abas">${FL.htmlAbas(abas, st.aba, 'Abas da terceirização')}${FL.botaoFiltros(Object.assign({}, st.filtros, temPer ? { _p: [1] } : {}))}</div>
@@ -142,16 +141,16 @@
     if (!d) return '<div class="carregando">Carregando itens…</div>';
     const c = d.conferencia;
     const avisos = [];
-    if (n.tem_bicro) avisos.push(['aviso preto', n.tipo === 'saida' ? 'Esta saída tem item que precisa voltar BICRO (bicromatizado). O resto volta GE.' : 'A saída ligada tem item que precisa voltar BICRO: confira na coluna "Precisa voltar assim".']);
-    if (n.tipo === 'saida' && n.situacao !== 'Retornou' && (n.dias || 0) > st.diasAlerta) avisos.push(['aviso', `Saiu ${haTxt(n.dias)} e ${n.situacao === 'Retorno parcial' ? 'ainda falta voltar parte dos itens' : 'ainda não voltou'}.`]);
-    if (c.peso_diverge) avisos.push(['aviso', `O peso da nota (${kgTxt(c.peso_bruto_nota)}) não bate com a soma dos itens pelo catálogo (${kgTxt(c.soma_peso_itens)}).`]);
-    if (c.itens_sem_peso) avisos.push(['aviso info', `${FL.plural(c.itens_sem_peso, 'item não tem', 'itens não têm')} peso no catálogo (Configurações › Importar › Catálogo de produtos).`]);
-    if (c.valor_diverge) avisos.push(['aviso', `A soma dos itens (${FL.brl(c.soma_valor_itens)}) não bate com o valor dos produtos (${FL.brl(c.valor_total_produtos)}).`]);
-    if (n.tipo === 'retorno' && !n.saida) avisos.push(['aviso', 'Retorno sem saída ligada. Use o lápis (Editar) para escolher a saída.']);
-    if (n.tipo === 'retorno' && n.saida && !n.saida_existe) avisos.push(['aviso', `A saída ${n.saida} ainda não está no FlowLog. Importe o PDF dela ou lance à mão.`]);
+    if (n.tem_bicro) avisos.push(['aviso preto', n.tipo === 'saida' ? 'Tem item BICRO. O resto volta GE.' : 'A saída ligada tem item BICRO.']);
+    if (n.tipo === 'saida' && n.situacao !== 'Retornou' && (n.dias || 0) > st.diasAlerta) avisos.push(['aviso', `Saiu ${haTxt(n.dias)}: ${n.situacao === 'Retorno parcial' ? 'retorno parcial' : 'sem retorno'}.`]);
+    if (c.peso_diverge) avisos.push(['aviso', `Peso da nota ${kgTxt(c.peso_bruto_nota)} × soma dos itens ${kgTxt(c.soma_peso_itens)}.`]);
+    if (c.itens_sem_peso) avisos.push(['aviso info', `${FL.plural(c.itens_sem_peso, 'item não tem', 'itens não têm')} peso no catálogo.`]);
+    if (c.valor_diverge) avisos.push(['aviso', `Valor dos produtos ${FL.brl(c.valor_total_produtos)} × soma dos itens ${FL.brl(c.soma_valor_itens)}.`]);
+    if (n.tipo === 'retorno' && !n.saida) avisos.push(['aviso', 'Retorno sem saída ligada.']);
+    if (n.tipo === 'retorno' && n.saida && !n.saida_existe) avisos.push(['aviso', `Saída ${n.saida} não lançada.`]);
     const its = d.itens;
     let tabela;
-    if (!its.length) tabela = '<p style="margin:0;font-size:14px;color:var(--texto2)">Nota lançada à mão: sem itens. Importe o PDF para ver os itens (a data e a ligação não mudam).</p>';
+    if (!its.length) tabela = '<p style="margin:0;font-size:14px;color:var(--texto2)">Nota lançada à mão, sem itens.</p>';
     else if (n.tipo === 'saida') {
       tabela = `<table class="tabela-interna"><thead><tr><th>Código</th><th>Descrição</th><th style="text-align:right">Qtd.</th><th style="text-align:right">Peso</th><th>Acabamento</th><th>Voltou</th></tr></thead><tbody>
         ${its.map((i) => {
@@ -176,7 +175,7 @@
     if (nota.chave_acesso) dados.push(['Chave', nota.chave_acesso]);
     let ligados = '';
     if (n.tipo === 'saida') {
-      ligados = `<span class="rotulo-secao">RETORNOS LIGADOS</span>${(d.retornos_vinculados || []).length ? d.retornos_vinculados.map((r) => `<button type="button" class="cartao-mini" style="flex-direction:row;justify-content:space-between;cursor:pointer;text-align:left" data-ir="retorno:${esc(r.numero_nota)}"><b>${esc(r.numero_nota)}</b><span style="font-size:13px">${FL.data(r.data_nota)} · ${FL.plural(r.dias_lead_time, 'dia', 'dias')}</span></button>`).join('') : '<p style="margin:0;font-size:14px;color:var(--texto2)">Nenhum retorno ainda.</p>'}`;
+      ligados = `<span class="rotulo-secao">RETORNOS LIGADOS</span>${(d.retornos_vinculados || []).length ? d.retornos_vinculados.map((r) => `<button type="button" class="cartao-mini" style="flex-direction:row;justify-content:space-between;cursor:pointer;text-align:left" data-ir="retorno:${esc(r.numero_nota)}"><b>${esc(r.numero_nota)}</b><span style="font-size:13px">${FL.data(r.data_nota)} · ${FL.plural(r.dias_lead_time, 'dia', 'dias')}</span></button>`).join('') : '<p style="margin:0;font-size:14px;color:var(--texto2)">Sem retornos.</p>'}`;
     } else if (d.saida_vinculada) {
       const s = d.saida_vinculada;
       ligados = `<span class="rotulo-secao">SAÍDA LIGADA</span><button type="button" class="cartao-mini" style="flex-direction:row;justify-content:space-between;cursor:pointer;text-align:left" data-ir="saida:${esc(s.numero_nota)}"><b>${esc(s.numero_nota)}</b><span style="font-size:13px">${FL.data(s.data_nota)} · lead time ${FL.plural(s.dias_lead_time, 'dia', 'dias')}</span></button>
@@ -229,10 +228,10 @@
   };
   function formImportar() {
     let lido = null, tipo = null, arquivo = null, gvRef = null;
-    const g = FL.gaveta({ sobre: 'TERCEIRIZAÇÃO', titulo: 'Importar PDF da nota', sub: 'Saída ou retorno: o FlowLog descobre pelo CFOP. Nada é gravado antes de "Confirmar e gravar".', botao: 'Confirmar e gravar', largura: 620,
-      html: `<div class="zona-arquivo" data-escolher-pdf tabindex="0" role="button" style="cursor:pointer"><b>Arraste o PDF da nota aqui, ou clique para escolher</b><span style="font-size:13px;color:var(--texto2)">Um PDF por vez (DANFE).</span></div>
+    const g = FL.gaveta({ sobre: 'TERCEIRIZAÇÃO', titulo: 'Importar PDF da nota', botao: 'Confirmar e gravar', largura: 620,
+      html: `<div class="zona-arquivo" data-escolher-pdf tabindex="0" role="button" style="cursor:pointer"><b>Arraste o PDF da nota ou clique para escolher</b><span style="font-size:13px;color:var(--texto2)">Um PDF por vez (DANFE).</span></div>
         <div data-lido></div>
-        <button type="button" class="link" style="align-self:flex-start" data-lote>Tem vários PDFs? Importar vários de uma vez</button>`,
+        <button type="button" class="link" style="align-self:flex-start" data-lote>Importar vários PDFs</button>`,
       aoAbrir: (gv) => {
         gvRef = gv;
         const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.pdf'; inp.hidden = true; gv.appendChild(inp);
@@ -256,7 +255,7 @@
           tipo = 'saida';
           if (r && r.aviso_direcao && /RETORNO/.test(r.aviso_direcao)) { r = await FL.api('POST', '/api/terceirizacao/retorno/importar-pdf', null, { form: fd() }); tipo = 'retorno'; }
           if (!r) { gv.querySelector('[data-lido]').innerHTML = ''; return; }
-          if (r.status === 'erro_leitura' || !r.dados) { lido = null; gv.querySelector('[data-lido]').innerHTML = `<p class="aviso">${esc(r.mensagem || 'Não consegui ler este PDF.')} Lance a nota à mão.</p>`; return; }
+          if (r.status === 'erro_leitura' || !r.dados) { lido = null; gv.querySelector('[data-lido]').innerHTML = `<p class="aviso">${esc(r.mensagem || 'PDF não lido.')} Lançar a nota à mão.</p>`; return; }
           lido = r;
           desenharLido(gv);
         }
@@ -300,9 +299,9 @@
         </div>
         ${[lido.aviso_direcao, lido.mensagem].concat(lido.avisos_leitura || []).filter(Boolean).map((a) => `<p class="aviso">${esc(a)}</p>`).join('')}
         ${podeData ? `<div class="campo"><label for="impData">Data ${tipo === 'saida' ? 'de saída' : 'de volta'} (a real)</label><input id="impData" type="date" value="${esc(d.data_nota || '')}">
-          <span class="dica" data-dica-data></span></div>` : (existente ? `<p class="aviso info">A data fica a que já está no FlowLog: ${FL.data(existente.data)}.</p>` : '')}
+          <span class="dica" data-dica-data></span></div>` : (existente ? `<p class="aviso info">Data mantida: ${FL.data(existente.data)}.</p>` : '')}
         ${tipo === 'retorno' && lido.status !== 'duplicado' && lido.status !== 'so_pdf' ? `<div class="campo"><label for="impSaida">Nota de saída ligada</label><input id="impSaida" type="text" inputmode="numeric" value="${esc(ligManual ? existente.saida : (d.numero_nota_saida || ''))}" ${ligManual ? 'readonly' : ''} placeholder="Número da saída (com ou sem ponto)">
-          ${ligManual ? '<span class="dica"><b>Ligação escolhida à mão: fica como está.</b> Para mudar, use o lápis (Editar).</span>' : ''}
+          ${ligManual ? '<span class="dica">Ligação feita à mão (mantida).</span>' : ''}
           <span class="dica" data-dica-saida></span>
           ${d.informacoes_complementares ? `<span class="dica">Texto da nota: “${esc(d.informacoes_complementares.slice(0, 260))}”</span>` : ''}</div>` : ''}
         ${(d.itens || []).length ? `<details><summary style="cursor:pointer;font-weight:700;font-size:13px">ITENS LIDOS (${d.itens.length})</summary><div style="overflow-x:auto;margin-top:8px"><table class="tabela-interna"><thead><tr><th>Código</th><th>Descrição</th><th style="text-align:right">Qtd.</th><th style="text-align:right">Valor</th></tr></thead><tbody>
@@ -315,15 +314,15 @@
       if (!gv) return;
       const d = lido.dados;
       const di = gv.querySelector('#impData'), dd = gv.querySelector('[data-dica-data]');
-      if (di && dd) dd.textContent = di.value && di.value !== d.data_nota ? `A nota diz ${FL.data(d.data_nota)}; vai ficar ${FL.data(di.value)}.` : 'Igual à data impressa. Mude se a nota saiu ou voltou em outro dia.';
+      if (di && dd) dd.textContent = di.value && di.value !== d.data_nota ? `Data na nota: ${FL.data(d.data_nota)} · gravada: ${FL.data(di.value)}` : 'Igual à data da nota.';
       const si = gv.querySelector('#impSaida'), sd = gv.querySelector('[data-dica-saida]');
       if (si && sd) {
         const num = si.value.replace(/[.\s]/g, '');
         const s = num && achar('saida:' + num);
         const dataRet = (di && di.value) || d.data_nota;
-        if (!num) sd.textContent = 'Sem ligação. Dá para ligar depois pelo lápis (Editar).';
-        else if (s) sd.innerHTML = `Saída ${esc(num)} de ${FL.data(s.data)} · lead time ${FL.plural(Math.round((new Date(dataRet + 'T12:00:00') - new Date(s.data + 'T12:00:00')) / 864e5), 'dia', 'dias')}${si.readOnly ? '' : (num !== (d.vinculo_detectado_automaticamente || '') ? ' · <b>ligação escolhida à mão</b> (nunca é trocada por outra importação)' : ' · achada no texto da nota')}`;
-        else sd.innerHTML = `<b style="color:var(--alerta)">A saída ${esc(num)} não está no FlowLog.</b> O retorno fica ligado a ela e aparece "Saída não lançada" até ela ser importada.`;
+        if (!num) sd.textContent = 'Sem ligação.';
+        else if (s) sd.innerHTML = `Saída ${esc(num)} de ${FL.data(s.data)} · lead time ${FL.plural(Math.round((new Date(dataRet + 'T12:00:00') - new Date(s.data + 'T12:00:00')) / 864e5), 'dia', 'dias')}${si.readOnly ? '' : (num !== (d.vinculo_detectado_automaticamente || '') ? ' · ligação manual' : ' · achada no texto da nota')}`;
+        else sd.innerHTML = `<b style="color:var(--alerta)">Saída ${esc(num)} não lançada.</b>`;
       }
     }
     return g;
@@ -361,14 +360,14 @@
   }
   function formManual() {
     let tipo = 'saida';
-    FL.gaveta({ sobre: 'TERCEIRIZAÇÃO', titulo: 'Nota à mão', sub: 'Para nota sem PDF. Quando o PDF chegar, ele completa a nota sem mudar a data nem a ligação.', botao: 'Gravar nota',
+    FL.gaveta({ sobre: 'TERCEIRIZAÇÃO', titulo: 'Nota à mão', botao: 'Gravar nota',
       html: `<div class="campo"><span class="rot" id="nmTipoRot">Tipo</span><div class="seg" style="grid-template-columns:1fr 1fr" role="group" aria-labelledby="nmTipoRot">
           <button type="button" data-tipo="saida" aria-pressed="true">Saída</button><button type="button" data-tipo="retorno" aria-pressed="false">Retorno</button></div></div>
         <div class="campo"><label for="nmNum">Número da nota <span style="font-weight:400">(obrigatório)</span></label><input id="nmNum" type="text" inputmode="numeric" placeholder="Com ou sem ponto: 118.098 ou 118098"></div>
         <div class="campo"><label for="nmData">Data (a real de saída ou de volta)</label><input id="nmData" type="date" value="${FL.hojeISO()}"></div>
         ${campoFornecedor('nmForn', st.fornecedores[0] || '')}
         <div class="campo" data-so-retorno hidden><label for="nmSaida">Nota de saída ligada <span style="font-weight:400">(opcional)</span></label><input id="nmSaida" type="text" inputmode="numeric">
-          <span class="dica">Ligação escolhida à mão nunca é trocada por uma importação de PDF.</span></div>`,
+          </div>`,
       aoAbrir: (g) => g.addEventListener('click', (e) => {
         const b = e.target.closest('[data-tipo]');
         if (!b) return;
@@ -393,11 +392,11 @@
     const d = st.detalhes[chave(n)] || await FL.api('GET', `/api/v2/terceirizacao/${n.tipo}/${encodeURIComponent(n.numero)}`);
     if (!d) return;
     const nota = d.nota;
-    FL.gaveta({ sobre: NOME_TIPO[n.tipo].toUpperCase() + ' ' + n.numero, titulo: 'Editar nota', sub: 'A data é a real de saída ou de volta; importar o PDF de novo nunca troca.', botao: 'Salvar',
+    FL.gaveta({ sobre: NOME_TIPO[n.tipo].toUpperCase() + ' ' + n.numero, titulo: 'Editar nota', botao: 'Salvar',
       html: `<div class="campo"><label for="edData">Data</label><input id="edData" type="date" value="${esc(nota.data_nota || '')}"></div>
         ${campoFornecedor('edForn', nota.fornecedor)}
         ${n.tipo === 'retorno' ? `<div class="campo"><label for="edSaida">Nota de saída ligada</label><input id="edSaida" type="text" inputmode="numeric" value="${esc(nota.numero_nota_saida || '')}" placeholder="Vazio = sem ligação">
-          <span class="dica">Ligação escolhida à mão nunca é trocada por uma importação de PDF.</span></div>` : ''}`,
+          </div>` : ''}`,
       aoSalvar: async (g) => {
         const data = g.querySelector('#edData').value, forn = g.querySelector('#edForn').value.trim();
         if (!data) { g.erro('Escolha a data.'); return false; }

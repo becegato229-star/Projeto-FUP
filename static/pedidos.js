@@ -88,8 +88,8 @@
     el.innerHTML = cabecalho() + `
       <div class="fl-cartoes fl-entra d1">
         <button type="button" class="fl-cartao" data-cartao="todos"><span class="v">${FL.num(lista.length)}</span><span class="r">Pedidos no filtro</span><span class="s">de ${FL.num(st.dados.length)} no total</span></button>
-        <button type="button" class="fl-cartao" data-cartao="atrasados"><span class="v" style="color:${atras ? 'var(--alerta)' : '#000'}">${FL.num(atras)}</span><span class="r">Atraso de produção</span><span class="s">não faturado e passou da data prometida</span></button>
-        <button type="button" class="fl-cartao" data-cartao="avisos"><span class="v" style="color:${avisos ? 'var(--alerta)' : '#000'}">${FL.num(avisos)}</span><span class="r">Avisos (sem canhoto)</span><span class="s">NF faturada passou do prazo</span></button>
+        <button type="button" class="fl-cartao" data-cartao="atrasados"><span class="v" style="color:${atras ? 'var(--alerta)' : '#000'}">${FL.num(atras)}</span><span class="r">Atraso de produção</span><span class="s">não faturado após a data prometida</span></button>
+        <button type="button" class="fl-cartao" data-cartao="avisos"><span class="v" style="color:${avisos ? 'var(--alerta)' : '#000'}">${FL.num(avisos)}</span><span class="r">Avisos (sem canhoto)</span><span class="s">NF sem canhoto após o prazo</span></button>
         <button type="button" class="fl-cartao" data-cartao="encerrados"><span class="v">${FL.num(encerr)}</span><span class="r">Encerrados</span><span class="s">canhoto em todas as NFs</span></button>
       </div>
       <div class="fl-entra d1" style="display:flex;flex-direction:column;gap:12px">
@@ -106,8 +106,7 @@
   }
 
   function cabecalho() {
-    return `<div class="fl-cabeca fl-entra"><div class="txt"><h1>Pedidos</h1>
-      <p>Todos os pedidos, das planilhas do Mega e da expedição. Clique no pedido para ver itens e notas fiscais.</p></div>
+    return `<div class="fl-cabeca fl-entra"><div class="txt"><h1>Pedidos</h1></div>
       <div class="fl-acoes-topo"><a class="btn sec" href="#configuracoes?aba=importar">${FL.icone.enviar} Importar planilhas</a>
       <button type="button" class="btn" data-exportar>${FL.icone.baixar} Exportar Excel</button></div></div>`;
   }
@@ -159,8 +158,8 @@
     const validas = nfsValidas(p);
     const avisos = [];
     if (p.status === 'Cancelado') avisos.push(['aviso', `Pedido cancelado${d.data_cancelamento ? ' em ' + FL.data(d.data_cancelamento) : ''}${d.cancelado_por ? ' por ' + d.cancelado_por : ''}: ${p.motivo_cancelamento || (p.cancelado ? '—' : 'cancelado no Mega')}`]);
-    if (validas.length > 1 || (validas.length && p.itens_na_carteira)) avisos.push(['aviso info', `Entrega parcial: ${FL.plural(validas.length, 'NF', 'NFs')}${p.itens_na_carteira ? ' e ' + FL.plural(p.itens_na_carteira, 'item ainda na carteira', 'itens ainda na carteira') : ''}. O pedido só encerra com canhoto em todas as NFs e nada pendente.`]);
-    if (p.nova_data) avisos.push(['aviso info', `Nova data ${FL.data(p.nova_data)}${d.nova_data_quem ? ' · pedida por: ' + d.nova_data_quem : ''}${d.nova_data_motivo ? ' · ' + d.nova_data_motivo : ''}${d.nova_data_por ? ' · registrada por ' + d.nova_data_por : ''}. É só informativa: não tira o pedido dos atrasados.`]);
+    if (validas.length > 1 || (validas.length && p.itens_na_carteira)) avisos.push(['aviso info', `Entrega parcial: ${FL.plural(validas.length, 'NF', 'NFs')}${p.itens_na_carteira ? ' e ' + FL.plural(p.itens_na_carteira, 'item ainda na carteira', 'itens ainda na carteira') : ''}`]);
+    if (p.nova_data) avisos.push(['aviso info', `Nova data ${FL.data(p.nova_data)}${d.nova_data_quem ? ' · pedida por: ' + d.nova_data_quem : ''}${d.nova_data_motivo ? ' · ' + d.nova_data_motivo : ''}${d.nova_data_por ? ' · registrada por ' + d.nova_data_por : ''}`]);
     const dados = [['Vendedor', d.vendedor || 'não informado (vem da Carteira de pedidos ou do Dashboard de vendas)'], ['Transportadora', d.transportadora || (p.tipo === 'Transportadora' ? 'não informada' : p.tipo)], ['Situação no Mega', p.situacao_erp || '—']];
     if (d.uf) dados.push(['Estado', d.uf + (d.municipio ? ' · ' + d.municipio : '')]);
     const fat = d.itens_faturados || [];
@@ -169,14 +168,14 @@
     const itens = d.itens.length ? `<table class="tabela-interna"><thead><tr><th>Código</th><th>Descrição</th><th class="dir" style="text-align:right">Qtd.</th><th>Un.</th><th>Entrega</th><th>Situação</th></tr></thead><tbody>
       ${d.itens.map((i) => `<tr><td class="nw">${esc(i.codigo || '—')}</td><td>${esc(i.descricao || '—')}</td><td style="text-align:right" class="nw">${FL.num(i.quantidade, i.quantidade % 1 ? 2 : 0)}</td><td>${esc(i.unidade || '')}</td><td class="nw">${FL.dataCurta(i.entrega)}</td>
         <td>${i.na_carteira ? '<span class="selo">Na carteira</span>' : '<span class="selo ok">Saiu da carteira</span>'}</td></tr>`).join('')}</tbody></table>`
-      : (fat.length ? '<p style="margin:0;font-size:14px;color:var(--texto2)">Nenhum item na Carteira de pedidos. Os itens que já saíram estão em "Itens faturados".</p>'
+      : (fat.length ? '<p style="margin:0;font-size:14px;color:var(--texto2)">Sem itens na Carteira.</p>'
         : '<p class="aviso info">Os itens aparecem quando a Carteira de pedidos (itens pendentes) ou o Dashboard de vendas (itens faturados) for importado (Configurações › Importar).</p>');
     const nfs = d.nfs.length ? `<table class="tabela-interna"><thead><tr><th>NF</th><th>Faturamento</th><th>Entrega</th><th>Canhoto</th><th></th></tr></thead><tbody>
       ${d.nfs.map((n) => `<tr><td class="nw" style="${n.cancelada ? 'text-decoration:line-through;color:var(--texto2)' : ''}"><b>${esc(n.nf)}</b>${n.cancelada ? ` <span class="selo contorno-alerta" style="text-decoration:none">cancelada</span>` : ''}</td>
         <td class="nw">${FL.data(n.faturamento)}</td><td class="nw">${FL.data(n.entrega)}</td>
         <td>${n.cancelada ? `<span style="font-size:12px;color:var(--texto2)">${esc(n.cancelada_motivo || '')}${n.cancelada_por ? ' · ' + esc(n.cancelada_por) : ''}</span>` : (n.canhoto ? '<span class="selo ok">Recebido</span>' : '<span class="selo alerta">Falta</span>')}</td>
         <td class="nw" style="text-align:right">${n.fora_da_planilha ? '<span style="font-size:12px;color:var(--texto2)">não veio na última planilha</span>' : ''}<button type="button" class="link" style="font-size:12px;${n.fora_da_planilha ? 'display:none' : ''}" data-nf-cancelar="${esc(n.nf)}" data-p="${esc(p.pedido)}" data-desfazer="${n.cancelada ? '1' : ''}" title="${n.cancelada ? 'Esta NF não está cancelada' : 'Marcar esta NF como cancelada'}">${n.cancelada ? 'desmarcar' : 'cancelada?'}</button></td></tr>`).join('')}</tbody></table>`
-      : '<p style="margin:0;font-size:14px;color:var(--texto2)">Nenhuma NF ainda.</p>';
+      : '<p style="margin:0;font-size:14px;color:var(--texto2)">Sem NF.</p>';
     const fups = d.fups.slice(0, 3);
     return `<div style="display:flex;flex-direction:column;gap:14px">
       ${avisos.map((a) => `<p class="${a[0]}">${esc(a[1])}</p>`).join('')}
@@ -219,12 +218,12 @@
   // ------------------------------------------------------------------
   function formNovaData(p) {
     let quem = p.nova_data_quem || '';
-    FL.gaveta({ sobre: 'PEDIDO ' + p.pedido + ' · ' + (p.cliente || ''), titulo: 'Nova data de entrega', sub: 'É só informativa: registra a renegociação, mas não tira o pedido dos atrasados.', botao: 'Salvar nova data',
+    FL.gaveta({ sobre: 'PEDIDO ' + p.pedido + ' · ' + (p.cliente || ''), titulo: 'Nova data de entrega', sub: 'Informativa: não tira o pedido dos atrasados.', botao: 'Salvar nova data',
       html: `<div style="display:flex;gap:24px;font-size:14px"><span>Original: <b>${FL.data(p.prometida)}</b></span><span>Nova atual: <b>${p.nova_data ? FL.data(p.nova_data) : '—'}</b></span></div>
         <div class="campo"><label for="ndData">Nova data <span style="font-weight:400">(obrigatório)</span></label><input id="ndData" type="date" value="${esc(p.nova_data || '')}"></div>
         <div class="campo"><span class="rot" id="ndQuemRot">Quem pediu a mudança <span style="font-weight:400">(obrigatório)</span></span>
           <div class="seg" style="grid-template-columns:1fr 1fr" role="group" aria-labelledby="ndQuemRot">${['Cliente', 'MUBEC'].map((q) => `<button type="button" data-quem="${q}" aria-pressed="${q === quem}">${q}</button>`).join('')}</div>
-          <span class="dica">Separa o atraso da MUBEC do adiamento pedido pelo cliente.</span></div>
+          </div>
         <div class="campo"><label for="ndMotivo">Motivo <span style="font-weight:400">(opcional)</span></label><input id="ndMotivo" type="text" maxlength="200" placeholder="Ex.: cliente pediu para entregar depois do inventário"></div>
         ${p.nova_data ? '<button type="button" class="link" style="align-self:flex-start" data-limpar-nova>Tirar a nova data (voltar ao prazo original)</button>' : ''}`,
       aoAbrir: (g) => {
@@ -315,7 +314,7 @@
 
   function formCancelar(p) {
     FL.modal({ titulo: `Cancelar o pedido ${p.pedido}?`, perigo: true, botao: 'Cancelar pedido',
-      html: `<p>${esc(p.cliente || '')} · ${esc(p.status || '')}. O pedido fica marcado como <b>Cancelado</b> e sai dos atrasados e dos avisos. Só dá para desfazer com a <b>senha de administrador</b>.</p>
+      html: `<p>${esc(p.cliente || '')} · ${esc(p.status || '')}. Fica como <b>Cancelado</b> e sai dos atrasados e dos avisos. Desfazer pede a senha de administrador.</p>
         <div class="campo"><label for="cnMotivo">Motivo <span style="font-weight:400">(obrigatório)</span></label><textarea id="cnMotivo" rows="3" maxlength="300"></textarea></div>
         <div class="campo"><label for="cnData">Data do cancelamento</label><input id="cnData" type="date" value="${FL.hojeISO()}"></div>`,
       aoConfirmar: async (m) => {
@@ -336,7 +335,7 @@
       return;
     }
     FL.modal({ titulo: `Marcar a NF ${nf} como cancelada?`, botao: 'Marcar como cancelada', perigo: true,
-      html: `<p>A NF continua aparecendo, riscada, e deixa de contar para o status do pedido e para o aviso de canhoto. Dá para voltar atrás depois.</p>
+      html: `<p>A NF fica riscada e deixa de contar no status e no aviso de canhoto.</p>
         <div class="campo"><label for="nfMotivo">Por que foi cancelada <span style="font-weight:400">(obrigatório)</span></label><input id="nfMotivo" type="text" maxlength="200" placeholder="Ex.: refaturada na NF 117600"></div>`,
       aoConfirmar: async (m) => {
         const motivo = m.querySelector('#nfMotivo').value.trim();

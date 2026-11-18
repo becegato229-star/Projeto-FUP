@@ -50,8 +50,7 @@
 
   // ------------------------------------------------------------------
   function cabecalho() {
-    return `<div class="fl-cabeca fl-entra"><div class="txt"><h1>Pós-venda</h1>
-      <p>Problemas depois da entrega: o que aconteceu, quem resolve e como terminou. Coordenação: Norma.</p></div>
+    return `<div class="fl-cabeca fl-entra"><div class="txt"><h1>Pós-venda</h1></div>
       <div class="fl-acoes-topo"><button type="button" class="btn" data-novo>+ Novo caso</button></div></div>`;
   }
   function desenhar() {
@@ -67,9 +66,9 @@
     const abas = [{ id: 'todos', rotulo: 'Todos', qtd: todos.length }, { id: 'abertos', rotulo: 'Abertos', qtd: abertos.length }, { id: 'concluidos', rotulo: 'Concluídos', qtd: todos.length - abertos.length }];
     el.innerHTML = cabecalho() + `
       <div class="fl-cartoes fl-entra d1">
-        <button type="button" class="fl-cartao" data-cartao="abertos"><span class="v">${abertos.length}</span><span class="r">Casos abertos</span><span class="s">Encontrar solução ou Em andamento</span></button>
-        <button type="button" class="fl-cartao" data-cartao="vencidos"><span class="v" style="color:${vencidos ? 'var(--alerta)' : '#000'}">${vencidos}</span><span class="r">Com prazo de solução vencido</span><span class="s">abertos que passaram do prazo</span></button>
-        <button type="button" class="fl-cartao" data-cartao="resolvidos"><span class="v">${resolvidos.length}</span><span class="r">Resolvidos</span><span class="s">desde o começo</span></button>
+        <button type="button" class="fl-cartao" data-cartao="abertos"><span class="v">${abertos.length}</span><span class="r">Casos abertos</span><span class="s"></span></button>
+        <button type="button" class="fl-cartao" data-cartao="vencidos"><span class="v" style="color:${vencidos ? 'var(--alerta)' : '#000'}">${vencidos}</span><span class="r">Com prazo de solução vencido</span><span class="s"></span></button>
+        <button type="button" class="fl-cartao" data-cartao="resolvidos"><span class="v">${resolvidos.length}</span><span class="r">Resolvidos</span><span class="s"></span></button>
         <button type="button" class="fl-cartao" data-cartao="causa"><span class="v" style="font-size:${top && top[0].length > 10 ? '22px' : ''}">${top ? esc(top[0]) : '—'}</span><span class="r">Causa mais comum</span><span class="s">${top ? FL.plural(top[1], 'caso', 'casos') : 'nenhum caso encerrado'}</span></button>
       </div>
       <div class="fl-entra d1" style="display:flex;flex-direction:column;gap:12px">
@@ -143,7 +142,7 @@
     const L = await listas();
     let achado = null, resp = '';
     const prazoPadrao = FL.somarDias(st.hoje, 2);
-    FL.gaveta({ sobre: 'PÓS-VENDA', titulo: 'Novo caso', sub: 'Digite a nota ou o pedido: cliente, vendedor e prazo de 30 dias vêm sozinhos.', botao: 'Abrir caso', largura: 560,
+    FL.gaveta({ sobre: 'PÓS-VENDA', titulo: 'Novo caso', botao: 'Abrir caso', largura: 560,
       html: `<div class="campo"><label for="pvBusca">Nota fiscal ou número do pedido <span style="font-weight:400">(com ou sem ponto)</span></label>
           <div style="display:flex;gap:8px"><input id="pvBusca" type="text" inputmode="numeric" value="${esc(inicial || '')}" style="flex:1"><button type="button" class="btn sec" data-buscar-pv>Buscar</button></div></div>
         <div data-achado></div>
@@ -164,7 +163,7 @@
           if (g.querySelector('#pvBusca').value.trim() !== q) return; // o número mudou enquanto procurava
           achado = r;
           if (r) achado.q = q;
-          if (!achado) { caixa.innerHTML = `<p class="aviso">Não achei a nota ou o pedido ${esc(q)}. Confira o número.</p>`; return; }
+          if (!achado) { caixa.innerHTML = `<p class="aviso">Nota ou pedido ${esc(q)} não encontrado.</p>`; return; }
           desenharAchado(g);
         };
         g.addEventListener('click', (e) => {
@@ -178,7 +177,7 @@
         if (inicial) buscar();
       },
       aoSalvar: async (g) => {
-        if (!achado || achado.q !== g.querySelector('#pvBusca').value.trim()) { g.erro('Digite uma nota ou pedido que exista e clique em Buscar.'); return false; }
+        if (!achado || achado.q !== g.querySelector('#pvBusca').value.trim()) { g.erro('Busque uma nota ou pedido existente.'); return false; }
         const fora = foraDoPrazo();
         const just = g.querySelector('#pvJust') ? g.querySelector('#pvJust').value.trim() : '';
         if (fora && !just) { g.erro(`Está fora do prazo de ${st.prazoDias} dias: escreva por que vai abrir assim mesmo.`); return false; }
@@ -263,7 +262,7 @@
   }
 
   function formContato(c) {
-    FL.gaveta({ sobre: 'CASO ' + c.numero, titulo: 'Contato e endereço', sub: 'O endereço vai para o romaneio.', botao: 'Salvar',
+    FL.gaveta({ sobre: 'CASO ' + c.numero, titulo: 'Contato e endereço', botao: 'Salvar',
       html: `<div class="campo"><label for="ctNome">Contato</label><input id="ctNome" type="text" maxlength="120" value="${esc(c.contato || '')}"></div>
         <div class="campo"><label for="ctTel">Telefone</label><input id="ctTel" type="tel" maxlength="40" value="${esc(c.telefone || '')}"></div>
         <div class="campo"><label for="ctEnd">Endereço para a retirada</label><textarea id="ctEnd" rows="3" maxlength="500">${esc(c.endereco || '')}</textarea></div>`,
@@ -294,13 +293,13 @@
     const itens = (await FL.api('GET', `/api/v2/posvenda/${c.id}/itens`, null, { silencioso: true })) || [];
     const motivo = MOTIVO_ROMANEIO[c.problema] || 'Outro';
     const itensTxt = itens.map((i) => `${FL.num(i.quantidade, (i.quantidade || 0) % 1 ? 2 : 0)} ${i.unidade || ''} · ${i.codigo || ''} · ${i.descricao || ''}`.trim()).join('\n');
-    FL.gaveta({ sobre: 'PRÉVIA · DADOS VÊM DO CASO ' + c.numero, titulo: 'Romaneio', sub: 'Confira e ajuste antes de imprimir.', botao: 'Imprimir / salvar PDF', cancelar: 'Fechar', semAutor: true, largura: 560,
+    FL.gaveta({ sobre: 'PRÉVIA · DADOS VÊM DO CASO ' + c.numero, titulo: 'Romaneio', botao: 'Imprimir / salvar PDF', cancelar: 'Fechar', semAutor: true, largura: 560,
       html: `<div class="campo"><label for="rmData">Data da retirada</label><input id="rmData" type="date" value="${FL.somarDias(st.hoje, 1)}"></div>
         <div class="campo"><label for="rmCliente">Cliente</label><input id="rmCliente" type="text" value="${esc(c.cliente || '')}"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="campo"><label for="rmContato">Contato</label><input id="rmContato" type="text" value="${esc(c.contato || '')}"></div>
           <div class="campo"><label for="rmTel">Telefone</label><input id="rmTel" type="text" value="${esc(c.telefone || '')}"></div></div>
         <div class="campo"><label for="rmNf">Nota fiscal</label><input id="rmNf" type="text" value="${esc(c.nf || 'Verbal')}"></div>
-        <div class="campo"><label for="rmEnd">Endereço</label><textarea id="rmEnd" rows="2">${esc(c.endereco || '')}</textarea><span class="dica">Fica guardado no caso para o próximo romaneio.</span></div>
+        <div class="campo"><label for="rmEnd">Endereço</label><textarea id="rmEnd" rows="2">${esc(c.endereco || '')}</textarea></div>
         <div class="campo"><label for="rmItens">Itens (um por linha)</label><textarea id="rmItens" rows="6">${esc(itensTxt)}</textarea></div>
         <div class="campo"><span class="rot">Motivo</span><div class="chips">${MOTIVOS_ROMANEIO.map((m) => `<label class="chip" style="cursor:pointer"><input type="checkbox" value="${esc(m)}" ${m === motivo ? 'checked' : ''}> ${esc(m)}</label>`).join('')}</div></div>`,
       aoSalvar: async (g) => {

@@ -49,7 +49,7 @@
     return new Promise((resolve) => {
       const atual = FL.usuario();
       const html = `
-        <p>O FlowLog ainda não tem login. Seu nome aparece em tudo o que você registrar (“Registrado por”).</p>
+        <p>O nome aparece nos registros (“Registrado por”).</p>
         <div class="chips" role="group" aria-label="Pessoas">
           ${FL.PESSOAS.map((p) => `<button type="button" class="chip" data-nome="${esc(p)}" aria-pressed="${p === atual}">${esc(p)}</button>`).join('')}
         </div>
@@ -82,7 +82,7 @@
       const html = `<p>${esc(motivo || 'Mexer nas Configurações pede a senha de administrador.')}</p>
         <div class="campo"><label for="flSenha">Senha de administrador</label>
         <input id="flSenha" type="password" autocomplete="current-password"></div>
-        <p class="dica" style="font-size:12px;color:var(--texto2)">Ela fica guardada só até você fechar o navegador.</p>`;
+        `;
       const m = FL.modal({ titulo: 'Senha de administrador', icone: 'neutro', html, botao: 'Continuar',
         aoConfirmar: async (el) => {
           const s = el.querySelector('#flSenha').value;
@@ -102,7 +102,7 @@
 
   FL.definirSenha = function (trocar) {
     return new Promise((resolve) => {
-      const html = `<p>${trocar ? 'Troque a senha de administrador.' : 'Ainda não existe senha de administrador. Ela protege o backup e as mudanças nas Configurações. Guarde em lugar seguro: ela não pode ser recuperada, só trocada por quem sabe a atual.'}</p>
+      const html = `<p>${trocar ? 'Troque a senha de administrador.' : 'Nova senha de administrador. Não pode ser recuperada.'}</p>
         ${trocar ? '<div class="campo"><label for="flSenhaAtual">Senha atual</label><input id="flSenhaAtual" type="password" autocomplete="current-password"></div>' : ''}
         <div class="campo"><label for="flSenhaNova">Senha nova <span style="font-weight:400">(mínimo 8 caracteres)</span></label><input id="flSenhaNova" type="password" autocomplete="new-password"></div>
         <div class="campo"><label for="flSenhaNova2">Repita a senha nova</label><input id="flSenhaNova2" type="password" autocomplete="new-password"></div>`;
@@ -115,7 +115,7 @@
           const r = await FL.api('POST', '/api/v2/senha', { nova, atual });
           if (!r) return false;
           gravarSessao('fl_senha', nova);
-          FL.toast(trocar ? 'Senha trocada.' : 'Senha definida. Guarde-a em lugar seguro.');
+          FL.toast(trocar ? 'Senha trocada.' : 'Senha definida.');
           resolve(true);
           return true;
         },
@@ -312,7 +312,7 @@
   // Gaveta de filtros. itens = os da aba atual. Devolve via aoMudar(novosMarcados).
   FL.gavetaFiltros = function ({ sobre, defs, itens, marcados, aoMudar, nomeItens, extraHtml }) {
     let m = JSON.parse(JSON.stringify(marcados || {}));
-    const g = FL.gaveta({ sobre, titulo: 'Filtros especializados', sub: 'Marque quantos quiser. No mesmo grupo, soma. Entre grupos, cruza.', html: `<div data-extra>${extraHtml || ''}</div><div data-grupos></div>`, semAutor: true, cancelar: 'Fechar', botao: 'Ver resultado', aoSalvar: () => true });
+    const g = FL.gaveta({ sobre, titulo: 'Filtros especializados', html: `<div data-extra>${extraHtml || ''}</div><div data-grupos></div>`, semAutor: true, cancelar: 'Fechar', botao: 'Ver resultado', aoSalvar: () => true });
     const desenhar = () => {
       const caixa = g.querySelector('[data-grupos]');
       caixa.innerHTML = defs.map((d) => {  // o período (extraHtml) fica fora: redesenhar não apaga o que foi digitado
@@ -391,7 +391,7 @@
     nav.querySelector('[data-menu2]').innerHTML = MENU2.map((m) => htmlItem(m, atual)).join('');
   }
   function atualizarUsuarioTopo() {
-    const nome = FL.usuario() || 'Quem é você?';
+    const nome = FL.usuario() || 'Quem está usando?';
     const b = document.querySelector('.fl-usuario');
     if (!b) return;
     b.querySelector('.ini').textContent = (FL.usuario() || '?').charAt(0).toUpperCase();
@@ -420,7 +420,7 @@
               <input id="flBuscaTopo" type="search" placeholder="Buscar pedido, NF ou cliente (com ou sem ponto)">
               <kbd>Ctrl K</kbd>
             </form>
-            <button type="button" class="fl-usuario" title="Trocar quem está usando"><span class="ini" aria-hidden="true">?</span><span class="nome"><b>Quem é você?</b><small>trocar</small></span></button>
+            <button type="button" class="fl-usuario" title="Trocar quem está usando"><span class="ini" aria-hidden="true">?</span><span class="nome"><b>Quem está usando?</b><small>trocar</small></span></button>
           </header>
           <main class="fl-pagina" id="flPagina"></main>
         </div>
@@ -436,10 +436,9 @@
 
   function telaNaoPronta(el, id) {
     const m = MENU.concat(MENU2).find((x) => x.id === id) || { nome: id };
-    el.innerHTML = `<div class="fl-cabeca fl-entra"><div class="txt"><h1>${esc(m.nome)}</h1>
-      <p>Esta tela ainda está sendo construída na versão nova.</p></div></div>
+    el.innerHTML = `<div class="fl-cabeca fl-entra"><div class="txt"><h1>${esc(m.nome)}</h1></div></div>
       <div class="fl-secao fl-entra d1" style="max-width:640px"><h2>Enquanto isso, use a tela antiga</h2>
-      <p>Tudo o que você fizer lá fica salvo no mesmo banco e aparece aqui quando esta tela ficar pronta.</p>
+      
       <a class="btn" href="/" style="align-self:flex-start">Abrir o FlowLog 1.0</a></div>`;
   }
 

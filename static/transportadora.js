@@ -37,8 +37,7 @@
     const sel = lista.find((d) => chave(d) === st.sel) || lista[0] || null;
     if (sel) st.sel = chave(sel);
     el.innerHTML = `
-      <div class="fl-cabeca fl-entra"><div class="txt"><h1>Transportadora</h1>
-        <p>Notas faturadas para transportadora: chamar a coleta, acompanhar a retirada e o canhoto. A responsabilidade da MUBEC termina na coleta.</p></div></div>
+      <div class="fl-cabeca fl-entra"><div class="txt"><h1>Transportadora</h1></div></div>
       <div class="fl-entra d1" style="display:flex;flex-direction:column;gap:12px">
         <div class="fl-barra-abas">${FL.htmlAbas(abas, st.aba, 'Abas da transportadora')}${FL.botaoFiltros(st.filtros)}</div>
         ${FL.htmlChipsAtivos(DEFS, st.filtros)}
@@ -73,7 +72,7 @@
   }
 
   function painel(d) {
-    if (!d) return `<aside class="fl-painel"><div class="cab"><span class="sobre">TRANSPORTADORA</span><h2>Nada selecionado</h2></div><div class="meio"><p style="margin:0;color:var(--texto2)">Escolha uma nota na tabela.</p></div></aside>`;
+    if (!d) return `<aside class="fl-painel"><div class="cab"><span class="sobre">TRANSPORTADORA</span><h2>Nada selecionado</h2></div><div class="meio"><p style="margin:0;color:var(--texto2)">Nenhuma nota selecionada.</p></div></aside>`;
     const est = { chamar: 1, chamada: 2, coletado: 4, encerrado: 5 }[d.etapa];
     const ch = d.chamada, co = d.coleta;
     const passos = [
@@ -131,7 +130,7 @@
   }
 
   function formColetado(d) {
-    FL.gaveta({ sobre: `PEDIDO ${d.pedido} · ${nfTxt(d).toUpperCase()}`, titulo: 'Marcar como coletado', sub: 'O pedido só encerra quando o canhoto entrar pela importação.', botao: 'Marcar como coletado',
+    FL.gaveta({ sobre: `PEDIDO ${d.pedido} · ${nfTxt(d).toUpperCase()}`, titulo: 'Marcar como coletado', botao: 'Marcar como coletado',
       html: `<div class="campo"><label for="coData">Data da coleta</label><input id="coData" type="date" value="${st.hoje}" max="${st.hoje}"></div>
         <div class="campo"><label for="coObs">Observação <span style="font-weight:400">(opcional)</span></label><textarea id="coObs" rows="2" maxlength="500" placeholder="Ex.: conferido no controle do Elizeu"></textarea></div>`,
       aoSalvar: async (g) => salvar({ pedido: d.pedido, nf: d.nf, evento: 'coletado', data: g.querySelector('#coData').value || st.hoje, obs: g.querySelector('#coObs').value }, 'Marcado como coletado.') });

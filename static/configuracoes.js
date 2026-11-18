@@ -7,32 +7,32 @@
   // O que cada planilha alimenta (texto da tela; o reconhecimento é feito pelo servidor, pelas colunas)
   const TIPOS = [
     { id: 'follow', nome: 'Follow up de vendas', mega: 'gd_Pedido', alimenta: 'Pedidos: cliente, situação, transportadora', como: 'Manual',
-      explica: 'Um pedido por linha. Traz a situação no Mega (Bloqueado, Aprovado, Faturado…), o cliente, a data de emissão e a transportadora, que define o tipo de entrega.',
+      explica: 'Um pedido por linha: situação no Mega, cliente, emissão e transportadora (define o tipo de entrega).',
       colunas: ['Nº do documento', 'Situação', 'Data de emissão', 'Cód. do cliente', 'Nome fantasia', 'Cód. da transportadora'] },
     { id: 'oe', nome: 'OE', mega: 'Gd_PedidosPendentes', alimenta: 'Pedidos: nº da OE e data prometida', como: 'Manual',
-      explica: 'Ordens de entrega dos pedidos em produção. Dá o número da OE e a data de entrega prometida, usada no cálculo de atraso.',
+      explica: 'Ordens de entrega: nº da OE e data prometida (base do atraso).',
       colunas: ['Cód. da OE', 'Cód. do pedido', 'Data de entrega'] },
     { id: 'expedicao', nome: 'Pedidos Mubec 2.0', mega: 'Planilha Google · aba Expedição', alimenta: 'NFs, faturamento, entrega e canhoto', como: 'Automática · n8n às 08:30, 11:50 e 14:00',
-      explica: 'A planilha da expedição: notas fiscais de cada pedido, faturamento, entrega e canhoto. Chega sozinha três vezes por dia pelo n8n; o botão serve para mandar fora desses horários.',
-      cuidado: 'Se o n8n não rodar (notebook desligado), a última importação fica velha.',
+      explica: 'Expedição: NFs, faturamento, entrega e canhoto. Importada pelo n8n 3 vezes por dia.',
+      cuidado: 'Sem o n8n rodando, os dados ficam desatualizados.',
       colunas: ['Pedido', 'NF', 'Data de Faturamento', 'Data de entrega', 'Canhoto', 'Data Prev de Entrega', 'OE'] },
     { id: 'carteira', nome: 'Carteira de pedidos', mega: 'Gd_Edicao (carteira)', alimenta: 'Itens dos pedidos em aberto', como: 'Manual',
-      explica: 'Um item de pedido por linha, só dos pedidos pendentes. Quando um item é faturado ele sai da carteira, mas continua guardado no FlowLog.',
+      explica: 'Um item por linha, só pedidos pendentes. Item faturado sai da carteira e fica no histórico.',
       colunas: ['Documento de Venda', 'Código do item', 'Descrição do item', 'Quantidade do documento', 'Unidade', 'Data de entrega', 'Situação do item', 'Nome representante', 'Nome transportadora'] },
     { id: 'vendas', nome: 'Dashboard de vendas', mega: 'Gd_Edicao (vendas faturadas)', alimenta: 'Itens faturados de cada NF, vendedor e Estado', como: 'Manual',
-      explica: 'Um item de nota fiscal por linha. Não traz o número do pedido: o FlowLog liga cada NF ao pedido pela planilha da expedição. Dá os itens que já saíram em cada nota, o Estado (U.F.) do cliente e o vendedor dos pedidos que já saíram da Carteira.',
-      cuidado: 'NF que ainda não chegou pela planilha da expedição fica guardada e liga ao pedido depois, sozinha.',
+      explica: 'Um item de NF por linha, ligado ao pedido pela NF. Traz itens faturados, Estado e vendedor.',
+      cuidado: 'NF sem pedido na expedição fica guardada e liga depois.',
       colunas: ['Nº Nota Fiscal', 'Seq. Item NF', 'Data de Emissão', 'Item', 'Descrição do Item', 'Quantidade', 'Unidade', 'Nome do Representante', 'U.F.', 'Município'] },
     { id: 'boletos', nome: 'Boletos vencidos', mega: 'Relatório do banco', alimenta: 'Cobrança', como: 'Manual · Silvia',
-      explica: 'O relatório de boletos vencidos do banco. Boleto que sai do relatório vira Pago; boleto pago que volta a aparecer volta para Em aberto.',
+      explica: 'Boletos vencidos do banco. Saiu do relatório = Pago; voltou = Em aberto.',
       colunas: ['Pagador', 'Seu Número', 'Data Vencimento', 'Valor Título (R$)'] },
     { id: 'catalogo', nome: 'Catálogo de produtos', mega: 'Gd_Produtos', alimenta: 'Peso dos itens da Terceirização', como: 'Manual · quando entra produto novo',
-      explica: 'Cadastro de produtos do Mega. O FlowLog usa o peso por peça para calcular o peso das notas da zincagem.',
-      cuidado: 'Exporte com as colunas de peso. Se a planilha vier sem "Peso Líquido" e "Peso Bruto", o FlowLog mantém os pesos que já tem e avisa (nunca apaga).',
+      explica: 'Cadastro de produtos: peso por peça para as notas da zincagem.',
+      cuidado: 'Sem as colunas "Peso Líquido" e "Peso Bruto", os pesos atuais são mantidos.',
       colunas: ['Cód.Item', 'Descrição do Grupo', 'Código NCM', 'Unid.', 'Peso Líquido', 'Peso Bruto'] },
     { id: 'pdfs', nome: 'PDFs da zincagem', mega: 'DANFE (saída e retorno)', alimenta: 'Terceirização: notas e itens', como: 'Manual · vários de uma vez', pdf: true,
-      explica: 'As notas de saída para a galvanização e de retorno. O FlowLog lê o PDF, separa saída e retorno pelo CFOP e liga o retorno à saída pelo texto da nota.',
-      cuidado: 'Notas de retorno CFOP 5902 (entrada no estoque) são puladas: só a 5124 entra.',
+      explica: 'Notas de saída e retorno da galvanização. Tipo pelo CFOP; ligação pelo texto da nota.',
+      cuidado: 'CFOP 5902 (entrada no estoque) é ignorado; só 5124.',
       colunas: ['Número e chave da NF', 'CFOP', 'Itens', 'Pesos e valores', 'Informações complementares'] }
   ];
   const NOMES_PRAZOS = {
@@ -90,8 +90,7 @@
     else if (st.aba === 'backup') corpo = htmlBackup();
     else corpo = htmlTodos(comAviso);
     el.innerHTML = `
-      <div class="fl-cabeca fl-entra"><div class="txt"><h1>Configurações</h1>
-        <p>Planilhas do Mega, listas usadas nos formulários, prazos e feriados, e cópia de segurança dos dados.</p></div></div>
+      <div class="fl-cabeca fl-entra"><div class="txt"><h1>Configurações</h1></div></div>
       <div class="fl-barra-abas fl-entra d1">${FL.htmlAbas(abas, st.aba, 'Abas das configurações')}</div>
       <div class="fl-troca" style="display:flex;flex-direction:column;gap:20px">${corpo}</div>`;
     FL.aplicarBusca();
@@ -101,9 +100,9 @@
   function htmlTodos(comAviso) {
     const alertas = [];
     const d = diasDesdeBackup();
-    if (!st.senhaDefinida) alertas.push(['Ainda não existe senha de administrador. Sem ela não dá para fazer backup nem mudar as configurações.', 'Definir senha', 'backup']);
-    else if (d == null) alertas.push(['Nenhum backup feito pela tela nova ainda. Faça um antes de qualquer atualização do sistema.', 'Fazer backup', 'backup']);
-    else if (d >= 3) alertas.push([`O último backup foi há ${d} dias. Faça um antes de atualizar o sistema.`, 'Fazer backup', 'backup']);
+    if (!st.senhaDefinida) alertas.push(['Senha de administrador não definida.', 'Definir senha', 'backup']);
+    else if (d == null) alertas.push(['Nenhum backup registrado.', 'Fazer backup', 'backup']);
+    else if (d >= 3) alertas.push([`Último backup há ${d} dias.`, 'Fazer backup', 'backup']);
     comAviso.slice(0, 3).forEach((t) => alertas.push([t.nome + ': ' + ultimo(t.id).avisos[0], 'Ver importação', 'importar:' + t.id]));
     const exp = ultimo('expedicao');
     const fol = ultimo('follow');
@@ -144,8 +143,8 @@
     }).join('');
     return `
       <button type="button" class="zona-arquivo" data-escolher="planilhas">
-        ${FL.icone.enviar}<span style="text-align:left"><b>Arraste qualquer planilha do Mega aqui, ou clique para escolher</b>
-        <span>O FlowLog reconhece sozinho qual é a planilha pelas colunas. Dá para mandar várias de uma vez.</span></span>
+        ${FL.icone.enviar}<span style="text-align:left"><b>Arraste as planilhas do Mega ou clique para escolher</b>
+        <span>Tipo reconhecido pelas colunas. Aceita várias de uma vez.</span></span>
       </button>
       <input type="file" id="cfgArqPlan" accept=".xlsx,.xls" multiple hidden>
       <input type="file" id="cfgArqPdf" accept=".pdf" multiple hidden>
@@ -163,7 +162,7 @@
             <div style="display:flex;flex-direction:column;gap:10px"><span class="rotulo-secao">ÚLTIMAS IMPORTAÇÕES</span>
               ${hist.length ? hist.map((h) => `<div class="cartao-mini"><b style="font-size:13px">${FL.dataHora(h.quando)} · ${esc(h.por || '—')}</b>
                 <span style="font-size:14px">${esc(h.resumo || '')}</span>${(h.avisos || []).map((a) => `<span style="font-size:12px;font-weight:700;color:var(--alerta)">${esc(a)}</span>`).join('')}
-                ${h.arquivo ? `<span style="font-size:12px;color:var(--texto2)">${esc(h.arquivo)}</span>` : ''}</div>`).join('') : '<p style="margin:0;font-size:14px;color:var(--texto2)">Nenhuma importação registrada ainda (o histórico começa na versão nova).</p>'}
+                ${h.arquivo ? `<span style="font-size:12px;color:var(--texto2)">${esc(h.arquivo)}</span>` : ''}</div>`).join('') : '<p style="margin:0;font-size:14px;color:var(--texto2)">Nenhuma importação registrada.</p>'}
             </div>
           </div>
           <div class="pe">
@@ -263,7 +262,7 @@
 
   // ---------------- Prazos e feriados ----------------
   function htmlPrazos() {
-    if (!st.prazosEdit) return '<p class="aviso">Não consegui carregar os prazos. Atualize a página.</p>';
+    if (!st.prazosEdit) return '<p class="aviso">Erro ao carregar os prazos. Atualize a página.</p>';
     const grupos = GRUPOS_PRAZOS.map((g) => `<section class="fl-secao"><div><h2>${esc(g.titulo)}</h2><p>${esc(g.texto)}</p></div>
       ${g.campos.map((k) => { const v = st.prazosEdit[k]; const mudou = v !== st.prazos[k]; return `
         <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding-top:10px;border-top:1px solid var(--c2)">
@@ -284,7 +283,7 @@
           <div style="display:flex;gap:8px"><button type="button" class="btn sec grande" data-op="desfazer-prazos">Desfazer alterações</button><button type="button" class="btn grande" data-op="salvar-prazos">Salvar prazos</button></div>
         </div></div>
       <section aria-labelledby="cfgFerTit" style="display:flex;flex-direction:column;gap:12px">
-        <div><h2 id="cfgFerTit" style="margin:0;font-size:18px">Feriados</h2><p style="margin:4px 0 0;font-size:14px;color:var(--texto2);line-height:1.45">Dias que não contam como dia útil nos atrasos, avisos e prazos. Nacionais, do estado de SP e da cidade de São Paulo.</p></div>
+        <div><h2 id="cfgFerTit" style="margin:0;font-size:18px">Feriados</h2><p style="margin:4px 0 0;font-size:14px;color:var(--texto2);line-height:1.45">Não contam como dia útil. Nacionais, SP estado e capital.</p></div>
         <div class="chips" role="group" aria-label="Ano">${anos.map((a) => `<button type="button" class="chip" data-ano="${a}" aria-pressed="${a === st.ano}">${a}</button>`).join('')}</div>
         <div class="fl-tabela-caixa" style="max-height:460px"><table class="fl-tabela"><thead><tr><th>Data</th><th>Feriado</th><th><span class="oculto">Ação</span></th></tr></thead><tbody>
           ${fer.length ? fer.map((f) => `<tr><td class="nw"><b>${FL.dataCurta(f.data)}</b><span class="sub">${SEMANA[new Date(f.data + 'T12:00:00').getDay()]}</span></td>
@@ -310,7 +309,7 @@
   }
 
   function novoFeriado() {
-    FL.gaveta({ sobre: 'PRAZOS E FERIADOS', titulo: 'Adicionar feriado ou ponte', sub: 'Ex.: emenda de feriado, recesso de fim de ano.', botao: 'Adicionar',
+    FL.gaveta({ sobre: 'PRAZOS E FERIADOS', titulo: 'Adicionar feriado ou ponte', botao: 'Adicionar',
       html: `<div class="campo"><label for="ferData">Data <span style="font-weight:400">(obrigatório)</span></label><input id="ferData" type="date"></div>
         <div class="campo"><label for="ferNome">Nome <span style="font-weight:400">(obrigatório)</span></label><input id="ferNome" type="text" maxlength="80" placeholder="Ex.: Ponte de Natal"></div>`,
       aoSalvar: async (g) => {
@@ -344,29 +343,24 @@
     return `<div class="fl-duas">
       <div style="display:flex;flex-direction:column;gap:20px">
         <section class="fl-secao forte"><div><h2 style="font-size:20px">Baixar backup agora</h2>
-          <p>Um arquivo .zip com <b style="color:#000">todos os dados</b> do FlowLog (pedidos, FUPs, avisos, cobrança, terceirização) e os PDFs guardados. Baixar não muda nada no sistema.</p></div>
+          <p>Todos os dados e PDFs (.zip).</p></div>
           ${st.senhaDefinida ? `<div class="campo"><label for="cfgSenhaBackup">Senha de administrador</label>
             <input id="cfgSenhaBackup" type="password" autocomplete="current-password" placeholder="Digite a senha">
-            <span class="dica">Como o FlowLog não tem login, o backup pede a senha: sem ela, qualquer pessoa com o link baixaria os dados da empresa.</span></div>
+            </div>
             <button type="button" class="btn grande" data-op="baixar">Baixar backup (.zip)</button>
             <button type="button" class="link" style="align-self:flex-start" data-op="trocar-senha">Trocar a senha</button>
             <button type="button" class="link" style="align-self:flex-start" data-op="bloquear">Bloquear as Configurações (sair)</button>`
-            : `<p class="aviso">Ainda não existe senha de administrador. Defina uma para liberar o backup e as mudanças nas Configurações.</p>
+            : `<p class="aviso">Senha de administrador não definida.</p>
             <button type="button" class="btn grande" data-op="definir-senha">Definir senha</button>`}
         </section>
-        <section class="fl-secao"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px"><h2 style="font-size:20px">Backup automático</h2><span class="selo alerta">A DECIDIR</span></div>
-          <p style="color:#000">Proposta: todo dia às <b>23:50</b>, uma cópia vai sozinha para uma pasta do <b>Google Drive da MUBEC</b> (pelo n8n), e o FlowLog guarda as últimas 30.</p>
-          <p>Enquanto não existir, faça o backup à mão antes de qualquer atualização do sistema.</p></section>
-        <section class="fl-secao"><h2 style="font-size:20px">Restaurar um backup</h2>
-          <p>Restaurar troca todos os dados atuais pelos do arquivo. Por segurança, não tem botão aqui: é feito com acompanhamento, e sempre depois de um backup novo.</p></section>
       </div>
       <section aria-labelledby="cfgHistBk" style="display:flex;flex-direction:column;gap:12px">
         <h2 id="cfgHistBk" style="margin:0;font-size:18px">Backups feitos</h2>
         <div class="fl-tabela-caixa" style="max-height:560px"><table class="fl-tabela"><thead><tr><th>Quando<small>quem baixou</small></th><th>Arquivo<small>tamanho</small></th></tr></thead><tbody>
           ${st.backups.length ? st.backups.map((b) => `<tr><td><b>${FL.dataHora(b.quando)}</b><span class="sub">${esc(b.por || '—')}</span></td>
-            <td><span style="word-break:break-all">${esc(b.arquivo)}</span><span class="sub">${FL.num((b.tamanho_bytes || 0) / 1048576, 1)} MB</span></td></tr>`).join('') : '<tr><td colspan="2" class="vazio">Nenhum backup feito pela tela nova ainda.</td></tr>'}
+            <td><span style="word-break:break-all">${esc(b.arquivo)}</span><span class="sub">${FL.num((b.tamanho_bytes || 0) / 1048576, 1)} MB</span></td></tr>`).join('') : '<tr><td colspan="2" class="vazio">Nenhum backup registrado.</td></tr>'}
         </tbody></table></div>
-        ${d != null && d >= 3 ? `<p class="aviso">O último backup foi há ${d} dias.</p>` : ''}
+        ${d != null && d >= 3 ? `<p class="aviso">Último backup há ${d} dias.</p>` : ''}
       </section></div>`;
   }
 
@@ -381,7 +375,7 @@
     FL.baixarArquivo(r.blob, r.nome || 'flowlog_backup.zip');
     inp.value = '';
     await carregar(); desenhar();
-    FL.toast(`Backup baixado: ${r.nome} (${FL.num(r.blob.size / 1048576, 1)} MB). Guarde fora do computador também.`);
+    FL.toast(`Backup baixado: ${r.nome} (${FL.num(r.blob.size / 1048576, 1)} MB).`);
   }
 
   // ------------------------------------------------------------------
@@ -448,12 +442,11 @@
   async function telaBloqueio(alvo) {
     const st0 = await FL.api('GET', '/api/v2/senha', null, { silencioso: true });
     const definida = !!(st0 && st0.definida);
-    alvo.innerHTML = `<div class="fl-cabeca fl-entra"><div class="txt"><h1>Configurações</h1>
-        <p>Planilhas do Mega, listas, prazos e feriados, e backup.</p></div></div>
+    alvo.innerHTML = `<div class="fl-cabeca fl-entra"><div class="txt"><h1>Configurações</h1></div></div>
       <section class="fl-secao forte fl-entra d1" style="max-width:460px">
         <span aria-hidden="true" style="width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-btn);background:var(--c1)">${FL.icone.cadeado}</span>
         <h2 style="font-size:20px">${definida ? 'Área protegida' : 'Defina a senha de administrador'}</h2>
-        <p>${definida ? 'As Configurações pedem a senha de administrador. Ela fica guardada só até você fechar o navegador.' : 'Ainda não existe senha. Ela protege as Configurações e o backup. Guarde em lugar seguro: não pode ser recuperada, só trocada por quem sabe a atual.'}</p>
+        <p>${definida ? 'Senha de administrador.' : 'Senha de administrador não definida. Não pode ser recuperada.'}</p>
         ${definida ? `<div class="campo"><label for="cfgEntrar">Senha de administrador</label><input id="cfgEntrar" type="password" autocomplete="current-password"></div>
           <button type="button" class="btn grande" data-entrar>Entrar</button>` : '<button type="button" class="btn grande" data-definir>Definir senha</button>'}
       </section>`;
