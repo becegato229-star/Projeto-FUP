@@ -49,6 +49,8 @@ from .rotas_terceirizacao import router as router_terceirizacao  # noqa: E402
 app.include_router(router_terceirizacao)
 from .rotas_posvenda import router as router_posvenda  # noqa: E402
 app.include_router(router_posvenda)
+from .rotas_dashboard import router as router_dashboard  # noqa: E402
+app.include_router(router_dashboard)
 
 
 from .configuracoes import SenhaBloqueada  # noqa: E402
@@ -96,6 +98,7 @@ async def on_startup():
         semear_listas(session)
         # v2: copia a NF única de cada pedido antigo para a tabela de NFs (uma vez)
         migrar_nfs_antigas(session)
+        _apagar_notas_com_cfop_bloqueado(session)
         # recalcula status/atraso de todos os pedidos com a lógica mais recente
         # (sem isso, correções de cálculo só apareceriam na próxima importação)
         recalcular_status_e_atrasos(session)
@@ -1253,6 +1256,10 @@ async def importar_pdf_nota_saida(file: UploadFile = File(...), session: Session
     apagada = bool(_existente is not None and getattr(_existente, "apagada_em", None))
     if status == "duplicado" and apagada:
         status = "restaurada"  # v2: a nota tinha sido apagada; ao gravar, ela volta
+    # se o CFOP diz que é do outro tipo, segue o aviso de direção (a tela tenta o outro tipo)
+    bloqueio = _cfop_bloqueado("saida", dados.get("cfops")) if dados.get("direcao") in (None, "saida") else None
+    if bloqueio:
+        return {"status": "bloqueada", "mensagem": bloqueio, "avisos_leitura": [], "aviso_direcao": None, "dados": _payload_de_dados_pdf(dados)}
     payload = _payload_de_dados_pdf(dados)
     if status != "duplicado":
         payload["pdf_token"] = _guardar_pdf_temporario(conteudo)
@@ -1272,6 +1279,9 @@ async def importar_pdf_nota_saida(file: UploadFile = File(...), session: Session
 def confirmar_importacao_nota_saida(payload: NotaPdfPayload, session: Session = Depends(get_session)):
     if not payload.numero_nota or not payload.data_nota:
         raise HTTPException(422, "Número e data da nota são obrigatórios")
+    bloqueio = _cfop_bloqueado("saida", [i.cfop for i in payload.itens])
+    if bloqueio:
+        raise HTTPException(400, bloqueio)
     restaurada = _restaurar_se_apagada(NotaSaida, payload.numero_nota, session)
     status = _status_importacao_com_pdf("saida", NotaSaida, payload.numero_nota, payload.chave_acesso, session)
     if status == "duplicado" and restaurada:
@@ -1325,6 +1335,10 @@ async def importar_pdf_nota_retorno(file: UploadFile = File(...), session: Sessi
     apagada = bool(_existente is not None and getattr(_existente, "apagada_em", None))
     if status == "duplicado" and apagada:
         status = "restaurada"  # v2: a nota tinha sido apagada; ao gravar, ela volta
+    # se o CFOP diz que é do outro tipo, segue o aviso de direção (a tela tenta o outro tipo)
+    bloqueio = _cfop_bloqueado("retorno", dados.get("cfops")) if dados.get("direcao") in (None, "retorno") else None
+    if bloqueio:
+        return {"status": "bloqueada", "mensagem": bloqueio, "avisos_leitura": [], "aviso_direcao": None, "dados": _payload_de_dados_pdf(dados)}
     payload = _payload_de_dados_pdf(dados)
     if status != "duplicado":
         payload["pdf_token"] = _guardar_pdf_temporario(conteudo)
@@ -1348,6 +1362,9 @@ async def importar_pdf_nota_retorno(file: UploadFile = File(...), session: Sessi
 def confirmar_importacao_nota_retorno(payload: NotaPdfPayload, session: Session = Depends(get_session)):
     if not payload.numero_nota or not payload.data_nota:
         raise HTTPException(422, "Número e data da nota são obrigatórios")
+    bloqueio = _cfop_bloqueado("retorno", [i.cfop for i in payload.itens])
+    if bloqueio:
+        raise HTTPException(400, bloqueio)
     restaurada = _restaurar_se_apagada(NotaRetorno, payload.numero_nota, session)
     status = _status_importacao_com_pdf("retorno", NotaRetorno, payload.numero_nota, payload.chave_acesso, session)
     if status == "duplicado" and restaurada:
@@ -1391,6 +1408,51 @@ def confirmar_importacao_nota_retorno(payload: NotaPdfPayload, session: Session 
     return {"status": status, "nota": nota}
 
 
+# Só estes CFOPs entram na Terceirização (decisão de 19/11): saída = remessa para
+# industrialização (5901/6901); retorno = retorno de industrialização (5124/6124).
+# Qualquer outro (ex.: 5902, entrada no estoque) é bloqueado.
+CFOPS_PERMITIDOS = {"saida": {"5901", "6901"}, "retorno": {"5124", "6124"}}
+
+
+def _apagar_notas_com_cfop_bloqueado(session: Session) -> None:
+    """Uma vez só (19/11): notas já lançadas com CFOP que não entra (ex.: retornos 5902)
+    saem das listas e do alerta da zincagem. Não apaga de verdade: marca como apagada
+    (itens e PDF ficam) e dá para trazer de volta pela tela."""
+    from .models import Configuracao
+    if session.get(Configuracao, "limpeza_cfop_19_11"):
+        return
+    cfops_por_nota: dict = {}
+    for tipo, numero, cfop in session.exec(select(NotaItem.tipo_nota, NotaItem.numero_nota, NotaItem.cfop)).all():
+        if cfop:
+            cfops_por_nota.setdefault((tipo, numero), set()).add(cfop)
+    apagadas = []
+    agora = datetime.utcnow()
+    for (tipo, numero), cfops in cfops_por_nota.items():
+        Model = NotaSaida if tipo == "saida" else NotaRetorno if tipo == "retorno" else None
+        nota = session.get(Model, numero) if Model else None
+        if nota is not None and not nota.apagada_em and _cfop_bloqueado(tipo, cfops):
+            nota.apagada_em = agora
+            nota.apagada_por = "FlowLog (CFOP " + "/".join(sorted(cfops)) + ")"
+            session.add(nota)
+            apagadas.append(f"{tipo} {numero}")
+    session.add(Configuracao(chave="limpeza_cfop_19_11", valor=", ".join(apagadas) or "nenhuma",
+                             atualizado_em=agora, atualizado_por="FlowLog"))
+    session.commit()
+
+
+def _cfop_bloqueado(tipo: str, cfops) -> Optional[str]:
+    cfops = {str(c).replace(".", "") for c in (cfops or []) if c}
+    if not cfops:
+        return None  # PDF sem itens lidos: não dá para conferir
+    if tipo not in CFOPS_PERMITIDOS:
+        return "Não consegui identificar se é saída ou retorno pelo CFOP."
+    fora = sorted(cfops - CFOPS_PERMITIDOS[tipo])
+    if fora:
+        certo = "5124" if tipo == "retorno" else "5901"
+        return f"CFOP {', '.join(c[0] + '.' + c[1:] for c in fora)} não entra na Terceirização (só {certo[0]}.{certo[1:]} {'no retorno' if tipo == 'retorno' else 'na saída'})."
+    return None
+
+
 def _avisos_leitura(dados: dict) -> list:
     """Alertas sobre a leitura do PDF: coisas que o usuário precisa saber
     antes de confiar nos itens (linha não lida, soma que não fecha, nota
@@ -1409,9 +1471,6 @@ def _avisos_leitura(dados: dict) -> list:
                 f"A soma dos itens lidos ({brl(soma)}) não bate com o valor dos produtos da nota ({brl(total)}): "
                 f"faltam {brl(total - soma)}, algum item pode não ter sido lido."
             )
-    cfops = set(dados.get("cfops") or [])
-    if cfops and cfops <= {"5902", "6902"}:
-        avisos.append("CFOP 5902 é a nota de entrada no estoque, não a de industrialização (5124). No FlowLog só a 5124 deve ser lançada.")
     return avisos
 
 
@@ -1439,10 +1498,10 @@ async def importar_pdfs_em_lote(files: List[UploadFile] = File(...), session: Se
             r["mensagem"] = "Não identifiquei o número da nota."
             continue
         r["avisos"] = _avisos_leitura(dados)
-        cfops = set(dados.get("cfops") or [])
-        if cfops and cfops <= {"5902", "6902"}:
+        bloqueio = _cfop_bloqueado(dados["direcao"], dados.get("cfops")) if dados.get("cfops") else None
+        if bloqueio:
             r["resultado"] = "ignorada"
-            r["mensagem"] = "CFOP 5902 (nota de estoque) — só a 5124 entra no FlowLog."
+            r["mensagem"] = bloqueio
             continue
         if dados["direcao"] not in ("saida", "retorno"):
             r["mensagem"] = "Não consegui identificar se é saída ou retorno (CFOP dos itens)."
