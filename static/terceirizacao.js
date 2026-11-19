@@ -224,7 +224,7 @@
   // ------------------------------------------------------------------
   const STATUS_IMP = {
     novo: ['ok', 'Nota nova'], enriquecer: ['info', 'Já lançada à mão: o PDF completa (a data e a ligação não mudam)'],
-    so_pdf: ['info', 'Já importada, sem o PDF guardado: só o PDF será guardado'], duplicado: ['', 'Já importada (com PDF)'], restaurada: ['info', 'Nota que tinha sido apagada']
+    so_pdf: ['info', 'Já importada, sem o PDF guardado: só o PDF será guardado'], duplicado: ['', 'Já importada (com PDF)'], restaurada: ['info', 'Nota que tinha sido apagada'], bloqueada: ['', 'Bloqueada (CFOP)']
   };
   function formImportar() {
     let lido = null, tipo = null, arquivo = null, gvRef = null;
@@ -263,6 +263,7 @@
       aoSalvar: async (gv) => {
         if (!lido) { gv.erro('Escolha o PDF da nota.'); return false; }
         if (lido.status === 'duplicado') { gv.erro('Esta nota já foi importada com o PDF. Nada a gravar.'); return false; }
+        if (lido.status === 'bloqueada') { gv.erro(lido.mensagem); return false; }
         const dados = Object.assign({}, lido.dados);
         const dataInp = gv.querySelector('#impData');
         if (dataInp) { if (!dataInp.value) { gv.erro('Escolha a data.'); return false; } dados.data_nota = dataInp.value; }
@@ -300,7 +301,7 @@
         ${[lido.aviso_direcao, lido.mensagem].concat(lido.avisos_leitura || []).filter(Boolean).map((a) => `<p class="aviso">${esc(a)}</p>`).join('')}
         ${podeData ? `<div class="campo"><label for="impData">Data ${tipo === 'saida' ? 'de saída' : 'de volta'} (a real)</label><input id="impData" type="date" value="${esc(d.data_nota || '')}">
           <span class="dica" data-dica-data></span></div>` : (existente ? `<p class="aviso info">Data mantida: ${FL.data(existente.data)}.</p>` : '')}
-        ${tipo === 'retorno' && lido.status !== 'duplicado' && lido.status !== 'so_pdf' ? `<div class="campo"><label for="impSaida">Nota de saída ligada</label><input id="impSaida" type="text" inputmode="numeric" value="${esc(ligManual ? existente.saida : (d.numero_nota_saida || ''))}" ${ligManual ? 'readonly' : ''} placeholder="Número da saída (com ou sem ponto)">
+        ${tipo === 'retorno' && !['duplicado', 'so_pdf', 'bloqueada'].includes(lido.status) ? `<div class="campo"><label for="impSaida">Nota de saída ligada</label><input id="impSaida" type="text" inputmode="numeric" value="${esc(ligManual ? existente.saida : (d.numero_nota_saida || ''))}" ${ligManual ? 'readonly' : ''} placeholder="Número da saída (com ou sem ponto)">
           ${ligManual ? '<span class="dica">Ligação feita à mão (mantida).</span>' : ''}
           <span class="dica" data-dica-saida></span>
           ${d.informacoes_complementares ? `<span class="dica">Texto da nota: “${esc(d.informacoes_complementares.slice(0, 260))}”</span>` : ''}</div>` : ''}
