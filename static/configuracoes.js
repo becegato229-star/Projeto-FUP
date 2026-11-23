@@ -54,6 +54,7 @@
       FL.api('GET', '/api/v2/importacoes'), FL.api('GET', '/api/v2/listas'), FL.api('GET', '/api/v2/prazos'),
       FL.api('GET', '/api/v2/feriados'), FL.api('GET', '/api/v2/senha'), FL.api('GET', '/api/v2/backups')
     ]);
+    st.senhasTelas = (await FL.api('GET', '/api/v2/senha-tela', null, { silencioso: true })) || [];
     st.imp = imp || {};
     st.listas = listas || [];
     st.prazos = (prazos && prazos.prazos) || {};
@@ -353,6 +354,13 @@
             : `<p class="aviso">Senha de administrador não definida.</p>
             <button type="button" class="btn grande" data-op="definir-senha">Definir senha</button>`}
         </section>
+        <section class="fl-secao"><h2 style="font-size:20px">Senhas das telas</h2>
+          <p>A senha de administrador abre todas.</p>
+          ${(st.senhasTelas || []).map((t) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--c2)">
+            <span><b>${esc(t.nome)}</b> <span class="selo ${t.definida ? 'ok' : 'contorno'}" style="margin-left:6px">${t.definida ? 'com senha' : 'sem senha'}</span></span>
+            <span style="display:flex;gap:12px"><button type="button" class="link" data-op="senha-tela" data-tela="${t.tela}" data-nome="${esc(t.nome)}">${t.definida ? 'Trocar' : 'Definir'}</button>
+            ${t.definida ? `<button type="button" class="link" data-op="tirar-senha-tela" data-tela="${t.tela}" data-nome="${esc(t.nome)}">Tirar</button>` : ''}</span></div>`).join('')}
+        </section>
       </div>
       <section aria-labelledby="cfgHistBk" style="display:flex;flex-direction:column;gap:12px">
         <h2 id="cfgHistBk" style="margin:0;font-size:18px">Backups feitos</h2>
@@ -404,6 +412,25 @@
       if (op === 'baixar') return baixarBackup();
       if (op === 'definir-senha') { if (await FL.definirSenha()) { await carregar(); desenhar(); } return; }
       if (op === 'trocar-senha') { await FL.definirSenha(true); return; }
+      if (op === 'senha-tela') {
+        const tela = t.dataset.tela, nome = t.dataset.nome;
+        FL.modal({ titulo: 'Senha da tela ' + nome, botao: 'Salvar',
+          html: `<div class="campo"><label for="stNova">Nova senha (mínimo 4 caracteres)</label><input id="stNova" type="password" autocomplete="new-password"></div>
+            <div class="campo"><label for="stNova2">Repita</label><input id="stNova2" type="password" autocomplete="new-password"></div>`,
+          aoConfirmar: async (m) => {
+            const a = m.querySelector('#stNova').value, b = m.querySelector('#stNova2').value;
+            if (a.length < 4) { FL.toast('A senha precisa ter pelo menos 4 caracteres.', { erro: true }); return false; }
+            if (a !== b) { FL.toast('As duas senhas não são iguais.', { erro: true }); return false; }
+            if (!(await FL.api('PUT', '/api/v2/senha-tela/' + tela, { nova: a }, { senha: true }))) return false;
+            await carregar(); desenhar(); FL.toast('Senha da tela ' + nome + ' salva.');
+            return true;
+          } });
+        return;
+      }
+      if (op === 'tirar-senha-tela') {
+        if (await FL.api('PUT', '/api/v2/senha-tela/' + t.dataset.tela, { nova: null }, { senha: true })) { await carregar(); desenhar(); FL.toast('A tela ' + t.dataset.nome + ' abre sem senha.'); }
+        return;
+      }
       if (op === 'bloquear') { FL.esquecerSenha(); FL.toast('Configurações bloqueadas.'); FL.telas.configuracoes.montar(el); return; }
     });
     el.addEventListener('change', (e) => {

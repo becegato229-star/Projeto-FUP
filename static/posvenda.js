@@ -357,7 +357,8 @@
   }
 
   FL.telas.posvenda = {
-    montar: async function (alvo) {
+    montar: function (alvo) { return FL.protegerTela(alvo, 'posvenda', 'Pós-venda', FL.telas.posvenda.montarAberta); },
+    montarAberta: async function (alvo) {
       el = alvo;
       st = { aba: 'todos', filtros: {}, q: '', abertos: {}, dados: [], carregado: false, hoje: FL.hojeISO(), prazoDias: 30, listas: null };
       ligarEventos();

@@ -323,7 +323,8 @@
   }
 
   FL.telas.cobranca = {
-    montar: async function (alvo) {
+    montar: function (alvo) { return FL.protegerTela(alvo, 'cobranca', 'Cobrança', FL.telas.cobranca.montarAberta); },
+    montarAberta: async function (alvo) {
       el = alvo;
       st = { aba: 'aberto', filtros: {}, q: '', abertos: {}, ordem: { campo: 'status', desc: false }, limite: POR_PAGINA,
         dados: [], registros: [], carregado: false, clientesHoje: 0, ultimaImp: null, hoje: FL.hojeISO() };

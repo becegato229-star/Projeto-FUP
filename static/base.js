@@ -75,6 +75,36 @@
   };
 
   FL.senhaGuardada = () => lerSessao('fl_senha');
+
+  // Tela protegida por senha própria (Cobrança, Pós-venda). A de administrador também abre.
+  // Sem senha cadastrada para a tela, ela abre direto. A senha fica guardada até fechar o navegador.
+  FL.protegerTela = async function (alvo, tela, nome, montar) {
+    const chave = 'fl_senha_tela_' + tela;
+    const tentar = async (senha, avisar) => {
+      const r = await FL.api('POST', `/api/v2/senha-tela/${tela}/conferir`, { senha: senha || '' }, { silencioso: !avisar });
+      if (!r) return false;
+      if (r.ok) { if (senha) gravarSessao(chave, senha); return true; }
+      if (senha) gravarSessao(chave, null);
+      return false;
+    };
+    if (await tentar(lerSessao(chave) || FL.senhaGuardada() || '', false)) return montar(alvo);
+    const novo = alvo.cloneNode(false); alvo.replaceWith(novo);
+    novo.innerHTML = `<div class="fl-cabeca fl-entra"><div class="txt"><h1>${esc(nome)}</h1></div></div>
+      <section class="fl-secao forte fl-entra d1" style="max-width:420px">
+        <span aria-hidden="true" style="width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-btn);background:var(--c1)">${FL.icone.cadeado}</span>
+        <div class="campo"><label for="telaSenha">Senha</label><input id="telaSenha" type="password" autocomplete="current-password"></div>
+        <button type="button" class="btn grande" data-entrar-tela>Entrar</button>
+      </section>`;
+    const entrar = async () => {
+      const i = novo.querySelector('#telaSenha');
+      if (!i.value) { i.focus(); return; }
+      if (await tentar(i.value, true)) { const limpo = novo.cloneNode(false); novo.replaceWith(limpo); montar(limpo); }
+      else { FL.toast('Senha errada.', { erro: true }); i.select(); }
+    };
+    novo.addEventListener('click', (e) => { if (e.target.closest('[data-entrar-tela]')) entrar(); });
+    novo.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'telaSenha') entrar(); });
+    setTimeout(() => { const i = novo.querySelector('#telaSenha'); if (i) i.focus(); }, 60);
+  };
   FL.esquecerSenha = () => gravarSessao('fl_senha', null);
 
   FL.pedirSenha = function (motivo) {

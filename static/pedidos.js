@@ -42,6 +42,7 @@
     } },
     { id: 'canhoto', titulo: 'CANHOTO', ordem: ['Falta canhoto', 'Canhoto completo'], valor: (p) => { const v = nfsValidas(p); return v.length ? [v.every((n) => n.canhoto) ? 'Canhoto completo' : 'Falta canhoto'] : []; } },
     { id: 'transp', titulo: 'TRANSPORTADORA', valor: (p) => (p.transportadora && p.tipo === 'Transportadora' ? [p.transportadora] : []) },
+    { id: 'pv', titulo: 'PÓS-VENDA', ordem: ['Com caso aberto'], valor: (p) => (p.posvenda_aberto ? ['Com caso aberto'] : []) },
     { id: 'cliente', titulo: 'CLIENTE', valor: (p) => [p.cliente || '—'] }
   ];
 
@@ -140,7 +141,7 @@
       <td class="nw"><button type="button" class="fl-link-linha" data-abrir="${esc(p.pedido)}" aria-expanded="${aberto}" aria-label="Mostrar itens e notas do pedido ${esc(p.pedido)}">${FL.icone.seta}${esc(p.pedido)}</button><span class="sub" style="padding-left:18px">Emitido ${FL.dataCurta(p.emissao)}</span></td>
       <td><b>${esc(p.cliente || '—')}</b><span class="sub">${esc(p.tipo)}${p.tipo === 'Transportadora' && p.transportadora ? ' · ' + esc(p.transportadora) : ''}</span></td>
       <td class="nw">${data ? `<span style="font-size:12px;color:var(--texto2)">${rot}</span> <b>${FL.data(data)}</b>` : '—'}<span class="sub">${rot !== 'Prometida' && p.prometida ? 'Original ' + FL.data(p.prometida) : (p.nova_data && rot === 'Entregue' ? 'Nova ' + FL.data(p.nova_data) : '')}</span></td>
-      <td><span class="selo ${selo}">${esc(p.status || '—')}</span><span class="sub" style="color:${corSub};font-weight:${peso};margin-top:4px">${esc(statusSub)}</span></td>
+      <td><span class="selo ${selo}">${esc(p.status || '—')}</span>${p.posvenda_aberto ? ' <span class="selo contorno-alerta" title="Caso de pós-venda aberto">Pós-venda</span>' : ''}<span class="sub" style="color:${corSub};font-weight:${peso};margin-top:4px">${esc(statusSub)}</span></td>
       <td class="nw">${p.oe ? 'OE ' + esc(p.oe) : '—'}<span class="sub">${nfs.length ? nfs.map((n) => `<span style="${n.cancelada ? 'text-decoration:line-through' : ''}">${esc(n.nf)}</span>`).join(', ') : 'sem NF'}</span></td>
       <td style="max-width:260px">${esc(p.motivo_fup || '—')}<span class="sub">${esc(ultFup)}</span></td>
       <td class="dir nw"><span style="display:inline-flex;gap:6px">
@@ -185,6 +186,11 @@
         <div style="flex:2 1 460px;min-width:0;display:flex;flex-direction:column;gap:8px"><span class="rotulo-secao">ITENS DO PEDIDO</span><div style="overflow-x:auto">${itens}</div>
           ${faturados ? `<span class="rotulo-secao" style="margin-top:8px">ITENS FATURADOS (DASHBOARD DE VENDAS)</span><div style="overflow-x:auto">${faturados}</div>` : ''}</div>
         <div style="flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:8px"><span class="rotulo-secao">NOTAS FISCAIS</span><div style="overflow-x:auto">${nfs}</div>
+          ${(d.posvenda || []).length ? `<span class="rotulo-secao" style="margin-top:8px">PÓS-VENDA</span>
+            ${d.posvenda.map((c) => `<div class="cartao-mini" style="gap:4px">
+              <span style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b style="font-size:14px">${esc(c.numero)} · ${esc(c.problema || '')}</b><span class="selo ${{ 'Resolvido': 'ok', 'Recusado': 'preto', 'Encontrar solução': 'contorno-alerta' }[c.status] || ''}">${esc(c.status)}</span></span>
+              <span style="font-size:12px;color:var(--texto2)">Aberto ${FL.dataCurta(c.aberto_em)}${c.nf ? ' · NF ' + esc(c.nf) : ''}${c.responsavel ? ' · ' + esc(c.responsavel) : ''}${c.prazo && ['Encontrar solução', 'Em andamento'].includes(c.status) ? ' · prazo ' + FL.dataCurta(c.prazo) : ''}${c.solucao ? ' · ' + esc(c.solucao) : ''}</span>
+              ${c.ultima ? `<span style="font-size:13px">${FL.dataCurta(c.ultima.data)}${c.ultima.por ? ' · ' + esc(c.ultima.por) : ''}: ${esc(c.ultima.texto)}</span>` : ''}</div>`).join('')}` : ''}
           <span class="rotulo-secao" style="margin-top:8px">ÚLTIMOS FUPS</span>
           ${fups.length ? `<ol class="linha-tempo">${fups.map((f) => `<li><b style="font-size:13px">${FL.dataCurta(f.data)}${f.por ? ' · ' + esc(f.por) : ''} · ${esc(SIT_FUP[f.situacao] || f.situacao)}</b><span style="font-size:14px">${esc([f.motivo, f.observacao].filter(Boolean).join(' — ') || '—')}</span></li>`).join('')}</ol>` : '<p style="margin:0;font-size:14px;color:var(--texto2)">Nenhum FUP ainda.</p>'}
         </div>
