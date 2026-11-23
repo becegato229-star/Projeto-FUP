@@ -232,6 +232,62 @@ def definir_senha(session: Session, nova: str, por: Optional[str]) -> None:
 
 
 # ---------------------------------------------------------------------
+# Senhas por tela (19/11): Cobrança (Silvia) e Pós-venda (Norma). A senha de
+# administrador (Rian) abre todas. Guardadas só como hash, nunca no código.
+# ---------------------------------------------------------------------
+TELAS_COM_SENHA = {"cobranca": "Cobrança", "posvenda": "Pós-venda"}
+_TENTATIVAS_TELA: dict = {}
+
+
+def senha_tela_definida(session: Session, tela: str) -> bool:
+    cfg = session.get(Configuracao, "senha_tela_" + tela)
+    return bool(cfg and cfg.valor)
+
+
+def conferir_senha_tela(session: Session, tela: str, senha: Optional[str]) -> bool:
+    """Certa = a senha da tela ou a de administrador. 5 erros seguidos -> 1 minuto de espera."""
+    import time
+    t = _TENTATIVAS_TELA.setdefault(tela, {"erros": 0, "bloqueado_ate": 0.0})
+    agora = time.time()
+    if agora < t["bloqueado_ate"]:
+        raise SenhaBloqueada()
+    certa = False
+    cfg = session.get(Configuracao, "senha_tela_" + tela)
+    if cfg and cfg.valor and senha:
+        try:
+            sal_hex, hash_hex = cfg.valor.split("$", 1)
+            certa = hmac.compare_digest(_hash(senha, bytes.fromhex(sal_hex)), hash_hex)
+        except ValueError:
+            certa = False
+    if not certa:
+        certa = _conferir_senha_sem_limite(session, senha)
+    if certa:
+        t["erros"] = 0
+    elif senha:
+        t["erros"] += 1
+        if t["erros"] >= 5:
+            t["erros"] = 0
+            t["bloqueado_ate"] = agora + 60
+    return certa
+
+
+def definir_senha_tela(session: Session, tela: str, nova: Optional[str], por: Optional[str]) -> None:
+    """nova vazia = tira a senha (a tela abre sem pedir)."""
+    cfg = session.get(Configuracao, "senha_tela_" + tela) or Configuracao(chave="senha_tela_" + tela)
+    if nova:
+        if len(nova) < 4:
+            raise ValueError("A senha precisa ter pelo menos 4 caracteres.")
+        sal = os.urandom(16)
+        cfg.valor = sal.hex() + "$" + _hash(nova, sal)
+    else:
+        cfg.valor = None
+    cfg.atualizado_em = agora_brasil()
+    cfg.atualizado_por = por
+    session.add(cfg)
+    session.commit()
+
+
+# ---------------------------------------------------------------------
 # Histórico de importações
 # ---------------------------------------------------------------------
 def registrar_importacao(session: Session, tipo: str, arquivo: Optional[str], resumo: str,

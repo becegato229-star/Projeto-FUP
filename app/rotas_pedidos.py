@@ -17,7 +17,7 @@ from .configuracoes import agora_brasil
 from .database import get_session
 from .fuso import hoje_brasil
 from .models import (
-    AvisoRegistro, FupRegistro, ItemFaturado, NotaFiscalPedido, Pedido, PedidoItem, TransportadoraRegistro,
+    AtualizacaoPosVenda, AvisoRegistro, CasoPosVenda, FupRegistro, ItemFaturado, NotaFiscalPedido, Pedido, PedidoItem, TransportadoraRegistro,
 )
 from .rotas_novo import exigir_senha, usuario_atual
 
@@ -66,6 +66,8 @@ def listar_pedidos_v2(session: Session) -> list:
         itens_qtd[numero] = itens_qtd.get(numero, 0) + 1
         if na:
             na_carteira[numero] = na_carteira.get(numero, 0) + 1
+    pv_aberto = set(session.exec(select(CasoPosVenda.numero_pedido).where(
+        CasoPosVenda.apagado_em == None, CasoPosVenda.status.in_(["Encontrar solução", "Em andamento"]))).all())  # noqa: E711
     ultimos_fup: dict = {}
     for f in session.exec(select(FupRegistro).order_by(FupRegistro.data_referencia, FupRegistro.id)).all():
         ultimos_fup[f.numero_pedido] = f
@@ -87,6 +89,7 @@ def listar_pedidos_v2(session: Session) -> list:
             "vendedor": p.vendedor, "transportadora": p.transportadora_nome, "uf": p.uf, "municipio": p.municipio,
             "itens": itens_qtd.get(p.numero_pedido, 0), "itens_na_carteira": na_carteira.get(p.numero_pedido, 0),
             "cancelado": bool(p.cancelado), "motivo_cancelamento": p.motivo_cancelamento,
+            "posvenda_aberto": p.numero_pedido in pv_aberto,
         })
     saida.sort(key=lambda x: (x["emissao"] or "", x["pedido"]), reverse=True)
     return saida
@@ -107,6 +110,14 @@ def detalhe(numero: str, session: Session = Depends(get_session)):
     fups = session.exec(select(FupRegistro).where(FupRegistro.numero_pedido == numero).order_by(FupRegistro.data_referencia.desc(), FupRegistro.id.desc())).all()
     transp = session.exec(select(TransportadoraRegistro).where(TransportadoraRegistro.numero_pedido == numero).order_by(TransportadoraRegistro.data_registro.desc(), TransportadoraRegistro.id.desc())).all()
     avisos = session.exec(select(AvisoRegistro).where(AvisoRegistro.numero_pedido == numero).order_by(AvisoRegistro.data_registro.desc(), AvisoRegistro.id.desc())).all()
+    casos = session.exec(select(CasoPosVenda).where(CasoPosVenda.numero_pedido == numero, CasoPosVenda.apagado_em == None)  # noqa: E711
+                         .order_by(CasoPosVenda.id.desc())).all()
+    ultima_at = {}
+    if casos:
+        for a in session.exec(select(AtualizacaoPosVenda).where(AtualizacaoPosVenda.caso_id.in_([c.id for c in casos]),
+                                                                 AtualizacaoPosVenda.desfeita_em == None)  # noqa: E711
+                              .order_by(AtualizacaoPosVenda.data, AtualizacaoPosVenda.id)).all():
+            ultima_at[a.caso_id] = a
     numeros_nf = [n.nf for n in nfs]
     faturados = session.exec(select(ItemFaturado).where(ItemFaturado.nf.in_(numeros_nf)).order_by(ItemFaturado.nf, ItemFaturado.seq)).all() if numeros_nf else []
     return {
@@ -123,6 +134,10 @@ def detalhe(numero: str, session: Session = Depends(get_session)):
                              "alternativo": i.alternativo, "descricao": i.descricao, "quantidade": i.quantidade,
                              "unidade": i.unidade} for i in faturados],
         "fups": [_situacao_fup(f) | {"id": f.id} for f in fups],
+        "posvenda": [{"numero": c.numero, "aberto_em": _iso(c.aberto_em), "problema": c.problema, "status": c.status,
+                      "responsavel": c.responsavel, "prazo": _iso(c.prazo_solucao), "nf": c.nf, "solucao": c.solucao,
+                      "ultima": ({"data": _iso(ultima_at[c.id].data), "por": ultima_at[c.id].por, "texto": ultima_at[c.id].texto}
+                                 if c.id in ultima_at else None)} for c in casos],
         "transportadora_registros": [{"data": _iso(t.data_registro), "chamado": t.chamado, "quem": t.quem_chamou,
                                        "observacao": t.observacao} for t in transp],
         "avisos_registros": [{"data": _iso(a.data_registro), "texto": a.motivo, "proxima": _iso(a.proxima_data_limite)} for a in avisos],

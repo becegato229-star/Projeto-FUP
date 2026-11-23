@@ -18,7 +18,7 @@ from sqlmodel import Session, func, select
 
 from .configuracoes import (
     LISTAS, PRAZOS_PADRAO, agora_brasil, conferir_senha, definir_senha, ler_prazos,
-    salvar_prazos, senha_definida,
+    salvar_prazos, senha_definida, TELAS_COM_SENHA, senha_tela_definida, conferir_senha_tela, definir_senha_tela,
 )
 from .database import get_session
 from .models import (
@@ -70,6 +70,35 @@ def criar_ou_trocar_senha(dados: SenhaNova, session: Session = Depends(get_sessi
         raise HTTPException(401, "A senha atual está errada.")
     try:
         definir_senha(session, dados.nova, por)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+class SenhaTela(BaseModel):
+    nova: Optional[str] = None
+
+
+@router.get("/senha-tela")
+def senhas_das_telas(session: Session = Depends(get_session)):
+    return [{"tela": k, "nome": v, "definida": senha_tela_definida(session, k)} for k, v in TELAS_COM_SENHA.items()]
+
+
+@router.post("/senha-tela/{tela}/conferir")
+def conferir_tela(tela: str, dados: SenhaConferir, session: Session = Depends(get_session)):
+    if tela not in TELAS_COM_SENHA:
+        raise HTTPException(404, "Tela inválida.")
+    definida = senha_tela_definida(session, tela)
+    return {"definida": definida, "ok": (not definida) or conferir_senha_tela(session, tela, dados.senha)}
+
+
+@router.put("/senha-tela/{tela}", dependencies=[Depends(exigir_senha)])
+def trocar_senha_tela(tela: str, dados: SenhaTela, session: Session = Depends(get_session),
+                      por: Optional[str] = Depends(usuario_atual)):
+    if tela not in TELAS_COM_SENHA:
+        raise HTTPException(404, "Tela inválida.")
+    try:
+        definir_senha_tela(session, tela, (dados.nova or "").strip() or None, por)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True}
