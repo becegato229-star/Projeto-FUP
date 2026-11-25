@@ -14,15 +14,51 @@
     { id: 'motivo', titulo: 'MOTIVO DO ÚLTIMO FUP', valor: (p) => (p.fup && p.fup.motivo ? [p.fup.motivo] : []) },
     { id: 'vendedor', titulo: 'VENDEDOR', valor: (p) => [p.vendedor || 'Sem vendedor'] },
     { id: 'tipo', titulo: 'TIPO DE ENTREGA', valor: (p) => [p.tipo || 'Desconhecido'] },
+    { id: 'transp', titulo: 'TRANSPORTADORA', valor: (p) => (p.transportadora && p.tipo === 'Transportadora' ? [p.transportadora] : []) },
+    { id: 'uf', titulo: 'ESTADO', valor: (p) => [p.uf || 'Sem Estado'] },
     { id: 'cliente', titulo: 'CLIENTE', valor: (p) => [p.cliente || '—'] }
   ];
+  const CAMPOS_PERIODO = [['prometida', 'Entrega prometida'], ['emissao', 'Emissão'], ['fup', 'Data do último FUP']];
 
   let el, st;
   const prazoTxt = (p) => (p.prazo.tipo === 'aguardando' ? 'Aguardando cliente' : p.prazo.tipo === 'atraso' ? (p.prazo.n ? FL.plural(p.prazo.n, 'dia útil', 'dias úteis') + ' de atraso' : 'Venceu hoje')
     : (p.prazo.tipo === 'sem_data' ? 'Sem data prometida' : (p.prazo.n === 0 ? 'Vence hoje' : (p.prazo.n === 1 ? 'Vence amanhã' : 'Vence em ' + p.prazo.n + ' dias úteis'))));
   const prazoForte = (p) => p.prazo.tipo === 'atraso' || (p.prazo.tipo === 'vence' && p.prazo.n <= 1);
   const daAba = () => st.dados.filter((p) => (st.aba === 'revisar' ? p.revisar : true));
-  const filtrados = () => daAba().filter((p) => FL.passaFiltros(p, DEFS, st.filtros));
+  function passaPeriodo(p) {
+    const per = st.periodo;
+    if (!per.de && !per.ate) return true;
+    const v = per.campo === 'fup' ? (p.fup && p.fup.data) : p[per.campo];
+    return !!v && (!per.de || v >= per.de) && (!per.ate || v <= per.ate);
+  }
+  const CHAVE_ORDEM = {
+    pedido: (p) => p.pedido.padStart(10, '0'), cliente: (p) => FL.semAcento(p.cliente), emissao: (p) => p.emissao || '',
+    entrega: (p) => p.nova_data || p.prometida || '9999',
+    prazo: (p) => (p.prazo.tipo === 'atraso' ? 'a' + String(9999 - p.prazo.n).padStart(5, '0') : p.prazo.tipo === 'vence' ? 'b' + String(p.prazo.n).padStart(5, '0') : 'c'),
+    ultimo: (p) => (p.fup ? p.fup.data : '0000'), vendedor: (p) => FL.semAcento(p.vendedor || 'zzz')
+  };
+  function filtrados() {
+    const l = daAba().filter((p) => FL.passaFiltros(p, DEFS, st.filtros) && passaPeriodo(p) && passaBusca(p));
+    if (st.ordem.campo) {
+      const k = CHAVE_ORDEM[st.ordem.campo];
+      l.sort((a, b) => { const x = k(a), y = k(b); return (x < y ? -1 : x > y ? 1 : 0) * (st.ordem.desc ? -1 : 1); });
+    }
+    return l;
+  }
+  function passaBusca(p) {
+    if (!st.q) return true;
+    return [p.pedido, p.oe, p.cliente, p.vendedor].map((c) => FL.semAcento(c).replace(/[.\s]/g, '')).join('|').includes(st.q);
+  }
+  function th(campo, titulo, sub, extra) {
+    const on = st.ordem.campo === campo;
+    return `<th${extra || ''}><button type="button" data-ordenar="${campo}" style="padding:0;border:0;background:transparent;color:#fff;font-weight:700;cursor:pointer;text-align:left" aria-label="Ordenar por ${esc(titulo)}">${esc(titulo)}${on ? (st.ordem.desc ? ' ↓' : ' ↑') : ''}</button>${sub ? `<small>${esc(sub)}</small>` : ''}</th>`;
+  }
+  function detalheLinha(p, cols) {
+    if (!st.abertos[p.pedido]) return '';
+    const d = st.detalhes[p.pedido];
+    return `<tr class="detalhe"><td colspan="${cols}">${d && d.linha && FL.htmlDetalhePedido ? FL.htmlDetalhePedido(d.linha, d) : '<div class="carregando">Carregando o pedido…</div>'}</td></tr>`;
+  }
+  const botaoPedido = (p) => `<button type="button" class="fl-link-linha" data-abrir="${esc(p.pedido)}" aria-expanded="${!!st.abertos[p.pedido]}" aria-label="Mostrar o pedido ${esc(p.pedido)}">${FL.icone.seta}${esc(p.pedido)}</button>`;
   const marcados = () => st.dados.filter((p) => st.sel[p.pedido]);
 
   function desenhar() {
@@ -44,8 +80,8 @@
             <button type="button" class="btn" data-respostas ${sel.length ? '' : 'disabled'}>Registrar respostas${sel.length ? ' (' + sel.length + ')' : ''}</button>
           </span></div>
         <div class="fl-tabela-caixa"><table class="fl-tabela"><thead><tr>
-          <th style="width:44px"><span class="oculto">Selecionar</span></th><th>Pedido<small>emissão</small></th><th>Cliente<small>status · vendedor</small></th>
-          <th>Entrega<small>prazo</small></th><th>Último FUP<small>motivo · há quanto tempo</small></th><th class="dir">Ações</th></tr></thead><tbody>
+          <th style="width:44px"><span class="oculto">Selecionar</span></th>${th('pedido', 'Pedido', 'emissão')}${th('cliente', 'Cliente', 'status · vendedor')}
+          ${th('prazo', 'Entrega', 'prazo')}${th('ultimo', 'Último FUP', 'motivo · há quanto tempo')}<th class="dir">Ações</th></tr></thead><tbody>
           ${!st.carregado ? '<tr><td colspan="6" class="vazio">Carregando…</td></tr>' : (vis.length ? vis.map(linha).join('') : `<tr><td colspan="6" class="vazio">${FL.qtdFiltros(st.filtros) ? 'Nenhum pedido com esses filtros. <button type="button" class="link" data-limpar-filtros>Limpar filtros</button>' : (st.aba === 'revisar' ? 'Nada para revisar agora. Todos os pedidos atrasados ou perto do prazo já têm FUP de hoje.' : 'Nenhum pedido em produção.')}</td></tr>`)}
         </tbody></table></div>
         ${lista.length > st.limite ? `<button type="button" class="btn sec" style="align-self:center" data-mais>Mostrar mais</button>` : ''}`;
@@ -54,11 +90,10 @@
       <div class="fl-cabeca fl-entra"><div class="txt"><h1>FUP</h1></div>
         <div class="fl-acoes-topo"><button type="button" class="btn sec" data-lote>${FL.icone.enviar} Importar FUP em lote</button></div></div>
       <div class="fl-entra d1" style="display:flex;flex-direction:column;gap:12px">
-        <div class="fl-barra-abas">${FL.htmlAbas(abas, st.aba, 'Abas do FUP')}${st.aba === 'hist' ? '' : FL.botaoFiltros(st.filtros)}</div>
-        ${st.aba === 'hist' ? '' : FL.htmlChipsAtivos(DEFS, st.filtros)}
+        <div class="fl-barra-abas">${FL.htmlAbas(abas, st.aba, 'Abas do FUP')}${st.aba === 'hist' ? '' : FL.botaoFiltros(Object.assign({}, st.filtros, st.periodo.de || st.periodo.ate ? { _p: [1] } : {}))}</div>
+        ${st.aba === 'hist' ? '' : chipsAtivos()}
       </div>
       <div class="fl-entra d2" style="display:flex;flex-direction:column;gap:16px">${corpo}</div>`;
-    FL.aplicarBusca();
   }
 
   function linha(p) {
@@ -67,12 +102,12 @@
     const ha = f ? (p.dias_desde_fup === 0 ? 'Hoje' : 'Há ' + FL.plural(p.dias_desde_fup, 'dia útil', 'dias úteis')) + (f.por ? ' · ' + f.por : '') : '';
     return `<tr class="${on ? 'sel' : ''}">
       <td><input type="checkbox" data-marcar="${esc(p.pedido)}" ${on ? 'checked' : ''} aria-label="Marcar o pedido ${esc(p.pedido)}" style="width:20px;height:20px;accent-color:#000"></td>
-      <td class="nw"><b>${esc(p.pedido)}</b><span class="sub">Emitido ${FL.dataCurta(p.emissao)}</span></td>
+      <td class="nw">${botaoPedido(p)}<span class="sub" style="padding-left:18px">Emitido ${FL.dataCurta(p.emissao)}</span></td>
       <td><b>${esc(p.cliente || '—')}</b><span class="sub">${esc(p.status)}${p.vendedor ? ' · ' + esc(p.vendedor) : ''}</span></td>
       <td class="nw">${p.nova_data ? 'Nova ' + FL.data(p.nova_data) + '<span class="sub">prometida ' + FL.data(p.prometida) + '</span>' : (p.prometida ? 'Prometida ' + FL.data(p.prometida) : '—')}
         <span class="sub" style="${prazoForte(p) ? 'color:var(--alerta);font-weight:700' : ''}">${esc(prazoTxt(p))}</span></td>
       <td>${f ? `<span class="selo ${SELO_SIT[f.situacao]}">${esc(SIT[f.situacao])}</span> ${esc(f.motivo || (f.situacao === 'ok' ? 'No prazo' : ''))}<span class="sub" style="${p.revisar ? 'color:var(--alerta);font-weight:700' : ''}">${esc(ha)}</span>` : `<span class="sub" style="${p.revisar ? 'color:var(--alerta);font-weight:700' : ''}">Sem FUP ainda</span>`}</td>
-      <td class="dir"><button type="button" class="btn sec" style="min-height:34px;padding:0 12px;font-size:13px" data-um="${esc(p.pedido)}">Registrar FUP</button></td></tr>`;
+      <td class="dir"><button type="button" class="btn sec" style="min-height:34px;padding:0 12px;font-size:13px" data-um="${esc(p.pedido)}">Registrar FUP</button></td></tr>${detalheLinha(p, 6)}`;
   }
 
   // ------------------------------------------------------------------
@@ -92,6 +127,7 @@
     return `
       <div class="fl-secao" style="flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;padding:14px 18px">
         <span style="font-size:14px"><b data-progresso>${feitos} de ${ls.length}</b> preenchidos
+          · <span style="display:inline-flex;gap:6px;align-items:center">ordenar: ${[['prazo', 'atraso'], ['cliente', 'cliente'], ['vendedor', 'vendedor'], ['entrega', 'entrega']].map((o) => `<button type="button" class="link" style="font-size:13px;${st.ordem.campo === o[0] ? 'font-weight:700' : ''}" data-ordenar="${o[0]}">${o[1]}${st.ordem.campo === o[0] ? (st.ordem.desc ? ' ↓' : ' ↑') : ''}</button>`).join('')}</span>
           · <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-dia-todos ${st.diaTodos ? 'checked' : ''} style="accent-color:#000"> todos em produção</label></span>
         <span style="display:flex;flex-wrap:wrap;gap:8px">
           <button type="button" class="btn sec" data-repetir-todos ${ls.length ? '' : 'disabled'}>Repetir o último FUP nos vazios</button>
@@ -99,13 +135,13 @@
           <button type="button" class="btn" data-salvar-dia>Salvar FUP do dia</button>
         </span></div>
       <div class="fl-tabela-caixa"><table class="fl-tabela fup-dia"><thead><tr>
-        <th>Pedido<small>cliente · prazo</small></th><th>Último FUP</th><th style="min-width:250px">Situação</th><th style="min-width:180px">Motivo</th>
+        ${th('pedido', 'Pedido', 'cliente · prazo')}${th('ultimo', 'Último FUP', '')}<th style="min-width:250px">Situação</th><th style="min-width:180px">Motivo</th>
         <th style="min-width:200px">Observação</th><th style="min-width:150px">Nova data<small>quem pediu</small></th><th class="dir"></th></tr></thead><tbody>
         ${!st.carregado ? '<tr><td colspan="7" class="vazio">Carregando…</td></tr>' : (ls.length ? ls.map((p) => {
           const r = st.rasc[p.pedido] || {};
           const f = p.fup;
           return `<tr data-linha-dia="${esc(p.pedido)}" class="${preenchida(r) ? 'sel' : ''}">
-            <td class="nw"><b>${esc(p.pedido)}</b><span class="sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${esc(p.cliente || '—')}</span>
+            <td class="nw">${botaoPedido(p)}<span class="sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;padding-left:18px">${esc(p.cliente || '—')}</span>
               <span class="sub" style="${prazoForte(p) ? 'color:var(--alerta);font-weight:700' : ''}">${esc(prazoTxt(p))}</span></td>
             <td style="max-width:220px">${f ? `<span class="selo ${SELO_SIT[f.situacao]}">${esc(SIT[f.situacao])}</span> <span style="font-size:13px">${esc(f.motivo || '')}</span><span class="sub">${FL.dataCurta(f.data)}${f.observacao ? ' · ' + esc(f.observacao.slice(0, 60)) : ''}</span>` : '<span class="sub">Sem FUP</span>'}</td>
             <td><div class="seg" style="grid-template-columns:repeat(3,auto)" role="group" aria-label="Situação do pedido ${esc(p.pedido)}">
@@ -114,7 +150,7 @@
             <td><input type="text" data-campo="obs" maxlength="500" value="${esc(r.obs || '')}" placeholder="${r.motivo === 'Outro' ? 'Obrigatória com Outro' : ''}" style="min-height:36px;width:100%"></td>
             <td><input type="date" data-campo="nova" value="${esc(r.nova || '')}" style="min-height:36px">
               <select data-campo="quem" style="min-height:32px;margin-top:4px;${r.nova ? '' : 'display:none'}"><option value="">Quem pediu…</option>${['Cliente', 'MUBEC'].map((q) => `<option ${q === r.quem ? 'selected' : ''}>${q}</option>`).join('')}</select></td>
-            <td class="dir nw">${f ? `<button type="button" class="btn-icone" data-repetir="${esc(p.pedido)}" title="Repetir o último FUP" aria-label="Repetir o último FUP do pedido ${esc(p.pedido)}">↺</button>` : ''}</td></tr>`;
+            <td class="dir nw">${f ? `<button type="button" class="btn-icone" data-repetir="${esc(p.pedido)}" title="Repetir o último FUP" aria-label="Repetir o último FUP do pedido ${esc(p.pedido)}">↺</button>` : ''}</td></tr>${detalheLinha(p, 7)}`;
         }).join('') : `<tr><td colspan="7" class="vazio">${st.diaTodos ? 'Nenhum pedido em produção.' : 'Nenhum pedido para revisar hoje.'}</td></tr>`)}
       </tbody></table></div>`;
   }
@@ -266,6 +302,30 @@
   }
   async function recarregar() { await carregar(); desenhar(); FL.atualizarContagens(); }
 
+  function abrirFiltros() {
+    const per = Object.assign({}, st.periodo);
+    const extra = `<section style="display:flex;flex-direction:column;gap:10px;padding:16px 0;border-bottom:1px solid var(--c3)">
+      <h3 style="margin:0;font-size:12px;letter-spacing:.06em">PERÍODO</h3>
+      <div class="campo"><label for="fuCampo">Filtrar pela data de</label><select id="fuCampo">${CAMPOS_PERIODO.map((c) => `<option value="${c[0]}" ${c[0] === per.campo ? 'selected' : ''}>${c[1]}</option>`).join('')}</select></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="campo"><label for="fuDe">De</label><input id="fuDe" type="date" value="${esc(per.de || '')}"></div>
+      <div class="campo"><label for="fuAte">Até</label><input id="fuAte" type="date" value="${esc(per.ate || '')}"></div></div></section>`;
+    const g = FL.gavetaFiltros({ sobre: 'FUP', defs: DEFS, itens: daAba(), marcados: st.filtros, nomeItens: 'pedidos', extraHtml: extra, aoMudar: (m) => { st.filtros = m; desenhar(); } });
+    g.addEventListener('change', (e) => {
+      if (!['fuCampo', 'fuDe', 'fuAte'].includes(e.target.id)) return;
+      st.periodo = { campo: g.querySelector('#fuCampo').value, de: g.querySelector('#fuDe').value, ate: g.querySelector('#fuAte').value };
+      desenhar();
+    });
+  }
+  function chipsAtivos() {
+    let h = FL.htmlChipsAtivos(DEFS, st.filtros);
+    if (st.periodo.de || st.periodo.ate) {
+      const nome = CAMPOS_PERIODO.find((c) => c[0] === st.periodo.campo)[1];
+      const chip = `<button type="button" class="chip" style="background:#000;color:#fff;border-color:#000;min-height:32px" data-tirar-periodo aria-label="Remover filtro de período"><span style="color:var(--verde);font-weight:700">Período:</span> ${esc(nome)} ${st.periodo.de ? 'de ' + FL.dataCurta(st.periodo.de) : ''} ${st.periodo.ate ? 'até ' + FL.dataCurta(st.periodo.ate) : ''} ${FL.icone.x}</button>`;
+      h = h ? h.replace('<button type="button" class="link" data-limpar-filtros>', chip + '<button type="button" class="link" data-limpar-filtros>') : `<div class="chips" style="align-items:center"><span style="font-size:13px;font-weight:700">Filtrando por:</span>${chip}<button type="button" class="link" data-limpar-filtros>Limpar tudo</button></div>`;
+    }
+    return h;
+  }
+
   function ligarEventos() {
     el.addEventListener('click', (e) => {
       const t = e.target.closest('button, a');
@@ -284,9 +344,16 @@
       if ('salvarDia' in t.dataset) { salvarDia(); return; }
       if ('mais' in t.dataset) { st.limite += POR_PAGINA; desenhar(); return; }
       if ('maisHist' in t.dataset) { st.limiteHist += POR_PAGINA; desenhar(); return; }
-      if ('abrirFiltros' in t.dataset) { FL.gavetaFiltros({ sobre: 'FUP', defs: DEFS, itens: daAba(), marcados: st.filtros, nomeItens: 'pedidos', aoMudar: (m) => { st.filtros = m; desenhar(); } }); return; }
+      if ('abrirFiltros' in t.dataset) { abrirFiltros(); return; }
+      if (t.dataset.ordenar) { const c = t.dataset.ordenar; st.ordem = st.ordem.campo === c ? { campo: c, desc: !st.ordem.desc } : { campo: c, desc: c === 'ultimo' }; desenhar(); return; }
+      if (t.dataset.abrir) {
+        const n = t.dataset.abrir; st.abertos[n] = !st.abertos[n]; desenhar();
+        if (st.abertos[n] && !st.detalhes[n]) FL.api('GET', '/api/v2/pedidos/' + encodeURIComponent(n)).then((d) => { if (d) { st.detalhes[n] = d; desenhar(); } });
+        return;
+      }
+      if ('tirarPeriodo' in t.dataset) { st.periodo = { campo: st.periodo.campo }; desenhar(); return; }
       if (t.dataset.tirarFiltro) { st.filtros[t.dataset.tirarFiltro] = (st.filtros[t.dataset.tirarFiltro] || []).filter((v) => v !== t.dataset.valor); desenhar(); return; }
-      if ('limparFiltros' in t.dataset) { st.filtros = {}; desenhar(); }
+      if ('limparFiltros' in t.dataset) { st.filtros = {}; st.periodo = { campo: 'prometida' }; desenhar(); }
     });
     const campoDia = (e) => {
       const c = e.target.dataset.campo; const tr = e.target.closest('[data-linha-dia]');
@@ -318,8 +385,13 @@
     montar: async function (alvo) {
       el = alvo;
       st = { dados: [], hist: [], carregado: false, aba: 'dia', filtros: {}, sel: {}, limite: POR_PAGINA, limiteHist: POR_PAGINA, hoje: FL.hojeISO(), janela: 2,
-        motivos: [], rasc: {}, diaTodos: false };
+        motivos: [], rasc: {}, diaTodos: false, periodo: { campo: 'prometida' }, ordem: { campo: null, desc: false }, abertos: {}, detalhes: {}, q: '' };
       ligarEventos(); desenhar(); await carregar(); desenhar();
+    },
+    buscar: function (q) {
+      if (!st) return;
+      st.q = q; desenhar();
+      if (st.aba === 'hist') el.querySelectorAll('.fl-tabela > tbody > tr').forEach((tr) => { tr.style.display = !q || FL.semAcento(tr.textContent).replace(/[.\s]/g, '').includes(q) ? '' : 'none'; });
     }
   };
 })();

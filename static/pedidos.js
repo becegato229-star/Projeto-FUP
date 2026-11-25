@@ -161,6 +161,11 @@
   function detalheHtml(p) {
     const d = st.detalhes[p.pedido];
     if (!d) return '<div class="carregando">Carregando itens e notas…</div>';
+    return detalheCorpo(p, d, {});
+  }
+  // Também usado pela tela FUP (só leitura, com todos os FUPs)
+  FL.htmlDetalhePedido = (p, d) => detalheCorpo(p, d, { leitura: true });
+  function detalheCorpo(p, d, opc) {
     const validas = nfsValidas(p);
     const avisos = [];
     if (p.status === 'Cancelado') avisos.push(['aviso', `Pedido cancelado${d.data_cancelamento ? ' em ' + FL.data(d.data_cancelamento) : ''}${d.cancelado_por ? ' por ' + d.cancelado_por : ''}: ${p.motivo_cancelamento || (p.cancelado ? '—' : 'cancelado no Mega')}`]);
@@ -169,6 +174,7 @@
     if (p.nova_data) avisos.push(['aviso info', `Nova data ${FL.data(p.nova_data)}${d.nova_data_quem ? ' · pedida por: ' + d.nova_data_quem : ''}${d.nova_data_motivo ? ' · ' + d.nova_data_motivo : ''}${d.nova_data_por ? ' · registrada por ' + d.nova_data_por : ''}`]);
     const dados = [['Vendedor', d.vendedor || 'não informado (vem da Carteira de pedidos ou do Dashboard de vendas)'], ['Transportadora', d.transportadora || (p.tipo === 'Transportadora' ? 'não informada' : p.tipo)], ['Situação no Mega', p.situacao_erp || '—']];
     if (d.uf) dados.push(['Estado', d.uf + (d.municipio ? ' · ' + d.municipio : '')]);
+    if (opc.leitura) dados.unshift(['Cliente', p.cliente || '—'], ['Emissão', FL.data(p.emissao)], ['Prometida', FL.data(p.prometida)], ['Tipo', p.tipo || '—'], ['OE', p.oe || '—'], ['Status', p.status || '—']);
     const fat = d.itens_faturados || [];
     const faturados = fat.length ? `<table class="tabela-interna"><thead><tr><th>NF</th><th>Código</th><th>Descrição</th><th class="dir" style="text-align:right">Qtd.</th><th>Un.</th><th>Emissão</th></tr></thead><tbody>
       ${fat.map((i) => `<tr><td class="nw"><b>${esc(i.nf)}</b></td><td class="nw">${esc(i.codigo || '—')}</td><td>${esc(i.descricao || '—')}</td><td style="text-align:right" class="nw">${FL.num(i.quantidade, i.quantidade % 1 ? 2 : 0)}</td><td>${esc(i.unidade || '')}</td><td class="nw">${FL.dataCurta(i.emissao)}</td></tr>`).join('')}</tbody></table>` : '';
@@ -181,12 +187,12 @@
       ${d.nfs.map((n) => `<tr><td class="nw" style="${n.cancelada ? 'text-decoration:line-through;color:var(--texto2)' : ''}"><b>${esc(n.nf)}</b>${n.cancelada ? ` <span class="selo contorno-alerta" style="text-decoration:none">cancelada</span>` : ''}</td>
         <td class="nw">${FL.data(n.faturamento)}</td><td class="nw">${FL.data(n.entrega)}</td>
         <td>${n.cancelada ? `<span style="font-size:12px;color:var(--texto2)">${esc(n.cancelada_motivo || '')}${n.cancelada_por ? ' · ' + esc(n.cancelada_por) : ''}</span>` : (n.canhoto ? '<span class="selo ok">Recebido</span>' : '<span class="selo alerta">Falta</span>')}</td>
-        <td class="nw" style="text-align:right">${n.fora_da_planilha ? '<span style="font-size:12px;color:var(--texto2)">não veio na última planilha</span>' : ''}<button type="button" class="link" style="font-size:12px;${n.fora_da_planilha ? 'display:none' : ''}" data-nf-cancelar="${esc(n.nf)}" data-p="${esc(p.pedido)}" data-desfazer="${n.cancelada ? '1' : ''}" title="${n.cancelada ? 'Esta NF não está cancelada' : 'Marcar esta NF como cancelada'}">${n.cancelada ? 'desmarcar' : 'cancelada?'}</button></td></tr>`).join('')}</tbody></table>`
+        <td class="nw" style="text-align:right">${n.fora_da_planilha ? '<span style="font-size:12px;color:var(--texto2)">não veio na última planilha</span>' : ''}<button type="button" class="link" style="font-size:12px;${n.fora_da_planilha || opc.leitura ? 'display:none' : ''}" data-nf-cancelar="${esc(n.nf)}" data-p="${esc(p.pedido)}" data-desfazer="${n.cancelada ? '1' : ''}" title="${n.cancelada ? 'Esta NF não está cancelada' : 'Marcar esta NF como cancelada'}">${n.cancelada ? 'desmarcar' : 'cancelada?'}</button></td></tr>`).join('')}</tbody></table>`
       : '<p style="margin:0;font-size:14px;color:var(--texto2)">Sem NF.</p>';
-    const fups = d.fups.slice(0, 3);
+    const fups = opc.leitura ? d.fups : d.fups.slice(0, 3);
     return `<div style="display:flex;flex-direction:column;gap:14px">
       ${avisos.map((a) => `<p class="${a[0]}">${esc(a[1])}</p>`).join('')}
-      ${p.cancelado ? `<button type="button" class="link" style="align-self:flex-start" data-descancelar="${esc(p.pedido)}">Foi engano? Desfazer o cancelamento (pede a senha de administrador)</button>` : ''}
+      ${p.cancelado && !opc.leitura ? `<button type="button" class="link" style="align-self:flex-start" data-descancelar="${esc(p.pedido)}">Foi engano? Desfazer o cancelamento (pede a senha de administrador)</button>` : ''}
       <div style="display:flex;flex-wrap:wrap;gap:6px 24px;font-size:13px;color:var(--texto2)">${dados.map((x) => `<span>${esc(x[0])}: <b style="color:#000">${esc(x[1])}</b></span>`).join('')}</div>
       <div style="display:flex;flex-wrap:wrap;gap:16px 24px;align-items:flex-start">
         <div style="flex:2 1 460px;min-width:0;display:flex;flex-direction:column;gap:8px"><span class="rotulo-secao">ITENS DO PEDIDO</span><div style="overflow-x:auto">${itens}</div>
@@ -197,7 +203,7 @@
               <span style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b style="font-size:14px">${esc(c.numero)} · ${esc(c.problema || '')}</b><span class="selo ${{ 'Resolvido': 'ok', 'Recusado': 'preto', 'Encontrar solução': 'contorno-alerta' }[c.status] || ''}">${esc(c.status)}</span></span>
               <span style="font-size:12px;color:var(--texto2)">Aberto ${FL.dataCurta(c.aberto_em)}${c.nf ? ' · NF ' + esc(c.nf) : ''}${c.responsavel ? ' · ' + esc(c.responsavel) : ''}${c.prazo && ['Encontrar solução', 'Em andamento'].includes(c.status) ? ' · prazo ' + FL.dataCurta(c.prazo) : ''}${c.solucao ? ' · ' + esc(c.solucao) : ''}</span>
               ${c.ultima ? `<span style="font-size:13px">${FL.dataCurta(c.ultima.data)}${c.ultima.por ? ' · ' + esc(c.ultima.por) : ''}: ${esc(c.ultima.texto)}</span>` : ''}</div>`).join('')}` : ''}
-          <span class="rotulo-secao" style="margin-top:8px">ÚLTIMOS FUPS</span>
+          <span class="rotulo-secao" style="margin-top:8px">${opc.leitura ? 'HISTÓRICO DE FUPS' : 'ÚLTIMOS FUPS'}</span>
           ${fups.length ? `<ol class="linha-tempo">${fups.map((f) => `<li><b style="font-size:13px">${FL.dataCurta(f.data)}${f.por ? ' · ' + esc(f.por) : ''} · ${esc(SIT_FUP[f.situacao] || f.situacao)}</b><span style="font-size:14px">${esc([f.motivo, f.observacao].filter(Boolean).join(' — ') || '—')}</span></li>`).join('')}</ol>` : '<p style="margin:0;font-size:14px;color:var(--texto2)">Nenhum FUP ainda.</p>'}
         </div>
       </div></div>`;
