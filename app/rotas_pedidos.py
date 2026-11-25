@@ -80,6 +80,8 @@ def listar_pedidos_v2(session: Session) -> list:
             "pedido": p.numero_pedido, "cliente": p.nome_cliente, "cod_cliente": p.cod_cliente,
             "emissao": _iso(p.data_emissao), "prometida": _iso(p.data_entrega_prevista),
             "nova_data": _iso(p.nova_data_entrega), "nova_data_quem": p.nova_data_quem,
+            "aguardando": ({"desde": _iso(p.aguardando_cliente_desde), "motivo": p.aguardando_cliente_motivo, "por": p.aguardando_cliente_por}
+                           if p.aguardando_cliente_desde else None),
             "entrega_efetiva": _iso(entrega_efetiva), "tipo": p.tipo_entrega or "Desconhecido",
             "status": p.status, "situacao_erp": p.situacao_erp,
             "atrasado": bool(p.atraso_producao), "dias_atraso": p.dias_atraso_producao or 0,
@@ -142,6 +144,47 @@ def detalhe(numero: str, session: Session = Depends(get_session)):
                                        "observacao": t.observacao} for t in transp],
         "avisos_registros": [{"data": _iso(a.data_registro), "texto": a.motivo, "proxima": _iso(a.proxima_data_limite)} for a in avisos],
     }
+
+
+class Aguardando(BaseModel):
+    motivo: str
+
+
+@router.post("/pedidos/{numero}/aguardando")
+def marcar_aguardando(numero: str, dados: Aguardando, session: Session = Depends(get_session),
+                      por: Optional[str] = Depends(usuario_atual)):
+    """Pedido pronto que depende do cliente (ex.: Retira sem agendamento): sai dos atrasados."""
+    from .importer import recalcular_status_e_atrasos
+    p = session.get(Pedido, numero)
+    if not p:
+        raise HTTPException(404, "Pedido não encontrado.")
+    motivo = (dados.motivo or "").strip()
+    if not motivo:
+        raise HTTPException(400, "Escreva o motivo.")
+    p.aguardando_cliente_desde = hoje_brasil()
+    p.aguardando_cliente_motivo = motivo[:300]
+    p.aguardando_cliente_por = por
+    session.add(p)
+    session.commit()
+    recalcular_status_e_atrasos(session)
+    session.commit()
+    return {"ok": True}
+
+
+@router.delete("/pedidos/{numero}/aguardando")
+def tirar_aguardando(numero: str, session: Session = Depends(get_session)):
+    from .importer import recalcular_status_e_atrasos
+    p = session.get(Pedido, numero)
+    if not p:
+        raise HTTPException(404, "Pedido não encontrado.")
+    p.aguardando_cliente_desde = None
+    p.aguardando_cliente_motivo = None
+    p.aguardando_cliente_por = None
+    session.add(p)
+    session.commit()
+    recalcular_status_e_atrasos(session)
+    session.commit()
+    return {"ok": True}
 
 
 class NovaData(BaseModel):
@@ -302,7 +345,9 @@ def tela_fup(session: Session = Depends(get_session)):
         ultimos[f.numero_pedido] = f
     lista = []
     for p in pedidos:
-        if p.atraso_producao:
+        if p.aguardando_cliente_desde:
+            prazo = {"tipo": "aguardando", "n": None}  # pronto, depende do cliente: não entra em "Para revisar"
+        elif p.atraso_producao:
             prazo = {"tipo": "atraso", "n": p.dias_atraso_producao or 0}
         elif p.data_entrega_prevista:
             prazo = {"tipo": "vence", "n": _dias_uteis_entre(hoje, p.data_entrega_prevista, feriados)}
@@ -315,6 +360,7 @@ def tela_fup(session: Session = Depends(get_session)):
             "vendedor": p.vendedor, "tipo": p.tipo_entrega, "prometida": _iso(p.data_entrega_prevista),
             "nova_data": _iso(p.nova_data_entrega), "prazo": prazo, "atrasado": bool(p.atraso_producao),
             "dias_atraso": p.dias_atraso_producao or 0,
+            "aguardando": p.aguardando_cliente_motivo if p.aguardando_cliente_desde else None,
             "fup": _situacao_fup(ult),
             "dias_desde_fup": _dias_uteis_entre(ult.data_referencia, hoje, feriados) if ult else None,
             "revisar": urgente and not (ult and ult.data_referencia == hoje),
