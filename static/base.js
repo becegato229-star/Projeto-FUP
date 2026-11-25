@@ -485,6 +485,10 @@
     const m = MENU.concat(MENU2).find((x) => x.id === id);
     document.title = 'FlowLog — ' + (m ? m.nome : 'v2');
     window.scrollTo(0, 0);
+    // a animação de entrada roda só ao abrir a tela (não a cada clique dentro dela)
+    document.body.classList.remove('fl-sem-entrada');
+    clearTimeout(navegar.timer);
+    navegar.timer = setTimeout(() => document.body.classList.add('fl-sem-entrada'), 900);
     if (tela) tela.montar(novo); else telaNaoPronta(novo, id);
   }
 

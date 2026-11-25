@@ -127,7 +127,6 @@
     return `
       <div class="fl-secao" style="flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;padding:14px 18px">
         <span style="font-size:14px"><b data-progresso>${feitos} de ${ls.length}</b> preenchidos
-          · <span style="display:inline-flex;gap:6px;align-items:center">ordenar: ${[['prazo', 'atraso'], ['cliente', 'cliente'], ['vendedor', 'vendedor'], ['entrega', 'entrega']].map((o) => `<button type="button" class="link" style="font-size:13px;${st.ordem.campo === o[0] ? 'font-weight:700' : ''}" data-ordenar="${o[0]}">${o[1]}${st.ordem.campo === o[0] ? (st.ordem.desc ? ' ↓' : ' ↑') : ''}</button>`).join('')}</span>
           · <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-dia-todos ${st.diaTodos ? 'checked' : ''} style="accent-color:#000"> todos em produção</label></span>
         <span style="display:flex;flex-wrap:wrap;gap:8px">
           <button type="button" class="btn sec" data-repetir-todos ${ls.length ? '' : 'disabled'}>Repetir o último FUP nos vazios</button>
@@ -135,14 +134,15 @@
           <button type="button" class="btn" data-salvar-dia>Salvar FUP do dia</button>
         </span></div>
       <div class="fl-tabela-caixa"><table class="fl-tabela fup-dia"><thead><tr>
-        ${th('pedido', 'Pedido', 'cliente · prazo')}${th('ultimo', 'Último FUP', '')}<th style="min-width:250px">Situação</th><th style="min-width:180px">Motivo</th>
+        ${th('pedido', 'Pedido', 'emissão')}${th('cliente', 'Cliente', '')}${th('prazo', 'Entrega', 'prazo')}${th('ultimo', 'Último FUP', '')}<th style="min-width:250px">Situação</th><th style="min-width:180px">Motivo</th>
         <th style="min-width:200px">Observação</th><th style="min-width:150px">Nova data<small>quem pediu</small></th><th class="dir"></th></tr></thead><tbody>
-        ${!st.carregado ? '<tr><td colspan="7" class="vazio">Carregando…</td></tr>' : (ls.length ? ls.map((p) => {
+        ${!st.carregado ? '<tr><td colspan="9" class="vazio">Carregando…</td></tr>' : (ls.length ? ls.map((p) => {
           const r = st.rasc[p.pedido] || {};
           const f = p.fup;
           return `<tr data-linha-dia="${esc(p.pedido)}" class="${preenchida(r) ? 'sel' : ''}">
-            <td class="nw">${botaoPedido(p)}<span class="sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;padding-left:18px">${esc(p.cliente || '—')}</span>
-              <span class="sub" style="${prazoForte(p) ? 'color:var(--alerta);font-weight:700' : ''}">${esc(prazoTxt(p))}</span></td>
+            <td class="nw">${botaoPedido(p)}<span class="sub" style="padding-left:18px">Emitido ${FL.dataCurta(p.emissao)}</span></td>
+            <td style="max-width:200px"><b style="font-size:14px">${esc(p.cliente || '—')}</b></td>
+            <td class="nw">${p.nova_data ? 'Nova ' + FL.dataCurta(p.nova_data) : (p.prometida ? FL.dataCurta(p.prometida) : '—')}<span class="sub" style="${prazoForte(p) ? 'color:var(--alerta);font-weight:700' : ''}">${esc(prazoTxt(p))}</span></td>
             <td style="max-width:220px">${f ? `<span class="selo ${SELO_SIT[f.situacao]}">${esc(SIT[f.situacao])}</span> <span style="font-size:13px">${esc(f.motivo || '')}</span><span class="sub">${FL.dataCurta(f.data)}${f.observacao ? ' · ' + esc(f.observacao.slice(0, 60)) : ''}</span>` : '<span class="sub">Sem FUP</span>'}</td>
             <td><div class="seg" style="grid-template-columns:repeat(3,auto)" role="group" aria-label="Situação do pedido ${esc(p.pedido)}">
               ${[['ok', 'Ok'], ['previsto_atraso', 'Previsto'], ['atraso', 'Atraso']].map((x) => `<button type="button" style="min-height:34px;font-size:13px;padding:0 10px" data-sit-dia="${x[0]}" aria-pressed="${r.sit === x[0]}">${x[1]}</button>`).join('')}</div></td>
@@ -150,8 +150,8 @@
             <td><input type="text" data-campo="obs" maxlength="500" value="${esc(r.obs || '')}" placeholder="${r.motivo === 'Outro' ? 'Obrigatória com Outro' : ''}" style="min-height:36px;width:100%"></td>
             <td><input type="date" data-campo="nova" value="${esc(r.nova || '')}" style="min-height:36px">
               <select data-campo="quem" style="min-height:32px;margin-top:4px;${r.nova ? '' : 'display:none'}"><option value="">Quem pediu…</option>${['Cliente', 'MUBEC'].map((q) => `<option ${q === r.quem ? 'selected' : ''}>${q}</option>`).join('')}</select></td>
-            <td class="dir nw">${f ? `<button type="button" class="btn-icone" data-repetir="${esc(p.pedido)}" title="Repetir o último FUP" aria-label="Repetir o último FUP do pedido ${esc(p.pedido)}">↺</button>` : ''}</td></tr>${detalheLinha(p, 7)}`;
-        }).join('') : `<tr><td colspan="7" class="vazio">${st.diaTodos ? 'Nenhum pedido em produção.' : 'Nenhum pedido para revisar hoje.'}</td></tr>`)}
+            <td class="dir nw">${f ? `<button type="button" class="btn-icone" data-repetir="${esc(p.pedido)}" title="Repetir o último FUP" aria-label="Repetir o último FUP do pedido ${esc(p.pedido)}">↺</button>` : ''}</td></tr>${detalheLinha(p, 9)}`;
+        }).join('') : `<tr><td colspan="9" class="vazio">${st.diaTodos ? 'Nenhum pedido em produção.' : 'Nenhum pedido para revisar hoje.'}</td></tr>`)}
       </tbody></table></div>`;
   }
   function atualizarLinhaDia(n) {
