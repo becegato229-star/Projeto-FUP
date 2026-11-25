@@ -54,9 +54,11 @@ def _situacao_fup(f: Optional[FupRegistro]) -> Optional[dict]:
             "observacao": f.observacao, "por": f.registrado_por}
 
 
-def listar_pedidos_v2(session: Session) -> list:
+def listar_pedidos_v2(session: Session, numeros: Optional[set] = None) -> list:
     recalcular_se_necessario(session)
     pedidos = session.exec(select(Pedido)).all()
+    if numeros is not None:
+        pedidos = [p for p in pedidos if p.numero_pedido in numeros]
     nfs: dict = {}
     for n in session.exec(select(NotaFiscalPedido).order_by(NotaFiscalPedido.data_faturamento, NotaFiscalPedido.id)).all():
         nfs.setdefault(n.numero_pedido, []).append(n)
@@ -122,7 +124,9 @@ def detalhe(numero: str, session: Session = Depends(get_session)):
             ultima_at[a.caso_id] = a
     numeros_nf = [n.nf for n in nfs]
     faturados = session.exec(select(ItemFaturado).where(ItemFaturado.nf.in_(numeros_nf)).order_by(ItemFaturado.nf, ItemFaturado.seq)).all() if numeros_nf else []
+    linha = listar_pedidos_v2(session, {numero})
     return {
+        "linha": linha[0] if linha else None,
         "pedido": numero, "vendedor": p.vendedor, "transportadora": p.transportadora_nome,
         "nova_data": _iso(p.nova_data_entrega), "nova_data_quem": p.nova_data_quem, "nova_data_motivo": p.nova_data_motivo,
         "nova_data_por": p.nova_data_por, "cancelado_por": p.cancelado_por,
@@ -361,6 +365,7 @@ def tela_fup(session: Session = Depends(get_session)):
             "nova_data": _iso(p.nova_data_entrega), "prazo": prazo, "atrasado": bool(p.atraso_producao),
             "dias_atraso": p.dias_atraso_producao or 0,
             "aguardando": p.aguardando_cliente_motivo if p.aguardando_cliente_desde else None,
+            "uf": p.uf, "transportadora": p.transportadora_nome, "oe": p.numero_oe,
             "fup": _situacao_fup(ult),
             "dias_desde_fup": _dias_uteis_entre(ult.data_referencia, hoje, feriados) if ult else None,
             "revisar": urgente and not (ult and ult.data_referencia == hoje),
