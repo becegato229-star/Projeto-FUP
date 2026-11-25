@@ -577,6 +577,9 @@ def _dias_uteis_entre(d1: date, d2: date, feriados=None) -> int:
 
 
 def recalcular_status_e_atrasos(session: Session) -> None:
+    # v2 (25/11): canhoto achado na pasta do Drive marca a NF (se a planilha ainda não marcou)
+    from .canhotos_drive import aplicar_nas_nfs
+    aplicar_nas_nfs(session)
     hoje = hoje_brasil()
     pedidos = session.exec(select(Pedido)).all()
     prazos = ler_prazos(session)

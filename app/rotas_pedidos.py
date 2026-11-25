@@ -21,6 +21,8 @@ from .models import (
 )
 from .rotas_novo import exigir_senha, usuario_atual
 
+from .canhotos_drive import fotos_por_nf  # noqa: E402
+
 router = APIRouter(prefix="/api/v2")
 
 _ultimo_recalculo = 0.0
@@ -42,7 +44,7 @@ def _iso(d) -> Optional[str]:
 
 def _nf_json(n: NotaFiscalPedido) -> dict:
     return {"nf": n.nf, "faturamento": _iso(n.data_faturamento), "entrega": _iso(n.data_entrega),
-            "canhoto": bool(n.canhoto), "cancelada": bool(n.cancelada) or bool(n.fora_da_planilha),
+            "canhoto": bool(n.canhoto), "canhoto_drive": (n.canhoto or "").startswith("drive:"), "cancelada": bool(n.cancelada) or bool(n.fora_da_planilha),
             "fora_da_planilha": bool(n.fora_da_planilha), "cancelada_motivo": n.cancelada_motivo if n.cancelada else ("não está mais na planilha da expedição" if n.fora_da_planilha else None),
             "cancelada_por": n.cancelada_por}
 
@@ -125,6 +127,7 @@ def detalhe(numero: str, session: Session = Depends(get_session)):
     numeros_nf = [n.nf for n in nfs]
     faturados = session.exec(select(ItemFaturado).where(ItemFaturado.nf.in_(numeros_nf)).order_by(ItemFaturado.nf, ItemFaturado.seq)).all() if numeros_nf else []
     linha = listar_pedidos_v2(session, {numero})
+    fotos = fotos_por_nf(session, numeros_nf)  # canhotos na pasta do Google Drive (só o link)
     return {
         "linha": linha[0] if linha else None,
         "pedido": numero, "vendedor": p.vendedor, "transportadora": p.transportadora_nome,
@@ -134,7 +137,7 @@ def detalhe(numero: str, session: Session = Depends(get_session)):
         "itens": [{"codigo": i.codigo_item, "alternativo": i.alternativo, "descricao": i.descricao, "quantidade": i.quantidade,
                    "unidade": i.unidade, "entrega": _iso(i.data_entrega), "situacao": i.situacao_item,
                    "na_carteira": i.na_carteira is not False} for i in itens],
-        "nfs": [_nf_json(n) for n in nfs],
+        "nfs": [dict(_nf_json(n), fotos=fotos.get(n.nf, [])) for n in nfs],
         "uf": p.uf, "municipio": p.municipio,
         "itens_faturados": [{"nf": i.nf, "seq": i.seq, "emissao": _iso(i.data_emissao), "codigo": i.codigo_item,
                              "alternativo": i.alternativo, "descricao": i.descricao, "quantidade": i.quantidade,

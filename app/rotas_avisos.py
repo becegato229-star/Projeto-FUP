@@ -18,6 +18,8 @@ from .models import AvisoRegistro, NotaFiscalPedido, Pedido, TransportadoraRegis
 from .rotas_novo import usuario_atual
 from .rotas_pedidos import recalcular_se_necessario
 
+from .canhotos_drive import fotos_por_nf  # noqa: E402
+
 router = APIRouter(prefix="/api/v2")
 JANELA_DESFAZER = timedelta(minutes=15)
 
@@ -119,11 +121,14 @@ def listar_avisos(session: Session = Depends(get_session)):
             saida.append({
                 "pedido": numero, "nf": n.nf, "cliente": p.nome_cliente, "tipo": p.tipo_entrega or "Desconhecido",
                 "transportadora": p.transportadora_nome, "vendedor": p.vendedor, "faturamento": _iso(n.data_faturamento),
-                "dias": dias, "prazo": limite, "canhoto": bool(n.canhoto), "entrega": _iso(n.data_entrega),
+                "dias": dias, "prazo": limite, "canhoto": bool(n.canhoto), "canhoto_drive": (n.canhoto or "").startswith("drive:"), "entrega": _iso(n.data_entrega),
                 "parcial": _texto_parcial(n, lista) if n.nf else "", "situacao": situacao, "pedido_cancelado": bool(p.cancelado),
                 "registros": [{"id": r.id, "data": _iso(r.data_registro), "por": r.registrado_por, "texto": r.motivo,
                                "proxima": _iso(r.proxima_data_limite), "pode_desfazer": _pode_desfazer(r.created_at)} for r in registros],
             })
+    fotos = fotos_por_nf(session, {a["nf"] for a in saida if a["nf"]})  # canhotos no Google Drive (só o link)
+    for a in saida:
+        a["fotos"] = fotos.get(a["nf"], []) if a["nf"] else []
     ordem = {"atencao": 0, "acomp": 1, "hist": 2}
     saida.sort(key=lambda a: (ordem[a["situacao"]], -a["dias"]))
     return {"hoje": hoje.isoformat(), "avisos": saida}
@@ -215,10 +220,14 @@ def listar_transportadora(session: Session = Depends(get_session)):
                             "previsao": _iso(ch.previsao_retirada), "obs": ch.observacao, "por": ch.registrado_por} if ch else None,
                 "coleta": {"data": _iso(co.data_registro), "obs": co.observacao, "por": co.registrado_por} if co else None,
                 "canhoto_em": _iso(n.data_entrega) if n.canhoto else None,
+                "canhoto_drive": (n.canhoto or "").startswith("drive:"),
                 "registros": [{"id": r.id, "evento": _evento(r) or "nota", "data": _iso(r.data_registro), "hora": r.hora,
                                "quem": r.quem_chamou, "codigo": r.codigo_coleta, "previsao": _iso(r.previsao_retirada),
                                "obs": r.observacao, "por": r.registrado_por, "pode_desfazer": _pode_desfazer(r.created_at)} for r in registros],
             })
+    fotos = fotos_por_nf(session, {a["nf"] for a in saida if a["nf"]})  # canhotos no Google Drive (só o link)
+    for a in saida:
+        a["fotos"] = fotos.get(a["nf"], []) if a["nf"] else []
     ordem = {"chamar": 0, "chamada": 1, "coletado": 2, "encerrado": 3}
     saida.sort(key=lambda a: (ordem[a["etapa"]], a["faturamento"] or ""))
     return {"hoje": hoje.isoformat(), "itens": saida}

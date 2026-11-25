@@ -30,6 +30,7 @@ from .importer import importar_planilha, recalcular_status_e_atrasos, migrar_nfs
 from .fup_lote import importar_fup_em_lote
 from .fuso import hoje_brasil
 from .snapshot import capturar_snapshot_do_dia, loop_captura_diaria
+from .canhotos_drive import loop_sincronizacao, sincronizar_em_segundo_plano
 from .terceirizacao import extrair_numero_nota_saida, montar_pares
 from .terceirizacao_pdf import parse_danfe_pdf
 from .cobranca import importar_boletos
@@ -51,6 +52,8 @@ from .rotas_posvenda import router as router_posvenda  # noqa: E402
 app.include_router(router_posvenda)
 from .rotas_dashboard import router as router_dashboard  # noqa: E402
 app.include_router(router_dashboard)
+from .rotas_canhotos import router as router_canhotos  # noqa: E402
+app.include_router(router_canhotos)
 
 
 from .configuracoes import SenhaBloqueada  # noqa: E402
@@ -122,6 +125,8 @@ async def on_startup():
     # tarefa em segundo plano que tira o retrato diário sozinha, sem
     # depender de nenhuma ferramenta externa (n8n, cron, etc)
     asyncio.create_task(loop_captura_diaria(engine))
+    # v2 (25/11): canhotos da pasta do Google Drive, a cada 3 horas (sem Drive configurado, não faz nada)
+    asyncio.create_task(loop_sincronizacao(engine))
 
 
 # ---------------------------------------------------------------------
@@ -154,6 +159,8 @@ async def importar(file: UploadFile = File(...), session: Session = Depends(get_
         file.filename, resultado.get("resumo") or f"{resultado.get('registros_processados', 0)} linhas lidas (aba {resultado.get('aba_usada')})",
         resultado.get("avisos"), por,
     )
+    if resultado.get("tipo_detectado") == "pedidos_mubec":
+        sincronizar_em_segundo_plano(engine, por)  # junto com a importação da expedição
     return resultado
 
 
@@ -2541,6 +2548,8 @@ async def importar_qualquer_planilha(files: List[UploadFile] = File(...), sessio
                 resumo = r.get("resumo") or f"{r.get('registros_processados', 0)} linhas lidas (aba {r.get('aba_usada')})"
                 registrar_importacao(session, tipo, nome, resumo, r.get("avisos"), por)
                 item.update(tipo=tipo, resumo=resumo, avisos=r.get("avisos") or [], ok=True)
+                if tipo == "expedicao":
+                    sincronizar_em_segundo_plano(engine, por)  # canhotos do Drive junto com a expedição
         except HTTPException as e:
             session.rollback()
             item.update(ok=False, erro=str(e.detail))

@@ -612,3 +612,18 @@ class AtualizacaoPosVenda(SQLModel, table=True):
     desfeita_em: Optional[datetime] = None                # "Desfazer" não apaga: marca e some da linha do tempo
     desfeita_por: Optional[str] = None
     criado_em: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CanhotoArquivo(SQLModel, table=True):
+    """v2 (25/11): uma foto de canhoto na pasta do Google Drive. Só o link e o
+    nome são guardados (a imagem fica no Drive). Nunca é apagada: se some da
+    pasta, ganha removido_em."""
+    drive_id: str = Field(primary_key=True)
+    nome: Optional[str] = None
+    nf: Optional[str] = Field(default=None, index=True)   # número normalizado (sem ponto, sem zero à esquerda)
+    data_canhoto: Optional[date] = None                   # do nome ("2511") ou, sem ela, da criação do arquivo
+    link: Optional[str] = None                            # webViewLink
+    criado_em: Optional[datetime] = None
+    modificado_em: Optional[datetime] = None
+    visto_em: Optional[datetime] = None
+    removido_em: Optional[datetime] = None
