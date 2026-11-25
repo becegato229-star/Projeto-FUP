@@ -643,10 +643,12 @@ def recalcular_status_e_atrasos(session: Session) -> None:
         # se o pedido conta como atrasado.
         p.atraso_producao = False
         p.dias_atraso_producao = 0
-        if p.status in ("Bloqueado", "Aprovado") and p.data_entrega_prevista:
-            # (v2: a folga da Retira vem de Configurações; padrão 1 dia = igual ao 1.0)
-            folga = prazos["folga_retira"] if p.tipo_entrega == "Retira" else 0
-            esta_no_prazo_vencido = hoje >= p.data_entrega_prevista + timedelta(days=folga)
+        # v2 (25/11): o próprio dia prometido não é atraso para nenhum tipo (atrasa a
+        # partir do dia seguinte). A Retira continua igual: a folga dela (padrão 1 dia)
+        # já tirava o dia prometido. "Aguardando cliente" (marcado à mão) não é atraso.
+        if p.status in ("Bloqueado", "Aprovado") and p.data_entrega_prevista and not p.aguardando_cliente_desde:
+            folga = max(prazos["folga_retira"] - 1, 0) if p.tipo_entrega == "Retira" else 0
+            esta_no_prazo_vencido = hoje > p.data_entrega_prevista + timedelta(days=folga)
             if esta_no_prazo_vencido:
                 p.atraso_producao = True
                 p.dias_atraso_producao = _dias_uteis_entre(p.data_entrega_prevista, hoje, feriados)
