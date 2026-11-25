@@ -63,8 +63,21 @@ def listar(session: Session = Depends(get_session)):
         for a in session.exec(select(AtualizacaoPosVenda).where(AtualizacaoPosVenda.caso_id.in_(ids), AtualizacaoPosVenda.desfeita_em == None)  # noqa: E711
                               .order_by(AtualizacaoPosVenda.data, AtualizacaoPosVenda.id)).all():
             por_caso.setdefault(a.caso_id, []).append(a)
-    return {"hoje": hoje_brasil().isoformat(), "prazo_dias": ler_prazos(session)["posvenda_prazo"],
-            "casos": [_caso_json(c, por_caso.get(c.id, [])) for c in casos]}
+    # canhoto sempre atual (o caso pode ter sido aberto antes de o canhoto entrar pela planilha)
+    nfs = {c.nf for c in casos if c.nf}
+    ligacoes = session.exec(select(NotaFiscalPedido).where(NotaFiscalPedido.nf.in_(list(nfs)))).all() if nfs else []
+    saida = []
+    for c in casos:
+        j = _caso_json(c, por_caso.get(c.id, []))
+        nfp = next((n for n in ligacoes if n.nf == c.nf and (not c.numero_pedido or n.numero_pedido == c.numero_pedido)), None)
+        if nfp is not None:
+            recebido = bool(nfp.canhoto and str(nfp.canhoto).strip())
+            j["canhoto_recebido"] = recebido
+            j["canhoto_em"] = _iso(nfp.data_entrega) if recebido else None
+        else:
+            j["canhoto_recebido"] = bool(c.canhoto_em)
+        saida.append(j)
+    return {"hoje": hoje_brasil().isoformat(), "prazo_dias": ler_prazos(session)["posvenda_prazo"], "casos": saida}
 
 
 def contar_abertos(session: Session) -> int:
