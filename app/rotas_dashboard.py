@@ -128,7 +128,7 @@ def dashboard(
     # ---------------- Agora ----------------
     abertos = [p for p in ped_f if p.status in ("Bloqueado", "Aprovado") and not p.cancelado]
     atrasados = [p for p in abertos if p.atraso_producao]
-    vencem = [p for p in abertos if not p.atraso_producao and p.data_entrega_prevista and 0 <= (uteis(hoje, p.data_entrega_prevista) or 0) <= 2]
+    vencem = [p for p in abertos if not p.atraso_producao and not p.aguardando_cliente_desde and p.data_entrega_prevista and 0 <= (uteis(hoje, p.data_entrega_prevista) or 0) <= 2]
     fat_hoje = {p.numero_pedido for p in ped_f for n in nfs_por_pedido.get(p.numero_pedido, []) if n.data_faturamento == hoje and not n.cancelada}
     por_vend = defaultdict(int)
     por_tipo = defaultdict(int)
@@ -147,7 +147,8 @@ def dashboard(
             continue
         t = p.tipo_entrega if p.tipo_entrega in TIPOS else "Entrega"
         limite = p.data_entrega_prevista if t == "Retira" else dia_util_antes(p.data_entrega_prevista)
-        pontual = fat <= limite
+        # pronto e esperando o cliente antes do limite: o atraso não é da MUBEC
+        pontual = fat <= limite or bool(p.aguardando_cliente_desde and p.aguardando_cliente_desde <= limite)
         atraso = None if pontual else uteis(limite, fat)
         prazo = uteis(p.data_emissao, p.data_entrega_prevista) if p.data_emissao else None
         linhas_pont.append((fat.strftime("%Y-%m"), p.tipo_entrega if p.tipo_entrega in TIPOS else None, p.vendedor or "Sem vendedor", pontual, atraso, prazo,
