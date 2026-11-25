@@ -1,4 +1,4 @@
-/* FlowLog v2 — FUP: Todos · Para revisar · Histórico */
+/* FlowLog v2 — FUP: FUP do dia · Todos · Para revisar · Histórico */
 (function () {
   'use strict';
   const FL = window.FL;
@@ -9,7 +9,7 @@
 
   const DEFS = [
     { id: 'status', titulo: 'STATUS', ordem: ['Bloqueado', 'Aprovado'], valor: (p) => [p.status] },
-    { id: 'prazo', titulo: 'PRAZO', ordem: ['Atrasado', 'Vence em breve', 'No prazo', 'Sem data prometida'], valor: (p) => [p.prazo.tipo === 'atraso' ? 'Atrasado' : (p.prazo.tipo === 'sem_data' ? 'Sem data prometida' : (p.revisar || p.prazo.n <= st.janela ? 'Vence em breve' : 'No prazo'))] },
+    { id: 'prazo', titulo: 'PRAZO', ordem: ['Atrasado', 'Vence em breve', 'No prazo', 'Sem data prometida', 'Aguardando cliente'], valor: (p) => [p.prazo.tipo === 'aguardando' ? 'Aguardando cliente' : p.prazo.tipo === 'atraso' ? 'Atrasado' : (p.prazo.tipo === 'sem_data' ? 'Sem data prometida' : (p.revisar || p.prazo.n <= st.janela ? 'Vence em breve' : 'No prazo'))] },
     { id: 'ultimo', titulo: 'ÚLTIMO FUP', ordem: ['Sem FUP', 'Ok', 'Previsto atraso', 'Atraso'], valor: (p) => [p.fup ? SIT[p.fup.situacao] : 'Sem FUP'] },
     { id: 'motivo', titulo: 'MOTIVO DO ÚLTIMO FUP', valor: (p) => (p.fup && p.fup.motivo ? [p.fup.motivo] : []) },
     { id: 'vendedor', titulo: 'VENDEDOR', valor: (p) => [p.vendedor || 'Sem vendedor'] },
@@ -18,7 +18,7 @@
   ];
 
   let el, st;
-  const prazoTxt = (p) => (p.prazo.tipo === 'atraso' ? (p.prazo.n ? FL.plural(p.prazo.n, 'dia útil', 'dias úteis') + ' de atraso' : 'Venceu hoje')
+  const prazoTxt = (p) => (p.prazo.tipo === 'aguardando' ? 'Aguardando cliente' : p.prazo.tipo === 'atraso' ? (p.prazo.n ? FL.plural(p.prazo.n, 'dia útil', 'dias úteis') + ' de atraso' : 'Venceu hoje')
     : (p.prazo.tipo === 'sem_data' ? 'Sem data prometida' : (p.prazo.n === 0 ? 'Vence hoje' : (p.prazo.n === 1 ? 'Vence amanhã' : 'Vence em ' + p.prazo.n + ' dias úteis'))));
   const prazoForte = (p) => p.prazo.tipo === 'atraso' || (p.prazo.tipo === 'vence' && p.prazo.n <= 1);
   const daAba = () => st.dados.filter((p) => (st.aba === 'revisar' ? p.revisar : true));
@@ -27,10 +27,11 @@
 
   function desenhar() {
     const nRev = st.dados.filter((p) => p.revisar).length;
-    const abas = [{ id: 'todos', rotulo: 'Todos', qtd: st.dados.length }, { id: 'revisar', rotulo: 'Para revisar', qtd: nRev, alerta: true }, { id: 'hist', rotulo: 'Histórico', qtd: st.hist.length }];
+    const abas = [{ id: 'dia', rotulo: 'FUP do dia', qtd: nRev, alerta: true }, { id: 'todos', rotulo: 'Todos', qtd: st.dados.length }, { id: 'revisar', rotulo: 'Para revisar', qtd: nRev, alerta: true }, { id: 'hist', rotulo: 'Histórico', qtd: st.hist.length }];
     const sel = marcados();
     let corpo;
     if (st.aba === 'hist') corpo = htmlHistorico();
+    else if (st.aba === 'dia') corpo = htmlDia();
     else {
       const lista = filtrados();
       const vis = lista.slice(0, st.limite);
@@ -72,6 +73,104 @@
         <span class="sub" style="${prazoForte(p) ? 'color:var(--alerta);font-weight:700' : ''}">${esc(prazoTxt(p))}</span></td>
       <td>${f ? `<span class="selo ${SELO_SIT[f.situacao]}">${esc(SIT[f.situacao])}</span> ${esc(f.motivo || (f.situacao === 'ok' ? 'No prazo' : ''))}<span class="sub" style="${p.revisar ? 'color:var(--alerta);font-weight:700' : ''}">${esc(ha)}</span>` : `<span class="sub" style="${p.revisar ? 'color:var(--alerta);font-weight:700' : ''}">Sem FUP ainda</span>`}</td>
       <td class="dir"><button type="button" class="btn sec" style="min-height:34px;padding:0 12px;font-size:13px" data-um="${esc(p.pedido)}">Registrar FUP</button></td></tr>`;
+  }
+
+  // ------------------------------------------------------------------
+  // FUP do dia: os pedidos para revisar numa tabela editável (como a planilha),
+  // com o último FUP para repetir. O rascunho fica guardado no navegador até salvar.
+  // ------------------------------------------------------------------
+  const chaveRascunho = () => 'fl_fup_dia_' + st.hoje;
+  function lerRascunho() { try { return JSON.parse(localStorage.getItem(chaveRascunho()) || '{}'); } catch (e) { return {}; } }
+  function gravarRascunho() { try { localStorage.setItem(chaveRascunho(), JSON.stringify(st.rasc)); } catch (e) { /* sem armazenamento */ } }
+  const linhasDia = () => filtrados().filter((p) => (st.diaTodos ? true : p.revisar));
+  const preenchida = (r) => r && r.sit;
+
+  function htmlDia() {
+    const ls = linhasDia();
+    const feitos = ls.filter((p) => preenchida(st.rasc[p.pedido])).length;
+    const opMot = (sel) => `<option value="">Motivo…</option>${st.motivos.map((m) => `<option ${m === sel ? 'selected' : ''}>${esc(m)}</option>`).join('')}`;
+    return `
+      <div class="fl-secao" style="flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;padding:14px 18px">
+        <span style="font-size:14px"><b data-progresso>${feitos} de ${ls.length}</b> preenchidos
+          · <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" data-dia-todos ${st.diaTodos ? 'checked' : ''} style="accent-color:#000"> todos em produção</label></span>
+        <span style="display:flex;flex-wrap:wrap;gap:8px">
+          <button type="button" class="btn sec" data-repetir-todos ${ls.length ? '' : 'disabled'}>Repetir o último FUP nos vazios</button>
+          <button type="button" class="btn sec" data-limpar-dia>Limpar</button>
+          <button type="button" class="btn" data-salvar-dia>Salvar FUP do dia</button>
+        </span></div>
+      <div class="fl-tabela-caixa"><table class="fl-tabela fup-dia"><thead><tr>
+        <th>Pedido<small>cliente · prazo</small></th><th>Último FUP</th><th style="min-width:250px">Situação</th><th style="min-width:180px">Motivo</th>
+        <th style="min-width:200px">Observação</th><th style="min-width:150px">Nova data<small>quem pediu</small></th><th class="dir"></th></tr></thead><tbody>
+        ${!st.carregado ? '<tr><td colspan="7" class="vazio">Carregando…</td></tr>' : (ls.length ? ls.map((p) => {
+          const r = st.rasc[p.pedido] || {};
+          const f = p.fup;
+          return `<tr data-linha-dia="${esc(p.pedido)}" class="${preenchida(r) ? 'sel' : ''}">
+            <td class="nw"><b>${esc(p.pedido)}</b><span class="sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${esc(p.cliente || '—')}</span>
+              <span class="sub" style="${prazoForte(p) ? 'color:var(--alerta);font-weight:700' : ''}">${esc(prazoTxt(p))}</span></td>
+            <td style="max-width:220px">${f ? `<span class="selo ${SELO_SIT[f.situacao]}">${esc(SIT[f.situacao])}</span> <span style="font-size:13px">${esc(f.motivo || '')}</span><span class="sub">${FL.dataCurta(f.data)}${f.observacao ? ' · ' + esc(f.observacao.slice(0, 60)) : ''}</span>` : '<span class="sub">Sem FUP</span>'}</td>
+            <td><div class="seg" style="grid-template-columns:repeat(3,auto)" role="group" aria-label="Situação do pedido ${esc(p.pedido)}">
+              ${[['ok', 'Ok'], ['previsto_atraso', 'Previsto'], ['atraso', 'Atraso']].map((x) => `<button type="button" style="min-height:34px;font-size:13px;padding:0 10px" data-sit-dia="${x[0]}" aria-pressed="${r.sit === x[0]}">${x[1]}</button>`).join('')}</div></td>
+            <td><select data-campo="motivo" ${r.sit === 'ok' ? 'disabled' : ''} style="min-height:36px;width:100%">${opMot(r.motivo)}</select></td>
+            <td><input type="text" data-campo="obs" maxlength="500" value="${esc(r.obs || '')}" placeholder="${r.motivo === 'Outro' ? 'Obrigatória com Outro' : ''}" style="min-height:36px;width:100%"></td>
+            <td><input type="date" data-campo="nova" value="${esc(r.nova || '')}" style="min-height:36px">
+              <select data-campo="quem" style="min-height:32px;margin-top:4px;${r.nova ? '' : 'display:none'}"><option value="">Quem pediu…</option>${['Cliente', 'MUBEC'].map((q) => `<option ${q === r.quem ? 'selected' : ''}>${q}</option>`).join('')}</select></td>
+            <td class="dir nw">${f ? `<button type="button" class="btn-icone" data-repetir="${esc(p.pedido)}" title="Repetir o último FUP" aria-label="Repetir o último FUP do pedido ${esc(p.pedido)}">↺</button>` : ''}</td></tr>`;
+        }).join('') : `<tr><td colspan="7" class="vazio">${st.diaTodos ? 'Nenhum pedido em produção.' : 'Nenhum pedido para revisar hoje.'}</td></tr>`)}
+      </tbody></table></div>`;
+  }
+  function atualizarLinhaDia(n) {
+    const tr = el.querySelector(`[data-linha-dia="${CSS.escape(n)}"]`);
+    const r = st.rasc[n] || {};
+    if (tr) {
+      tr.classList.toggle('sel', !!preenchida(r));
+      tr.querySelectorAll('[data-sit-dia]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sitDia === r.sit)));
+      const m = tr.querySelector('[data-campo="motivo"]'); m.disabled = r.sit === 'ok'; m.value = r.motivo || '';
+      tr.querySelector('[data-campo="obs"]').value = r.obs || '';
+      tr.querySelector('[data-campo="obs"]').placeholder = r.motivo === 'Outro' ? 'Obrigatória com Outro' : '';
+      tr.querySelector('[data-campo="quem"]').style.display = r.nova ? '' : 'none';
+    }
+    const ls = linhasDia();
+    const prog = el.querySelector('[data-progresso]');
+    if (prog) prog.textContent = `${ls.filter((p) => preenchida(st.rasc[p.pedido])).length} de ${ls.length}`;
+    gravarRascunho();
+  }
+  function repetir(p) {
+    if (!p.fup) return;
+    const r = st.rasc[p.pedido] = Object.assign({}, st.rasc[p.pedido]);
+    r.sit = p.fup.situacao; r.motivo = p.fup.situacao === 'ok' ? '' : (p.fup.motivo || '');
+    if (r.motivo === 'Outro') r.obs = r.obs || p.fup.observacao || '';
+    atualizarLinhaDia(p.pedido);
+  }
+  async function salvarDia() {
+    const ls = linhasDia().filter((p) => preenchida(st.rasc[p.pedido]) || (st.rasc[p.pedido] || {}).nova);
+    if (!ls.length) { FL.toast('Preencha a situação de pelo menos um pedido.', { erro: true }); return; }
+    for (const p of ls) {
+      const r = st.rasc[p.pedido];
+      const foco = (campo) => { const tr = el.querySelector(`[data-linha-dia="${CSS.escape(p.pedido)}"]`); const i = tr && tr.querySelector(`[data-campo="${campo}"]`); if (i) i.focus(); };
+      if (!r.sit) { FL.toast(`Pedido ${p.pedido}: escolha a situação.`, { erro: true }); return; }
+      if (r.sit !== 'ok' && !r.motivo) { FL.toast(`Pedido ${p.pedido}: escolha o motivo.`, { erro: true }); foco('motivo'); return; }
+      if (r.sit !== 'ok' && r.motivo === 'Outro' && !(r.obs || '').trim()) { FL.toast(`Pedido ${p.pedido}: com "Outro", escreva a observação.`, { erro: true }); foco('obs'); return; }
+      if (r.nova && !r.quem) { FL.toast(`Pedido ${p.pedido}: diga quem pediu a nova data.`, { erro: true }); foco('quem'); return; }
+    }
+    const itens = ls.map((p) => { const r = st.rasc[p.pedido]; return { pedido: p.pedido, situacao: r.sit, motivo: r.sit === 'ok' ? null : r.motivo, observacao: (r.obs || '').trim() || null }; });
+    const r = await FL.api('POST', '/api/v2/fup', { data: st.hoje, itens });
+    if (!r) return;
+    const antesDatas = [];
+    for (const p of ls) {
+      const x = st.rasc[p.pedido];
+      if (x.nova && x.nova !== p.nova_data) {
+        const rn = await FL.api('PUT', `/api/v2/pedidos/${encodeURIComponent(p.pedido)}/nova-data`, { data: x.nova, quem: x.quem, motivo: (x.obs || '').trim() || null });
+        if (rn) antesDatas.push([p.pedido, rn.antes]);
+      }
+    }
+    ls.forEach((p) => { delete st.rasc[p.pedido]; });
+    gravarRascunho();
+    await recarregar();
+    FL.toast(`${FL.plural(itens.length, 'FUP registrado', 'FUPs registrados')}${antesDatas.length ? ' · ' + FL.plural(antesDatas.length, 'nova data', 'novas datas') : ''}.`, { desfazer: async () => {
+      for (const id of r.ids) await FL.api('DELETE', '/api/v2/fup/' + id);
+      for (const [n, antes] of antesDatas) await FL.api('PUT', `/api/v2/pedidos/${encodeURIComponent(n)}/nova-data`, antes);
+      await recarregar();
+    } });
   }
 
   function htmlHistorico() {
@@ -161,6 +260,8 @@
   async function carregar() {
     const r = await FL.api('GET', '/api/v2/fup');
     if (r) { st.dados = r.pedidos; st.hist = r.historico; st.hoje = r.hoje; st.janela = r.janela; }
+    if (!st.motivos.length) st.motivos = (await FL.api('GET', '/api/v2/listas/motivos/ativas', null, { silencioso: true })) || [];
+    st.rasc = lerRascunho();
     st.carregado = true;
   }
   async function recarregar() { await carregar(); desenhar(); FL.atualizarContagens(); }
@@ -176,13 +277,39 @@
       if ('respostas' in t.dataset) { respostas(); return; }
       if (t.dataset.um) { respostas([st.dados.find((p) => p.pedido === t.dataset.um)]); return; }
       if ('lote' in t.dataset) { lote(); return; }
+      if (t.dataset.sitDia) { const n = t.closest('[data-linha-dia]').dataset.linhaDia; const r = st.rasc[n] = Object.assign({}, st.rasc[n]); r.sit = t.dataset.sitDia; if (r.sit === 'ok') r.motivo = ''; else if (!r.motivo) { const p = st.dados.find((x) => x.pedido === n); if (p && p.fup && p.fup.motivo) r.motivo = p.fup.motivo; } atualizarLinhaDia(n); return; }
+      if (t.dataset.repetir) { repetir(st.dados.find((p) => p.pedido === t.dataset.repetir)); return; }
+      if ('repetirTodos' in t.dataset) { linhasDia().filter((p) => !preenchida(st.rasc[p.pedido])).forEach(repetir); return; }
+      if ('limparDia' in t.dataset) { FL.modal({ titulo: 'Limpar o FUP do dia?', botao: 'Limpar', html: '<p>Apaga o que foi preenchido e ainda não foi salvo.</p>', aoConfirmar: () => { st.rasc = {}; gravarRascunho(); desenhar(); return true; } }); return; }
+      if ('salvarDia' in t.dataset) { salvarDia(); return; }
       if ('mais' in t.dataset) { st.limite += POR_PAGINA; desenhar(); return; }
       if ('maisHist' in t.dataset) { st.limiteHist += POR_PAGINA; desenhar(); return; }
       if ('abrirFiltros' in t.dataset) { FL.gavetaFiltros({ sobre: 'FUP', defs: DEFS, itens: daAba(), marcados: st.filtros, nomeItens: 'pedidos', aoMudar: (m) => { st.filtros = m; desenhar(); } }); return; }
       if (t.dataset.tirarFiltro) { st.filtros[t.dataset.tirarFiltro] = (st.filtros[t.dataset.tirarFiltro] || []).filter((v) => v !== t.dataset.valor); desenhar(); return; }
       if ('limparFiltros' in t.dataset) { st.filtros = {}; desenhar(); }
     });
+    const campoDia = (e) => {
+      const c = e.target.dataset.campo; const tr = e.target.closest('[data-linha-dia]');
+      if (!c || !tr) return false;
+      const n = tr.dataset.linhaDia; const r = st.rasc[n] = Object.assign({}, st.rasc[n]);
+      r[c] = e.target.value;
+      if (c === 'motivo' && r.motivo && !r.sit) r.sit = 'atraso';
+      if (c === 'nova' && !r.nova) r.quem = '';
+      atualizarLinhaDia(n);
+      return true;
+    };
+    el.addEventListener('input', (e) => { if (e.target.dataset.campo === 'obs') campoDia(e); });
+    el.addEventListener('keydown', (e) => {
+      // Enter na observação: vai para a observação da próxima linha (como na planilha)
+      if (e.key !== 'Enter' || !e.target.closest('[data-linha-dia]') || e.target.tagName === 'BUTTON') return;
+      e.preventDefault();
+      const tr = e.target.closest('[data-linha-dia]').nextElementSibling;
+      const i = tr && tr.querySelector(`[data-campo="${e.target.dataset.campo || 'obs'}"]`);
+      if (i) i.focus();
+    });
     el.addEventListener('change', (e) => {
+      if (e.target.dataset.campo) { campoDia(e); return; }
+      if ('diaTodos' in e.target.dataset) { st.diaTodos = e.target.checked; desenhar(); return; }
       if (e.target.dataset.marcar) { st.sel[e.target.dataset.marcar] = e.target.checked; desenhar(); }
     });
   }
@@ -190,7 +317,8 @@
   FL.telas.fup = {
     montar: async function (alvo) {
       el = alvo;
-      st = { dados: [], hist: [], carregado: false, aba: 'todos', filtros: {}, sel: {}, limite: POR_PAGINA, limiteHist: POR_PAGINA, hoje: FL.hojeISO(), janela: 2 };
+      st = { dados: [], hist: [], carregado: false, aba: 'dia', filtros: {}, sel: {}, limite: POR_PAGINA, limiteHist: POR_PAGINA, hoje: FL.hojeISO(), janela: 2,
+        motivos: [], rasc: {}, diaTodos: false };
       ligarEventos(); desenhar(); await carregar(); desenhar();
     }
   };

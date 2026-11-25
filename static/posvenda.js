@@ -18,6 +18,7 @@
   const podeDesfazer = () => PODE_DESFAZER.includes(FL.semAcento(FL.usuario() || '').trim());
   const prazoVencido = (c) => ehAberto(c) && c.prazo_solucao && c.prazo_solucao < st.hoje;
   function garantia(c) {
+    if (c.canhoto_recebido && !c.canhoto_em) return { ok: true, txt: `Canhoto recebido, sem data de entrega na planilha: prazo de ${st.prazoDias} dias não calculado.` };
     if (!c.canhoto_em) return { ok: true, txt: `Ainda sem canhoto: o prazo de ${st.prazoDias} dias começa quando ele chegar.` };
     const d = dias(c.canhoto_em, c.aberto_em);
     if (d <= st.prazoDias) return { ok: true, txt: `Dentro do prazo de ${st.prazoDias} dias: canhoto em ${FL.dataCurta(c.canhoto_em)}, aberto ${FL.plural(d, 'dia', 'dias')} depois.` };
@@ -202,7 +203,7 @@
       const n = nfAtual();
       const fora = foraDoPrazo();
       let gar = 'Sem NF: o prazo de 30 dias não pode ser conferido.';
-      if (n) gar = !n.canhoto || !n.entrega ? `Ainda sem canhoto: o prazo de ${st.prazoDias} dias começa quando ele chegar.` : `${fora ? 'Fora' : 'Dentro'} do prazo de ${st.prazoDias} dias: canhoto em ${FL.dataCurta(n.entrega)} (${FL.plural(dias(n.entrega, st.hoje), 'dia', 'dias')}).`;
+      if (n) gar = n.canhoto && !n.entrega ? `Canhoto recebido, sem data de entrega na planilha: prazo de ${st.prazoDias} dias não calculado.` : !n.canhoto ? `Ainda sem canhoto: o prazo de ${st.prazoDias} dias começa quando ele chegar.` : `${fora ? 'Fora' : 'Dentro'} do prazo de ${st.prazoDias} dias: canhoto em ${FL.dataCurta(n.entrega)} (${FL.plural(dias(n.entrega, st.hoje), 'dia', 'dias')}).`;
       g.querySelector('[data-achado]').innerHTML = `<div class="cartao-mini" style="gap:6px">
           <b>${esc(achado.cliente || 'Cliente não informado')}</b>
           <span style="font-size:13px;color:var(--texto2)">${achado.pedido ? 'Pedido ' + esc(achado.pedido) : 'Sem pedido ligado'}${achado.tipo_entrega ? ' · ' + esc(achado.tipo_entrega) : ''} · vendedor ${esc(achado.vendedor || 'não informado')}</span>

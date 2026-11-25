@@ -10,6 +10,9 @@
   const ICO_FUP = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8v3H8z"></path><path d="M6 4.5H5V21h14V4.5h-1"></path><path d="M8 11h8M8 15h5"></path></svg>';
   const ICO_CANC = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"></path></svg>';
 
+  const ICO_ESPERA = '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>';
+  const MOTIVOS_ESPERA = ['Retira: cliente não agendou', 'Cliente pediu para segurar', 'Aguardando pagamento do cliente', 'Outro'];
+
   let el, st;
 
   // ------------------------------------------------------------------
@@ -34,7 +37,7 @@
     { id: 'uf', titulo: 'ESTADO', valor: (p) => [p.uf || 'Sem Estado'] },
     { id: 'status', titulo: 'STATUS', ordem: ['Bloqueado', 'Aprovado', 'Faturado', 'Encerrado', 'Cancelado'], valor: (p) => [p.status || 'Indefinido'] },
     { id: 'tipo', titulo: 'TIPO DE ENTREGA', ordem: ['Entrega', 'Transportadora', 'Retira', 'Desconhecido'], valor: (p) => [p.tipo] },
-    { id: 'atraso', titulo: 'ATRASO', ordem: ['Atrasado', 'Sem atraso', 'Com aviso de canhoto'], valor: (p) => [p.atrasado ? 'Atrasado' : 'Sem atraso'].concat(p.aviso ? ['Com aviso de canhoto'] : []) },
+    { id: 'atraso', titulo: 'ATRASO', ordem: ['Atrasado', 'Sem atraso', 'Aguardando cliente', 'Com aviso de canhoto'], valor: (p) => [p.atrasado ? 'Atrasado' : 'Sem atraso'].concat(p.aguardando ? ['Aguardando cliente'] : []).concat(p.aviso ? ['Com aviso de canhoto'] : []) },
     { id: 'motivo', titulo: 'MOTIVO DO FUP', valor: (p) => [!p.fup ? 'Sem FUP' : (p.fup.situacao === 'ok' ? 'Ok' : (p.fup.motivo || 'Sem motivo'))] },
     { id: 'nfs', titulo: 'NOTAS FISCAIS', ordem: ['Sem NF', 'Uma NF', 'Várias NFs', 'Com NF cancelada'], valor: (p) => {
       const v = nfsValidas(p).length;
@@ -133,6 +136,7 @@
     if (p.atrasado) { statusSub = p.dias_atraso ? FL.plural(p.dias_atraso, 'dia útil', 'dias úteis') + ' de atraso' : 'Venceu hoje'; corSub = 'var(--alerta)'; peso = '700'; }
     else if (p.aviso) { statusSub = 'NF sem canhoto há ' + FL.plural(p.dias_sem_canhoto, 'dia útil', 'dias úteis'); corSub = 'var(--alerta)'; peso = '700'; }
     else if (p.status === 'Faturado' && p.itens_na_carteira) statusSub = 'Entrega parcial';
+    else if (p.aguardando && ['Bloqueado', 'Aprovado'].includes(p.status)) statusSub = 'Aguardando cliente';
     const selo = { Encerrado: 'ok', Cancelado: 'contorno-alerta', Bloqueado: 'contorno', Faturado: 'preto' }[p.status] || '';
     const fup = p.fup;
     const ultFup = fup ? FL.dataCurta(fup.data) + (fup.por ? ' · ' + fup.por : '') : '';
@@ -147,6 +151,7 @@
       <td class="dir nw"><span style="display:inline-flex;gap:6px">
         ${podeMexer ? `<button type="button" class="btn-icone" data-acao="nova" data-p="${esc(p.pedido)}" title="Nova data de entrega" aria-label="Nova data de entrega do pedido ${esc(p.pedido)}">${ICO_DATA}</button>
         <button type="button" class="btn-icone" data-acao="fup" data-p="${esc(p.pedido)}" title="Registrar FUP" aria-label="Registrar FUP do pedido ${esc(p.pedido)}">${ICO_FUP}</button>
+        ${['Bloqueado', 'Aprovado'].includes(p.status) ? `<button type="button" class="btn-icone" data-acao="espera" data-p="${esc(p.pedido)}" title="${p.aguardando ? 'Aguardando cliente (desmarcar)' : 'Aguardando cliente'}" aria-label="Aguardando cliente: pedido ${esc(p.pedido)}" ${p.aguardando ? 'style="background:#000;color:#fff;border-color:#000"' : ''}>${ICO_ESPERA}</button>` : ''}
         <button type="button" class="btn-icone" data-acao="cancelar" data-p="${esc(p.pedido)}" title="Cancelar pedido" aria-label="Cancelar o pedido ${esc(p.pedido)}">${ICO_CANC}</button>` : '<span style="font-size:12px;color:var(--texto2)">cancelado</span>'}
         ${p.nfs.length ? `<button type="button" class="btn-icone" data-acao="posvenda" data-p="${esc(p.pedido)}" title="Abrir caso de pós-venda" aria-label="Abrir caso de pós-venda do pedido ${esc(p.pedido)}" style="font-size:18px;font-weight:700">+</button>` : ''}
       </span></td></tr>
@@ -160,6 +165,7 @@
     const avisos = [];
     if (p.status === 'Cancelado') avisos.push(['aviso', `Pedido cancelado${d.data_cancelamento ? ' em ' + FL.data(d.data_cancelamento) : ''}${d.cancelado_por ? ' por ' + d.cancelado_por : ''}: ${p.motivo_cancelamento || (p.cancelado ? '—' : 'cancelado no Mega')}`]);
     if (validas.length > 1 || (validas.length && p.itens_na_carteira)) avisos.push(['aviso info', `Entrega parcial: ${FL.plural(validas.length, 'NF', 'NFs')}${p.itens_na_carteira ? ' e ' + FL.plural(p.itens_na_carteira, 'item ainda na carteira', 'itens ainda na carteira') : ''}`]);
+    if (p.aguardando) avisos.push(['aviso info', `Aguardando cliente desde ${FL.data(p.aguardando.desde)}${p.aguardando.por ? ' (' + p.aguardando.por + ')' : ''}: ${p.aguardando.motivo}. Não conta como atraso.`]);
     if (p.nova_data) avisos.push(['aviso info', `Nova data ${FL.data(p.nova_data)}${d.nova_data_quem ? ' · pedida por: ' + d.nova_data_quem : ''}${d.nova_data_motivo ? ' · ' + d.nova_data_motivo : ''}${d.nova_data_por ? ' · registrada por ' + d.nova_data_por : ''}`]);
     const dados = [['Vendedor', d.vendedor || 'não informado (vem da Carteira de pedidos ou do Dashboard de vendas)'], ['Transportadora', d.transportadora || (p.tipo === 'Transportadora' ? 'não informada' : p.tipo)], ['Situação no Mega', p.situacao_erp || '—']];
     if (d.uf) dados.push(['Estado', d.uf + (d.municipio ? ' · ' + d.municipio : '')]);
@@ -318,6 +324,41 @@
       } });
   };
 
+  function formEspera(p) {
+    if (p.aguardando) {
+      FL.modal({ titulo: `Tirar "Aguardando cliente" do pedido ${p.pedido}?`, botao: 'Tirar',
+        html: `<p>Motivo: ${esc(p.aguardando.motivo)} · desde ${FL.data(p.aguardando.desde)}. O pedido volta a contar atraso normalmente.</p>`,
+        aoConfirmar: async () => {
+          if (!(await FL.api('DELETE', `/api/v2/pedidos/${encodeURIComponent(p.pedido)}/aguardando`))) return false;
+          await recarregar(p.pedido); FL.toast(`Pedido ${p.pedido} voltou a contar atraso.`);
+          return true;
+        } });
+      return;
+    }
+    let motivo = '';
+    FL.gaveta({ sobre: 'PEDIDO ' + p.pedido + ' · ' + (p.cliente || ''), titulo: 'Aguardando cliente', sub: 'Pronto, depende do cliente. Sai dos atrasados.', botao: 'Marcar',
+      html: `<div class="campo"><span class="rot" id="esMotRot">Motivo</span><div class="chips" role="group" aria-labelledby="esMotRot">${MOTIVOS_ESPERA.map((m) => `<button type="button" class="chip" data-mot="${esc(m)}" aria-pressed="${p.tipo === 'Retira' && m.startsWith('Retira')}">${esc(m)}</button>`).join('')}</div></div>
+        <div class="campo"><label for="esObs">Observação <span data-obs-obrig style="font-weight:400">(opcional)</span></label><input id="esObs" type="text" maxlength="200"></div>`,
+      aoAbrir: (g) => {
+        if (p.tipo === 'Retira') motivo = MOTIVOS_ESPERA[0];
+        g.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-mot]'); if (!b) return;
+          motivo = b.dataset.mot; g.querySelectorAll('[data-mot]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+          g.querySelector('[data-obs-obrig]').textContent = motivo === 'Outro' ? '(obrigatória com "Outro")' : '(opcional)'; g.erro('');
+        });
+      },
+      aoSalvar: async (g) => {
+        const obs = g.querySelector('#esObs').value.trim();
+        if (!motivo) { g.erro('Escolha o motivo.'); return false; }
+        if (motivo === 'Outro' && !obs) { g.erro('Com "Outro", escreva a observação.'); return false; }
+        const texto = motivo === 'Outro' ? obs : motivo + (obs ? ' — ' + obs : '');
+        if (!(await FL.api('POST', `/api/v2/pedidos/${encodeURIComponent(p.pedido)}/aguardando`, { motivo: texto }))) return false;
+        await recarregar(p.pedido);
+        FL.toast(`Pedido ${p.pedido}: aguardando cliente.`, { desfazer: async () => { if (await FL.api('DELETE', `/api/v2/pedidos/${encodeURIComponent(p.pedido)}/aguardando`)) recarregar(p.pedido); } });
+        return true;
+      } });
+  }
+
   function formCancelar(p) {
     FL.modal({ titulo: `Cancelar o pedido ${p.pedido}?`, perigo: true, botao: 'Cancelar pedido',
       html: `<p>${esc(p.cliente || '')} · ${esc(p.status || '')}. Fica como <b>Cancelado</b> e sai dos atrasados e dos avisos. Desfazer pede a senha de administrador.</p>
@@ -409,6 +450,7 @@
         if (t.dataset.acao === 'nova') formNovaData(p);
         if (t.dataset.acao === 'fup') FL.formFup([p], async (nums) => { for (const n of nums) await recarregar(n); });
         if (t.dataset.acao === 'cancelar') formCancelar(p);
+        if (t.dataset.acao === 'espera') formEspera(p);
         if (t.dataset.acao === 'posvenda') location.hash = '#posvenda?novo=' + encodeURIComponent(p.pedido);
         return;
       }
