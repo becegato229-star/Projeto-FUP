@@ -93,7 +93,7 @@
     const desfaziveis = d.registros.filter((r) => r.pode_desfazer);
     return `<aside class="fl-painel" aria-labelledby="trTit"><div class="cab"><span class="sobre">PEDIDO ${esc(d.pedido)} · ${esc(nfTxt(d).toUpperCase())}</span>
         <h2 id="trTit">${esc(d.cliente || '—')}</h2><span style="font-size:14px">${esc(d.transportadora || 'Transportadora não informada')} · faturado ${FL.dataCurta(d.faturamento)}</span>
-        <span style="font-size:14px">Vendedor: ${esc(d.vendedor || 'não informado')}</span></div>
+        <span style="font-size:14px">Vendedor: ${esc(d.vendedor || 'não informado')}</span>${(d.fotos || []).length ? `<span>${FL.verCanhoto(d.fotos)}</span>` : ''}</div>
       <div class="meio">
         ${d.alerta ? `<p class="aviso">Faturado há ${FL.plural(d.dias, 'dia útil', 'dias úteis')} e a coleta ainda não foi chamada.</p>` : ''}
         ${ch && ch.obs ? `<p class="aviso info">${esc(ch.obs)}</p>` : ''}
@@ -103,7 +103,7 @@
       <div class="pe">
         ${d.etapa === 'chamar' ? '<button type="button" class="btn grande" data-acao="chamada">Registrar coleta chamada</button>' : ''}
         ${d.etapa === 'chamada' ? '<button type="button" class="btn grande" data-acao="coletado">Marcar como coletado</button><button type="button" class="link" style="align-self:flex-start;font-size:13px" data-acao="chamada">Registrar outra chamada</button>' : ''}
-        <span style="font-size:12px;color:var(--texto2);line-height:1.4">${d.etapa === 'encerrado' ? 'Encerrado: o canhoto entrou pela importação.' : 'O pedido só encerra quando o canhoto entrar pela importação.'}</span>
+        <span style="font-size:12px;color:var(--texto2);line-height:1.4">${d.etapa === 'encerrado' ? 'Encerrado: canhoto recebido.' : 'O pedido só encerra quando o canhoto chegar (planilha ou foto no Drive).'}</span>
       </div></aside>`;
   }
 

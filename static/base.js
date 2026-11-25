@@ -21,6 +21,13 @@
   FL.semAcento = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   FL.plural = (n, um, varios) => n + ' ' + (n === 1 ? um : varios);
 
+  // Foto do canhoto no Google Drive (só o link; abre numa aba nova). Mais de uma foto: "Ver canhoto (2)" com a lista.
+  FL.verCanhoto = (fotos) => {
+    if (!fotos || !fotos.length) return '';
+    const a = (f, txt) => `<a href="${/^https:\/\//.test(f.link || '') ? esc(f.link) : '#'}" target="_blank" rel="noopener noreferrer" class="fl-ver-canhoto" title="${esc(f.nome || '')}">${txt}</a>`;
+    if (fotos.length === 1) return a(fotos[0], 'Ver canhoto');
+    return `<details class="fl-canhotos"><summary class="fl-ver-canhoto">Ver canhoto (${fotos.length})</summary><span class="lista">${fotos.map((f, i) => a(f, 'Foto ' + (i + 1) + (f.data ? ' · ' + FL.dataCurta(f.data) : ''))).join('')}</span></details>`;
+  };
   FL.icone = {
     seta: '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"></path></svg>',
     seguir: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>',

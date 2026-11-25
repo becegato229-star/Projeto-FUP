@@ -252,3 +252,11 @@ body.fl-sem-entrada .fl-entra{animation:none}
 .dash-resumo span{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border:1px solid var(--c3);border-radius:var(--r-badge);font-size:13px;color:var(--texto2)}
 .dash-resumo b{font-size:22px;color:var(--preto)}
 .dash-dica{position:fixed;z-index:200;pointer-events:none;background:var(--preto);color:var(--branco);font-size:12px;padding:6px 10px;border-radius:var(--r-badge);max-width:280px}
+
+/* Ver canhoto (Google Drive) */
+.fl-ver-canhoto{font-size:13px;font-weight:700;color:#000;text-decoration:underline;cursor:pointer;white-space:nowrap}
+.fl-canhotos{display:inline-block}
+.fl-canhotos summary{list-style:none}
+.fl-canhotos summary::-webkit-details-marker{display:none}
+.fl-canhotos .lista{display:flex;flex-direction:column;gap:6px;margin-top:6px;padding:8px 10px;background:#fff;border:1px solid var(--c3);border-radius:var(--r-badge)}
+.fl-canhotos .lista a{font-size:13px;color:#000;white-space:nowrap}

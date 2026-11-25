@@ -89,7 +89,7 @@
     const regs = a.registros.slice().reverse();
     return `<aside class="fl-painel" aria-labelledby="avTit"><div class="cab"><span class="sobre">PEDIDO ${esc(a.pedido)} · ${esc(nfTxt(a).toUpperCase())}</span>
         <h2 id="avTit">${esc(a.cliente || '—')}</h2><span style="font-size:14px">${esc(a.tipo)}${a.transportadora && a.tipo === 'Transportadora' ? ' · ' + esc(a.transportadora) : ''} · faturado ${FL.dataCurta(a.faturamento)}</span>${a.nf ? '' : '<span style="font-size:13px">A planilha da expedição não tem uma NF legível para este pedido.</span>'}
-        <span style="font-size:14px">Vendedor: ${esc(a.vendedor || 'não informado')}</span></div>
+        <span style="font-size:14px">Vendedor: ${esc(a.vendedor || 'não informado')}</span>${(a.fotos || []).length ? `<span>${FL.verCanhoto(a.fotos)}</span>` : ''}</div>
       <div class="meio">
         ${alerta ? `<p class="aviso">${esc(alerta)}</p>` : ''}${info ? `<p class="aviso info">${esc(info)}</p>` : ''}
         ${a.parcial ? `<p style="margin:0;font-size:14px;line-height:1.4"><b>Entrega parcial:</b> ${esc(a.parcial)}</p>` : ''}
@@ -103,7 +103,7 @@
           }).join('') : '<p style="margin:0;font-size:14px;color:var(--texto2)">Sem registros.</p>'}
         </div></div>
       <div class="pe">${a.situacao !== 'hist' ? '<button type="button" class="btn grande" data-registrar>Registrar acompanhamento</button>' : ''}
-        <span style="font-size:12px;color:var(--texto2);line-height:1.4">${a.situacao === 'hist' ? 'Saiu dos avisos quando o canhoto entrou na importação.' : 'O aviso sai daqui sozinho quando o canhoto entrar na importação.'}</span></div></aside>`;
+        <span style="font-size:12px;color:var(--texto2);line-height:1.4">${a.situacao === 'hist' ? 'Saiu dos avisos quando o canhoto chegou.' : 'O aviso sai daqui sozinho quando o canhoto chegar (planilha ou foto no Drive).'}</span></div></aside>`;
   }
 
   function registrar(a) {

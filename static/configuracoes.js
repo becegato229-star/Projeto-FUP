@@ -33,7 +33,11 @@
     { id: 'pdfs', nome: 'PDFs da zincagem', mega: 'DANFE (saída e retorno)', alimenta: 'Terceirização: notas e itens', como: 'Manual · vários de uma vez', pdf: true,
       explica: 'Notas de saída e retorno da galvanização. Tipo pelo CFOP; ligação pelo texto da nota.',
       cuidado: 'CFOP 5902 (entrada no estoque) é ignorado; só 5124.',
-      colunas: ['Número e chave da NF', 'CFOP', 'Itens', 'Pesos e valores', 'Informações complementares'] }
+      colunas: ['Número e chave da NF', 'CFOP', 'Itens', 'Pesos e valores', 'Informações complementares'] },
+    { id: 'canhotos', nome: 'Canhotos no Drive', mega: 'Google Drive · pasta dos canhotos', alimenta: 'Canhoto recebido e link da foto', como: 'Automática · a cada 3 horas e com a expedição', drive: true,
+      explica: 'Liga cada foto à NF pelo nome do arquivo (ex.: 118118 2511 ou 118.118_assinada.pdf) e marca o canhoto como recebido.',
+      cuidado: 'Se a planilha já tem o canhoto, ela manda. Foto apagada ou renomeada no Drive desfaz a marcação feita pela foto.',
+      colunas: ['Nome do arquivo (nº da NF + data)', 'Link da foto'] }
   ];
   const NOMES_PRAZOS = {
     aviso_entrega: ['Entrega', 'dias úteis'], aviso_transportadora: ['Transportadora', 'dias úteis'], aviso_retira: ['Retira', 'dias úteis'],
@@ -55,6 +59,7 @@
       FL.api('GET', '/api/v2/feriados'), FL.api('GET', '/api/v2/senha'), FL.api('GET', '/api/v2/backups')
     ]);
     st.senhasTelas = (await FL.api('GET', '/api/v2/senha-tela', null, { silencioso: true })) || [];
+    st.canhotos = (await FL.api('GET', '/api/v2/canhotos', null, { silencioso: true })) || {};
     st.imp = imp || {};
     st.listas = listas || [];
     st.prazos = (prazos && prazos.prazos) || {};
@@ -66,6 +71,15 @@
   }
 
   function ultimo(tipo) { return (st.imp[tipo] || [])[0] || null; }
+  // Canhotos do Drive: a última sincronização no mesmo formato de uma importação
+  function ultimaDrive() {
+    const c = st.canhotos || {}, x = c.ultima;
+    if (!c.configurado && !x) return { quando: null, avisos: ['Drive não configurado.'] };
+    if (!x) return null;
+    const avisos = x.ok ? [] : [x.erro || 'Erro ao ler o Drive.'];
+    if (x.ok && x.qtd_repetidas) avisos.push(FL.plural(x.qtd_repetidas, 'NF com mais de uma foto', 'NFs com mais de uma foto'));
+    return { quando: x.quando, por: x.por, avisos, resumo: x.ok ? `${FL.plural(x.arquivos, 'foto', 'fotos')} · ${FL.plural(x.ligados, 'NF ligada', 'NFs ligadas')}` : '' };
+  }
   function diasDesdeBackup() {
     const b = st.backups[0];
     if (!b) return null;
@@ -104,6 +118,8 @@
     if (!st.senhaDefinida) alertas.push(['Senha de administrador não definida.', 'Definir senha', 'backup']);
     else if (d == null) alertas.push(['Nenhum backup registrado.', 'Fazer backup', 'backup']);
     else if (d >= 3) alertas.push([`Último backup há ${d} dias.`, 'Fazer backup', 'backup']);
+    const cd = st.canhotos && st.canhotos.ultima;
+    if (cd && !cd.ok) alertas.push(['Canhotos no Drive: ' + (cd.erro || 'erro na última sincronização.'), 'Ver', 'importar:canhotos']);
     comAviso.slice(0, 3).forEach((t) => alertas.push([t.nome + ': ' + ultimo(t.id).avisos[0], 'Ver importação', 'importar:' + t.id]));
     const exp = ultimo('expedicao');
     const fol = ultimo('follow');
@@ -135,12 +151,12 @@
     const sel = TIPOS.find((t) => t.id === st.tipoSel) || TIPOS[0];
     const hist = st.imp[sel.id] || [];
     const linhas = TIPOS.map((t) => {
-      const u = ultimo(t.id);
+      const u = t.drive ? ultimaDrive() : ultimo(t.id);
       const aviso = u && u.avisos && u.avisos.length;
       return `<tr class="${t.id === sel.id ? 'sel' : ''}">
         <td><button type="button" class="fl-link-linha" data-tipo="${t.id}" aria-label="Ver detalhes da planilha ${esc(t.nome)}">${esc(t.nome)}</button><span class="sub">${esc(t.mega)}</span></td>
         <td>${esc(t.alimenta)}<span class="sub">${esc(t.como)}</span></td>
-        <td>${u ? `<span class="nw">${FL.dataHora(u.quando)} · ${esc(u.por || '—')}</span><span class="sub" style="${aviso ? 'color:var(--alerta);font-weight:700' : ''}">${esc(aviso ? 'Com aviso: ' + u.avisos[0] : (u.resumo || ''))}</span>` : `<span class="sub">${t.semImport ? 'ainda não disponível' : 'nunca importada pela tela nova'}</span>`}</td></tr>`;
+        <td>${u ? `<span class="nw">${u.quando ? FL.dataHora(u.quando) + ' · ' + esc(u.por || '—') : '—'}</span><span class="sub" style="${aviso ? 'color:var(--alerta);font-weight:700' : ''}">${esc(aviso ? 'Com aviso: ' + u.avisos[0] : (u.resumo || ''))}</span>` : `<span class="sub">${t.semImport ? 'ainda não disponível' : 'nunca importada pela tela nova'}</span>`}</td></tr>`;
     }).join('');
     return `
       <button type="button" class="zona-arquivo" data-escolher="planilhas">
@@ -160,17 +176,37 @@
             ${sel.cuidado ? `<p class="aviso info">${esc(sel.cuidado)}</p>` : ''}
             <div style="display:flex;flex-direction:column;gap:8px"><span class="rotulo-secao">COLUNAS QUE O FLOWLOG USA</span>
               <div class="chips">${sel.colunas.map((c) => `<span class="selo" style="font-weight:400;font-size:13px">${esc(c)}</span>`).join('')}</div></div>
-            <div style="display:flex;flex-direction:column;gap:10px"><span class="rotulo-secao">ÚLTIMAS IMPORTAÇÕES</span>
+            ${sel.drive ? htmlDrive() : `<div style="display:flex;flex-direction:column;gap:10px"><span class="rotulo-secao">ÚLTIMAS IMPORTAÇÕES</span>
               ${hist.length ? hist.map((h) => `<div class="cartao-mini"><b style="font-size:13px">${FL.dataHora(h.quando)} · ${esc(h.por || '—')}</b>
                 <span style="font-size:14px">${esc(h.resumo || '')}</span>${(h.avisos || []).map((a) => `<span style="font-size:12px;font-weight:700;color:var(--alerta)">${esc(a)}</span>`).join('')}
                 ${h.arquivo ? `<span style="font-size:12px;color:var(--texto2)">${esc(h.arquivo)}</span>` : ''}</div>`).join('') : '<p style="margin:0;font-size:14px;color:var(--texto2)">Nenhuma importação registrada.</p>'}
-            </div>
+            </div>`}
           </div>
           <div class="pe">
-            ${sel.semImport ? '<span style="font-size:13px;color:var(--texto2)">Ainda não disponível.</span>' : `<button type="button" class="btn grande" data-escolher="${sel.pdf ? 'pdfs' : 'planilhas'}">${sel.pdf ? 'Enviar PDFs' : 'Enviar planilha'}</button>`}
-            <span style="font-size:12px;color:var(--texto2);line-height:1.4">Importar nunca apaga o que já existe: só cria e atualiza. Linha ignorada sempre aparece no resultado.</span>
+            ${sel.drive ? `<button type="button" class="btn grande" data-sincronizar ${st.canhotos && st.canhotos.configurado ? '' : 'disabled'}>Sincronizar canhotos</button>` : sel.semImport ? '<span style="font-size:13px;color:var(--texto2)">Ainda não disponível.</span>' : `<button type="button" class="btn grande" data-escolher="${sel.pdf ? 'pdfs' : 'planilhas'}">${sel.pdf ? 'Enviar PDFs' : 'Enviar planilha'}</button>`}
+            <span style="font-size:12px;color:var(--texto2);line-height:1.4">${sel.drive ? 'Só leitura: o FlowLog não baixa nem muda nada no Drive.' : 'Importar nunca apaga o que já existe: só cria e atualiza. Linha ignorada sempre aparece no resultado.'}</span>
           </div></aside>
       </div>`;
+  }
+
+  function htmlDrive() {
+    const c = st.canhotos || {}, x = c.ultima;
+    if (!c.configurado) return '<p class="aviso">Drive não configurado. Faltam as variáveis FLOWLOG_DRIVE_CREDENCIAIS e FLOWLOG_DRIVE_PASTA no Railway.</p>';
+    if (!x) return '<p style="margin:0;font-size:14px;color:var(--texto2)">Ainda não sincronizado.</p>';
+    const lista = (titulo, qtd, itens) => (qtd ? `<div style="display:flex;flex-direction:column;gap:6px"><span class="rotulo-secao">${esc(titulo)} (${qtd})</span>
+      <span style="font-size:13px;line-height:1.5">${itens.map(esc).join(', ')}${qtd > itens.length ? '…' : ''}</span></div>` : '');
+    return `<div style="display:flex;flex-direction:column;gap:10px"><span class="rotulo-secao">ÚLTIMA SINCRONIZAÇÃO</span>
+      <div class="cartao-mini" style="border-left:4px solid ${x.ok ? 'var(--verde)' : 'var(--alerta)'}"><b style="font-size:13px">${FL.dataHora(x.quando)} · ${esc(x.por || '—')}</b>
+        <span style="font-size:14px">${x.ok ? `${FL.plural(x.arquivos, 'foto', 'fotos')} · ${FL.plural(x.ligados, 'NF ligada', 'NFs ligadas')} · ${x.novos} novas` : esc(x.erro || 'Erro')}</span></div></div>
+      ${x.ok ? lista('NFs com mais de uma foto', x.qtd_repetidas, x.repetidas || []) + lista('NF não encontrada no FlowLog', x.qtd_nf_nao_encontrada, x.nf_nao_encontrada || []) + lista('Nome sem número de NF', x.qtd_sem_nf, x.sem_nf || []) : ''}`;
+  }
+
+  async function sincronizarCanhotos() {
+    FL.toast('Lendo a pasta do Drive…');
+    const r = await FL.api('POST', '/api/v2/canhotos/sincronizar', null, { senha: true });
+    if (!r) return;
+    FL.toast(r.ok ? `${FL.plural(r.arquivos, 'foto lida', 'fotos lidas')} · ${FL.plural(r.ligados, 'NF ligada', 'NFs ligadas')}.` : r.erro, r.ok ? {} : { erro: true });
+    await carregar(); desenhar();
   }
 
   async function enviarPlanilhas(arquivos) {
@@ -396,6 +432,7 @@
       if (t.dataset.tipo) { st.tipoSel = t.dataset.tipo; desenhar(); return; }
       if (t.dataset.lista) { st.listaSel = t.dataset.lista; desenhar(); return; }
       if (t.dataset.ano) { st.ano = t.dataset.ano; desenhar(); return; }
+      if ('sincronizar' in t.dataset) { sincronizarCanhotos(); return; }
       if (t.dataset.escolher) { el.querySelector(t.dataset.escolher === 'pdfs' ? '#cfgArqPdf' : '#cfgArqPlan').click(); return; }
       if (t.dataset.pz) {
         const k = t.dataset.pz, [mn, mx] = LIMITES[k];
