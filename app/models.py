@@ -48,6 +48,9 @@ class Pedido(SQLModel, table=True):
     nova_data_motivo: Optional[str] = None
     nova_data_por: Optional[str] = None          # quem registrou a nova data
     cancelado_por: Optional[str] = None
+    aguardando_cliente_desde: Optional[date] = None   # v2 (25/11): pronto, depende do cliente -> não é atraso
+    aguardando_cliente_motivo: Optional[str] = None
+    aguardando_cliente_por: Optional[str] = None
     uf: Optional[str] = None                     # "U.F." do Dashboard de vendas (pela NF)
     municipio: Optional[str] = None              # "Município" do Dashboard de vendas (pela NF)
 
